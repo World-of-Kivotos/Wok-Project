@@ -1,38 +1,55 @@
 package com.miningdim.job.agent;
 
+import net.minecraft.nbt.CompoundTag;
+
 /**
- * 单条悬赏的进度跟踪纯逻辑 (SpecialAgent_Job_DesignSpec 10.5 悬赏完成判定 + UTC 翻日 / ISO 周重置)。
+ * 悬赏板上一张悬赏的状态 (SpecialAgent_Job_DesignSpec 10.5 悬赏完成判定 + UTC 翻日 / ISO 周重置)。
  *
- * 跟踪一条已接悬赏的: 合格击杀计数 + 是否已发奖 (claimed, 防重复发) + 接取时的日戳/周戳 (翻转重置门控)。
- * 纯逻辑 (计数 + dayStamp/weekStamp), 无世界引用; 日戳/周戳由调用方经 {@link AgentClock} 注入 (GameTest 注入
- * 固定戳断言翻转边界), 本类不取实时时钟。
+ * 生命周期: 翻日/翻周时由 {@link BountyGenerator} 掷出, 先以<b>未接取</b>的"可接悬赏"挂在板上 ->
+ * 玩家接取 ({@link #accept}, 占一个当期槽位) -> 合格击杀逐次累计 ({@link #recordKill}) -> 达标后发奖一次
+ * ({@link #tryClaim})。未接取的悬赏不计进度: 接取是玩家主动选择做特勤活计的动作, 也是入职标志的置位点 (7.0,
+ * 2026-09-30 拍板), 不接也能白拿进度等于让全服每个打精英的人都在做悬赏。
  *
- * 重置门控 (10.5): 日常悬赏跨 UTC epochDay 重置 (计数清零 + 可重新接取); 周常跨 ISO 周戳重置。本类按周期持
- * 对应戳, {@link #rolloverIfStale} 比对当前戳决定是否清空 (同戳不重置, 异戳重置 + 防 claimed 残留)。
+ * 接取后不能放弃、不能重摇: 悬赏是"周期性但不可重摇"的来源 (见 {@code quest.QuestSource} 的同名论证), 放弃再接
+ * 等于把槽位变成可反复刷好单的抽奖机。
  *
- * 完成判定 (10.5): 合格击杀 (达盖章入池门槛, 由 {@link BountyDefinition#countsToward} 前置过滤) 累计到
- * requiredCount 即完成; 完成后 {@link #tryClaim} 发奖一次 (claimed=true), 重复 claim 返回 false (不重复发奖)。
+ * 纯逻辑, 无世界引用; 周期戳由调用方经 {@link AgentClock} 注入。
  */
 public final class BountyProgress {
 
+    private static final String K_DEF = "def";
+    private static final String K_KILLS = "kills";
+    private static final String K_ACCEPTED = "accepted";
+    private static final String K_CLAIMED = "claimed";
+    private static final String K_STAMP = "stamp";
+
     private final BountyDefinition definition;
     private int killCount;
+    private boolean accepted;
     private boolean claimed;
-    /** 接取/上次重置时的周期戳 (DAILY = epochDay; WEEKLY = ISO 周戳); 跨戳触发重置。 */
+    /** 掷出/上次重置时的周期戳 (DAILY = epochDay; WEEKLY = ISO 周戳); 跨戳触发重置。 */
     private long periodStamp;
 
     /**
+     * 一张刚掷出、尚未接取的悬赏。
+     *
      * @param definition  本悬赏定义
-     * @param periodStamp 接取时的周期戳 (DAILY 传 epochDay; WEEKLY 传 ISO 周戳)
+     * @param periodStamp 掷出时的周期戳 (DAILY 传 epochDay; WEEKLY 传 ISO 周戳)
      */
     public BountyProgress(BountyDefinition definition, long periodStamp) {
+        this(definition, periodStamp, 0, false, false);
+    }
+
+    private BountyProgress(BountyDefinition definition, long periodStamp, int killCount, boolean accepted,
+                           boolean claimed) {
         if (definition == null) {
             throw new IllegalArgumentException("definition must not be null");
         }
         this.definition = definition;
-        this.killCount = 0;
-        this.claimed = false;
         this.periodStamp = periodStamp;
+        this.killCount = killCount;
+        this.accepted = accepted;
+        this.claimed = claimed;
     }
 
     public BountyDefinition definition() {
@@ -41,6 +58,10 @@ public final class BountyProgress {
 
     public int killCount() {
         return killCount;
+    }
+
+    public boolean accepted() {
+        return accepted;
     }
 
     public boolean claimed() {
@@ -52,10 +73,23 @@ public final class BountyProgress {
     }
 
     /**
-     * 跨周期戳时重置进度 (10.5: 日常翻日 / 周常翻周清零 + 重置发奖标记)。同戳不动 (同日/同周内累计不丢)。
+     * 接取。只翻状态位, 槽位上限由悬赏板 ({@link BountyBoard#accept}) 裁决。
      *
-     * @param currentPeriodStamp 当前周期戳 (DAILY 传当前 epochDay; WEEKLY 传当前 ISO 周戳; 与 definition.period() 同口径)
-     * @return 是否发生了重置 (true = 跨周期清零)
+     * @return 是否首次接取 (false = 早已接过)
+     */
+    public boolean accept() {
+        if (accepted) {
+            return false;
+        }
+        accepted = true;
+        return true;
+    }
+
+    /**
+     * 跨周期戳时重置进度 (10.5: 日常翻日 / 周常翻周清零)。同戳不动。悬赏板翻期时整张重掷, 本方法只供单张悬赏的
+     * 边界测试与未来按单张续期的用法。
+     *
+     * @return 是否发生了重置
      */
     public boolean rolloverIfStale(long currentPeriodStamp) {
         if (currentPeriodStamp == periodStamp) {
@@ -63,39 +97,34 @@ public final class BountyProgress {
         }
         this.periodStamp = currentPeriodStamp;
         this.killCount = 0;
+        this.accepted = false;
         this.claimed = false;
         return true;
     }
 
     /**
-     * 记录一次击杀 (合格性 + 星级匹配由 {@link BountyDefinition#countsToward} 判): 命中则计数 +1。已完成 (达
-     * requiredCount) 后不再增计 (防溢出, 完成即封顶)。
+     * 记录一次击杀: 已接取、未完成、且 {@link BountyDefinition#countsToward} 命中时计数 +1。达标后不再增计。
      *
-     * @param killedStar    被击杀精英初始星级
-     * @param qualifiedKill 该击杀是否达入池门槛 (封印不计贡献 -> 封了没打不算合格)
-     * @return 本次是否计入 (true = killCount 真实 +1)
+     * @return 本次是否计入
      */
-    public boolean recordKill(int killedStar, boolean qualifiedKill) {
-        if (isComplete()) {
-            return false; // 已达标, 不再增计。
+    public boolean recordKill(BountyKill kill) {
+        if (!accepted || isComplete()) {
+            return false;
         }
-        if (!definition.countsToward(killedStar, qualifiedKill)) {
+        if (!definition.countsToward(kill)) {
             return false;
         }
         killCount++;
         return true;
     }
 
-    /** 是否已达成完成条件 (合格击杀计数 >= requiredCount)。 */
+    /** 是否已达成完成条件 (合格击杀计数 &gt;= requiredCount)。 */
     public boolean isComplete() {
         return killCount >= definition.requiredCount();
     }
 
     /**
-     * 尝试领取完成奖励 (10.5: 完成发奖一次, 不重复): 已完成且未领过则标记 claimed 返回 true (调用方据此发钱/XP/
-     * 青辉石); 未完成或已领过返回 false (不发)。
-     *
-     * @return 本次是否应发奖 (true = 首次领取, 集成层据此调 grantDaily/grantXp/grant)
+     * 领取完成奖励: 已完成且未领过则标记 claimed 返回 true (调用方据此发奖); 否则返回 false (不发)。
      */
     public boolean tryClaim() {
         if (!isComplete() || claimed) {
@@ -103,5 +132,23 @@ public final class BountyProgress {
         }
         claimed = true;
         return true;
+    }
+
+    public CompoundTag toTag() {
+        CompoundTag tag = new CompoundTag();
+        tag.put(K_DEF, definition.toTag());
+        tag.putInt(K_KILLS, killCount);
+        tag.putBoolean(K_ACCEPTED, accepted);
+        tag.putBoolean(K_CLAIMED, claimed);
+        tag.putLong(K_STAMP, periodStamp);
+        return tag;
+    }
+
+    /** 读盘; 定义非法时由 {@link BountyDefinition#fromTag} 抛 IllegalArgumentException。 */
+    public static BountyProgress fromTag(CompoundTag tag) {
+        BountyDefinition definition = BountyDefinition.fromTag(tag.getCompound(K_DEF));
+        int kills = Math.max(0, Math.min(tag.getInt(K_KILLS), definition.requiredCount()));
+        return new BountyProgress(definition, tag.getLong(K_STAMP), kills, tag.getBoolean(K_ACCEPTED),
+                tag.getBoolean(K_CLAIMED));
     }
 }

@@ -84,11 +84,15 @@ public final class AgentWebUiActions {
     private AgentWebUiActions() {
     }
 
-    /** 把三条 job.agent.* action 注册进派发器 (由 {@link AgentSystem#register} 调用一次)。 */
+    /**
+     * 把 job.agent.* action 注册进派发器 (由 {@link AgentSystem#register} 调用一次): 本类三条 + 悬赏接取
+     * ({@link AgentBountyWebUi})。
+     */
     public static void registerAll() {
         WebUiServerDispatcher.register("job.agent.state", STATE);
         WebUiServerDispatcher.register("job.agent.scan", SCAN);
         WebUiServerDispatcher.register("job.agent.seal", SEAL);
+        AgentBountyWebUi.registerAll();
     }
 
     // ============================================================
@@ -162,24 +166,8 @@ public final class AgentWebUiActions {
         result.add("seal", seal);
 
         AgentBountySavedData bountyData = AgentBountySavedData.get(sender.server.overworld());
-        JsonObject bounty = new JsonObject();
-        bounty.addProperty("dailySlots", AgentSkillTable.dailyBountySlots(level));
-        bounty.addProperty("weeklySlots", AgentSkillTable.weeklyBountySlots(level));
-        bounty.addProperty("weeklyUnlocked", AgentSkillTable.isWeeklyBountyUnlocked(level));
-        bounty.addProperty("weeklyUnlockLevel", AgentSkillTable.WEEKLY_BOUNTY_UNLOCK_LEVEL);
-        bounty.addProperty("maxBountyStar", AgentSkillTable.maxBountyStar(level));
-        bounty.addProperty("worldBossUnlocked", AgentSkillTable.isWorldBossBountyUnlocked(level));
-        bounty.addProperty("worldBossUnlockLevel", AgentSkillTable.WORLD_BOSS_BOUNTY_UNLOCK_LEVEL);
-        bounty.addProperty("weeklyAzureGranted",
-                bountyData.weeklyAzureGranted(sender.getUUID(), AgentClock.currentUtcWeekStamp()));
-        bounty.addProperty("weeklyAzureCap", AgentBountySavedData.WEEKLY_AZURE_SOFT_CAP);
-        // F017/F078 复核裁决: 悬赏模板库/每玩家多槽实例接取-推进-发奖整条链的业务数值 (十二章 PENDING, 未拍板)
-        // 不得由本层臆造。上面五个字段是真实的等级门槛预览 (dailySlots/weeklySlots/maxBountyStar/worldBossUnlocked
-        // 均由 AgentSkillTable 按等级查表, 货真价实), 但没有任何代码路径能让玩家接取/推进/领取一条具体悬赏 ——
-        // 必须显式告知前端这半条链尚未上线, 不能让面板把权限预览包装成"可用的悬赏系统"。一旦接取/进度/发奖三个
-        // WebUiAction 落地, 此处改为 true。
-        bounty.addProperty("available", false);
-        result.add("bounty", bounty);
+        // 悬赏段 (槽位权限 + 本期悬赏板 + 世界 BOSS 讨伐令) 的投影归 AgentBountyWebUi; available 只在运营关掉悬赏时为 false。
+        result.add("bounty", AgentBountyWebUi.bountyJson(sender));
 
         result.addProperty("enhancedRewardMultiplier", AgentSkillTable.enhancedRewardMultiplier(level));
         result.addProperty("damageBonusPercent", AgentSkillTable.damageBonusPercent(level));

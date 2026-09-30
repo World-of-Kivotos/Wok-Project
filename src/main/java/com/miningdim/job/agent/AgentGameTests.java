@@ -1,5 +1,6 @@
 package com.miningdim.job.agent;
 
+import com.miningdim.champion.AffixPool;
 import com.miningdim.champion.StarRank;
 import com.miningdim.champion.reward.ChampionReward;
 import com.miningdim.champion.reward.ContributionPool;
@@ -484,6 +485,11 @@ public final class AgentGameTests {
     // 悬赏完成计数 + 入池门槛门控 (BountyDefinition / BountyProgress)
     // ============================================================
 
+    /** 一次不带词条、非世界 BOSS 的击杀事实 (星级类悬赏只看星级与入池门槛)。 */
+    private static BountyKill plainKill(int star, boolean qualified) {
+        return new BountyKill(star, java.util.Set.of(), false, qualified);
+    }
+
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void bountyKillCountAndQualification(GameTestHelper helper) {
         // 讨伐 3 只 ≥5★ 精英 (日常)。
@@ -491,21 +497,27 @@ public final class AgentGameTests {
                 BountyDefinition.TargetType.KILL_STAR_AT_LEAST, 5, 3, 800L, 600L, 0L);
         BountyProgress prog = new BountyProgress(def, 100L);
 
+        // 未接取的悬赏不计进度 (接取才是做悬赏, 也是入职点)。
+        helper.assertTrue(!prog.recordKill(plainKill(6, true)), "unaccepted bounty does not count kills");
+        helper.assertTrue(prog.accept(), "first accept succeeds");
+        helper.assertTrue(!prog.accept(), "second accept is a no-op");
+
         // 合格击杀 6★ -> 计数 (星级达标 + 入池门槛达标)。
-        helper.assertTrue(prog.recordKill(6, true), "qualified kill of 6star counts toward >=5star bounty");
+        helper.assertTrue(prog.recordKill(plainKill(6, true)), "qualified kill of 6star counts toward >=5star bounty");
         helper.assertTrue(prog.killCount() == 1, "kill count 1");
         // 未达入池门槛击杀不计 (封印不计贡献 -> 封了没打不算合格)。
-        helper.assertTrue(!prog.recordKill(7, false), "unqualified kill (below contribution threshold) does NOT count");
+        helper.assertTrue(!prog.recordKill(plainKill(7, false)),
+                "unqualified kill (below contribution threshold) does NOT count");
         helper.assertTrue(prog.killCount() == 1, "kill count stays 1 (unqualified ignored)");
         // 星级不达标 (4★ < 5★ min) 不计。
-        helper.assertTrue(!prog.recordKill(4, true), "4star kill does NOT count toward >=5star bounty");
+        helper.assertTrue(!prog.recordKill(plainKill(4, true)), "4star kill does NOT count toward >=5star bounty");
         helper.assertTrue(prog.killCount() == 1, "kill count stays 1 (below min star)");
         // 再两次合格 5★/8★ -> 达 3 完成。
-        prog.recordKill(5, true);
-        prog.recordKill(8, true);
+        prog.recordKill(plainKill(5, true));
+        prog.recordKill(plainKill(8, true));
         helper.assertTrue(prog.killCount() == 3 && prog.isComplete(), "3 qualified kills complete the bounty");
         // 完成后击杀不再增计 (封顶)。
-        helper.assertTrue(!prog.recordKill(9, true), "completed bounty no longer increments");
+        helper.assertTrue(!prog.recordKill(plainKill(9, true)), "completed bounty no longer increments");
         helper.assertTrue(prog.killCount() == 3, "kill count capped at requiredCount after completion");
         helper.succeed();
     }
@@ -515,9 +527,10 @@ public final class AgentGameTests {
         BountyDefinition def = new BountyDefinition("daily_kill_1star", BountyDefinition.Period.DAILY,
                 BountyDefinition.TargetType.KILL_STAR_AT_LEAST, 1, 1, 400L, 500L, 0L);
         BountyProgress prog = new BountyProgress(def, 50L);
+        prog.accept();
         // 未完成不可领。
         helper.assertTrue(!prog.tryClaim(), "cannot claim before completion");
-        prog.recordKill(2, true);
+        prog.recordKill(plainKill(2, true));
         helper.assertTrue(prog.isComplete(), "one qualified kill completes a count-1 bounty");
         // 首次领取成功, 二次领取失败 (不重复发奖)。
         helper.assertTrue(prog.tryClaim(), "first claim of a completed bounty succeeds");
@@ -528,20 +541,38 @@ public final class AgentGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void bountyAzureWeeklyOnly(GameTestHelper helper) {
-        // 周常悬赏可给青辉石 (合法)。
-        BountyDefinition weekly = new BountyDefinition("weekly_worldboss", BountyDefinition.Period.WEEKLY,
-                BountyDefinition.TargetType.KILL_WORLD_BOSS, 8, 1, 5000L, 3000L, 4L);
+        // 周常悬赏与世界 BOSS 讨伐令可给青辉石 (合法)。
+        BountyDefinition weekly = new BountyDefinition("weekly_kill", BountyDefinition.Period.WEEKLY,
+                BountyDefinition.TargetType.KILL_STAR_AT_LEAST, 8, 1, 5000L, 3000L, 4L);
         helper.assertTrue(weekly.azureReward() == 4L, "weekly bounty may grant azure (PvE-bound)");
-        // 日常给青辉石是非法定义 -> 构造抛 (青辉石仅周常出)。
-        boolean threw = false;
-        try {
-            new BountyDefinition("bad_daily_azure", BountyDefinition.Period.DAILY,
-                    BountyDefinition.TargetType.KILL_STAR_AT_LEAST, 6, 1, 1000L, 800L, 2L);
-        } catch (IllegalArgumentException expected) {
-            threw = true;
-        }
-        helper.assertTrue(threw, "daily bounty granting azure must throw (azure is weekly-only)");
+        BountyDefinition order = new BountyDefinition("world_boss", BountyDefinition.Period.EVENT,
+                BountyDefinition.TargetType.KILL_WORLD_BOSS, 8, 1, 5000L, 3000L, 4L);
+        helper.assertTrue(order.azureReward() == 4L, "world boss order may grant azure");
+        // 日常给青辉石是非法定义 -> 构造抛。
+        helper.assertTrue(throwsIae(() -> new BountyDefinition("bad_daily_azure", BountyDefinition.Period.DAILY,
+                        BountyDefinition.TargetType.KILL_STAR_AT_LEAST, 6, 1, 1000L, 800L, 2L)),
+                "daily bounty granting azure must throw");
+        // 世界 BOSS 目标放进周常槽 -> 构造抛 (出现时间不定, 会成死单)。
+        helper.assertTrue(throwsIae(() -> new BountyDefinition("bad_weekly_boss", BountyDefinition.Period.WEEKLY,
+                        BountyDefinition.TargetType.KILL_WORLD_BOSS, 8, 1, 1000L, 800L, 2L)),
+                "world boss target must be EVENT period");
+        // 词条类必须带类别, 非词条类不得带。
+        helper.assertTrue(throwsIae(() -> new BountyDefinition("bad_affix", BountyDefinition.Period.DAILY,
+                        BountyDefinition.TargetType.KILL_WITH_AFFIX_CATEGORY, 3, 1, 1000L, 800L, 0L)),
+                "affix-category bounty without a pool must throw");
+        helper.assertTrue(throwsIae(() -> new BountyDefinition("bad_star", BountyDefinition.Period.DAILY,
+                        BountyDefinition.TargetType.KILL_STAR_AT_LEAST, 3, AffixPool.COMBAT, 1, 1000L, 800L, 0L)),
+                "star bounty carrying a pool must throw");
         helper.succeed();
+    }
+
+    private static boolean throwsIae(Runnable action) {
+        try {
+            action.run();
+            return false;
+        } catch (IllegalArgumentException expected) {
+            return true;
+        }
     }
 
     // ============================================================
@@ -554,8 +585,9 @@ public final class AgentGameTests {
                 BountyDefinition.TargetType.KILL_STAR_AT_LEAST, 3, 5, 800L, 600L, 0L);
         long day1 = 19_500L; // 任意 epochDay。
         BountyProgress prog = new BountyProgress(def, day1);
-        prog.recordKill(4, true);
-        prog.recordKill(4, true);
+        prog.accept();
+        prog.recordKill(plainKill(4, true));
+        prog.recordKill(plainKill(4, true));
         helper.assertTrue(prog.killCount() == 2, "two kills accrued on day1");
         // 同日不重置。
         helper.assertTrue(!prog.rolloverIfStale(day1), "same day does not reset");
@@ -585,7 +617,8 @@ public final class AgentGameTests {
         helper.assertTrue(week2 > week1, "ISO week stamp is monotonically increasing across weeks");
 
         BountyProgress prog = new BountyProgress(def, week1);
-        prog.recordKill(7, true);
+        prog.accept();
+        prog.recordKill(plainKill(7, true));
         helper.assertTrue(prog.killCount() == 1, "one weekly kill accrued in week1");
         // 同 ISO 周 (周日) 不重置。
         helper.assertTrue(!prog.rolloverIfStale(week1Sun), "same ISO week (Sunday) does not reset weekly bounty");

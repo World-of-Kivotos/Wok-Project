@@ -108,8 +108,9 @@ public final class AgentWebUiGameTests {
         ensureAgentActionsRegistered();
         helper.assertTrue(WebUiServerDispatcher.resolve(STATE_ACTION) != null
                         && WebUiServerDispatcher.resolve(SCAN_ACTION) != null
-                        && WebUiServerDispatcher.resolve(SEAL_ACTION) != null,
-                "三条 job.agent.* 必须由 AgentWebUiActions.registerAll 注册进派发器");
+                        && WebUiServerDispatcher.resolve(SEAL_ACTION) != null
+                        && WebUiServerDispatcher.resolve("job.agent.bounty.accept") != null,
+                "job.agent.state/scan/seal/bounty.accept 必须由 AgentWebUiActions.registerAll 注册进派发器");
         helper.assertTrue(WebUiServerDispatcher.resolve("agent.scan") == null
                         && WebUiServerDispatcher.resolve("job.agent.pulse") == null,
                 "不得注册别名 action (前端契约里只有 job.agent.state/scan/seal 三条)");
@@ -161,8 +162,13 @@ public final class AgentWebUiGameTests {
         helper.assertTrue(bounty.get("weeklyAzureGranted").getAsLong() == 0L
                         && bounty.get("weeklyAzureCap").getAsLong() == AgentBountySavedData.WEEKLY_AZURE_SOFT_CAP,
                 "新号本周青辉石产出 0, 上限恒发 " + AgentBountySavedData.WEEKLY_AZURE_SOFT_CAP);
-        helper.assertTrue(!bounty.get("available").getAsBoolean(),
-                "F017/F078: 悬赏接取/进度/发奖尚未上线, available 必须诚实报 false, 不得把等级门槛预览包装成可用系统");
+        helper.assertTrue(bounty.get("available").getAsBoolean(), "悬赏系统默认开放 (miningdim-agent.toml bounty.enabled)");
+        helper.assertTrue(bounty.getAsJsonArray("daily").size()
+                        == AgentSkillTable.dailyBountySlots(1) + BountyGenerator.DAILY_EXTRA_OFFERS,
+                "L1 可接日常 = 1 槽 + " + BountyGenerator.DAILY_EXTRA_OFFERS + " 张余量, 实得 "
+                        + bounty.getAsJsonArray("daily").size());
+        helper.assertTrue(bounty.getAsJsonArray("weekly").isEmpty(), "L1 周常未解锁, 不掷周常悬赏");
+        helper.assertTrue(bounty.get("dailyAccepted").getAsInt() == 0, "打开面板不等于接取");
 
         helper.assertTrue(Math.abs(state.get("enhancedRewardMultiplier").getAsDouble() - 1.0D) < 1.0E-9D,
                 "L1 加强奖励倍率 ×1.0");
@@ -216,8 +222,12 @@ public final class AgentWebUiGameTests {
         helper.assertTrue(bounty.get("dailySlots").getAsInt() == 5 && bounty.get("weeklySlots").getAsInt() == 3,
                 "L10 日 5 槽 / 周 3 槽");
         helper.assertTrue(bounty.get("worldBossUnlocked").getAsBoolean(), "L10 世界 BOSS 悬赏已开");
-        helper.assertTrue(!bounty.get("available").getAsBoolean(),
-                "L10 满级也一样: 悬赏系统对任何等级都尚未上线, available 不得随等级变 true");
+        helper.assertTrue(bounty.getAsJsonArray("daily").size() == 5 + BountyGenerator.DAILY_EXTRA_OFFERS
+                        && bounty.getAsJsonArray("weekly").size() == 3 + BountyGenerator.WEEKLY_EXTRA_OFFERS,
+                "L10 可接日常/周常 = 槽位 + 余量, 实得 " + bounty.getAsJsonArray("daily").size() + "/"
+                        + bounty.getAsJsonArray("weekly").size());
+        helper.assertTrue(bounty.getAsJsonObject("worldBossOrder").get("unlocked").getAsBoolean(),
+                "L10 世界 BOSS 讨伐令已开");
         helper.assertTrue(state.get("damageBonusPercent").getAsInt() == 15, "L10 对精英伤害加成 +15%");
         helper.succeed();
     }

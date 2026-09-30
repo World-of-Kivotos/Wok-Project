@@ -1,9 +1,13 @@
 package com.miningdim.job.agent;
 
 import com.miningdim.core.Subsystem;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.ModLoadingContext;
+import net.minecraftforge.fml.config.ModConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,7 +27,8 @@ import org.slf4j.LoggerFactory;
  *    防跨存档脏引用 (执行侧快照清理经 {@link AgentSealSeam})。
  *
  * 等级/经验数据: 走共享职业框架 capability (JobProgress, JobId.AGENT), 不新挂 capability (与军火商同范式)。
- * 悬赏进度/周青辉石软上限: 走自有 {@link AgentBountySavedData} (overworld 持久层, 按 ownerUUID), 与经验态解耦。
+ * 悬赏进度/周青辉石软上限: 走自有 {@link AgentBountySavedData} (overworld 持久层, 按 ownerUUID), 与经验态解耦;
+ * 悬赏奖励绝对量在 miningdim-agent.toml ({@link AgentBountyConfig})。
  */
 public final class AgentSystem implements Subsystem {
 
@@ -31,7 +36,9 @@ public final class AgentSystem implements Subsystem {
 
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
-        // 生命周期清理 handler 无条件挂 (清纯逻辑层封印账本 + 经接缝清执行侧)。
+        ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, AgentBountyConfig.SPEC, "miningdim-agent.toml");
+
+        // 生命周期清理 handler 无条件挂 (清纯逻辑层封印账本 + 经接缝清执行侧) + 登录补发悬赏青辉石。
         forgeBus.register(this);
 
         // 平板特勤页的 job.agent.* (扫描/封印经 AgentSealSeam 接缝走)。
@@ -60,5 +67,16 @@ public final class AgentSystem implements Subsystem {
     public void onServerStopping(ServerStoppingEvent event) {
         SealRegistry.reset();
         AgentSealSeam.onServerStopping(); // 经接缝清执行侧原词条快照。
+    }
+
+    /**
+     * 登录时补发上次被每日青辉石硬上限截掉的悬赏青辉石 (见 {@link BountyBoard} 的待补发量)。放在登录而不是面板打开:
+     * 很多玩家完成悬赏后不会专门回来看面板, 挣到的东西不该依赖他们记得点开。
+     */
+    @SubscribeEvent
+    public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            AgentBountyService.flushPendingAzure(player);
+        }
     }
 }

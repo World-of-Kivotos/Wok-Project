@@ -21,16 +21,16 @@ import java.util.UUID;
  * 世界计数", 非死亡/重生应保留的玩家经验进度态, 语义上属世界放置事实 (与军火台计数同范式), 用 SavedData 更贴切。
  *
  * 三类状态 (按 ownerUUID 键):
- *  (1) 悬赏进度: 玩家已接悬赏的 {@link BountyProgress} (合格击杀计数 + 已发奖标记 + 周期戳); 跨 UTC 翻日/ISO 翻周
- *      由 {@link BountyProgress#rolloverIfStale} 按 {@link AgentClock} 戳重置。本任务交付青辉石周产计数器持久层 +
- *      接口; 具体每玩家多槽悬赏实例的持久化序列化属 b 阶段悬赏面板接线 (留 deferred, 见交付报告)。
+ *  (1) 悬赏板: 每个打开过悬赏板的玩家一块 {@link BountyBoard} (本日/本周可接悬赏、各自进度、待补发青辉石); 翻日翻周
+ *      由板自己按 {@link AgentClock} 戳清空重掷。没碰过悬赏的玩家不建板 —— 精英击杀只推进已有板上已接的悬赏。
  *  (2) 青辉石周产计数: 缺口 A (调研: 全工程无青辉石周产软上限实装, IEconomyService 仅裸 grant(AZURE))。本类维护
  *      每玩家 (本周已发青辉石量 + 周戳); 跨 ISO 周 ({@link AgentClock#currentUtcWeekStamp}) 清零。周常悬赏发青辉石
  *      前先 {@link #tryGrantWeeklyAzure} 门控, 超本周软上限则不发 (防超发; 经济层裸 grant 无此闸)。
  *  (3) 入职标志 activeAgents: "该玩家做过特勤工作"的持久化布尔标志集 (按 UUID)。特勤专属福利 (加强奖励 / 对精英
  *      伤害放大) 仅对此集合内玩家发放。为何不用 IJobService.level/totalXp 作门: 框架 level 对【任何】玩家恒返 1 级
  *      默认 (未挂载新人也返 1), 用等级作门会把特勤专属福利泄漏给全服每个打到精英的玩家。入职标志是直接的"做过工作"
- *      事实, 不存经验 (用户定: 做过工作才吃, 但不存储经验), 玩家真正执行任一特勤活计 (如封印申请成功) 时置位。
+ *      事实, 不存经验 (用户定: 做过工作才吃, 但不存储经验)。置位点有二: 接取第一张悬赏 (2026-09-30 拍板, 使 L1/L2
+ *      也能入职) 与封印申请成功。
  *      非死亡/重生应保留的世界放置事实, 与悬赏/周产同范式落 SavedData (champions-free, 纯 UUID 标志)。
  *
  * 线程: 仅服务端主线程读写。1.20.1 SavedData.Factory 是 1.20.2+ 不可用, 用三参 computeIfAbsent(load,create,name)。
@@ -43,9 +43,8 @@ public final class AgentBountySavedData extends SavedData {
     public static final String DATA_NAME = "miningdim_agent_bounty";
 
     /**
-     * 每玩家每周青辉石产出软上限 (7.2/十一章: 青辉石仅周常悬赏出且 PvE 绑定, 须防周内超发)。
-     * 与 {@code ChampionReward.azureDrop} 量级对齐: 单只 10★ 周常目标 ≈10 青辉石, 一周封顶约相当于完成数个高星
-     * 周常悬赏的累计上限 (config 暴露前唯一权威硬值; 一旦 economy config 暴露 agent.azure.weeklyCap 应改读配置)。
+     * 每玩家每周<b>悬赏</b>青辉石产出软上限 (7.2/十一章: 悬赏青辉石须防周内超发; 精英 6★+ 掉落是另一路来源, 不计入
+     * 本上限, 两路只共享每人每日 30 的硬上限)。L10 三张周常满额 3 × 15 = 45, 再加一次世界 BOSS 讨伐令即撞顶。
      */
     public static final long WEEKLY_AZURE_SOFT_CAP = 50L;
 
@@ -54,9 +53,14 @@ public final class AgentBountySavedData extends SavedData {
     private static final String K_AMOUNT = "amount";
     private static final String K_WEEK_STAMP = "weekStamp";
     private static final String K_ACTIVE_AGENTS = "activeAgents";
+    private static final String K_BOARDS = "boards";
+    private static final String K_BOARD = "board";
 
     /** 玩家 UUID -> 本周青辉石产出计数 (含周戳, 跨周清零)。 */
     private final Map<UUID, WeeklyAzure> weeklyAzure = new HashMap<>();
+
+    /** 玩家 UUID -> 悬赏板 (只为打开过悬赏板的玩家建)。 */
+    private final Map<UUID, BountyBoard> boards = new HashMap<>();
 
     /** 做过特勤工作的玩家 UUID 集 (入职标志; 一旦置位永久保留, 不随死亡/翻日/翻周清空)。 */
     private final Set<UUID> activeAgents = new HashSet<>();
@@ -111,6 +115,22 @@ public final class AgentBountySavedData extends SavedData {
         return grantable;
     }
 
+    /** 取或建某玩家的悬赏板 (新建即 setDirty)。 */
+    public BountyBoard board(UUID playerId) {
+        BountyBoard board = boards.get(playerId);
+        if (board == null) {
+            board = new BountyBoard();
+            boards.put(playerId, board);
+            setDirty();
+        }
+        return board;
+    }
+
+    /** 某玩家已有的悬赏板; 从没打开过悬赏板的玩家返回 null (击杀结算据此跳过, 不为路人建板)。 */
+    public BountyBoard existingBoard(UUID playerId) {
+        return boards.get(playerId);
+    }
+
     /** 某玩家本周已产青辉石量 (跨周或无记录返 0; 诊断/测试用)。 */
     public long weeklyAzureGranted(UUID playerId, long currentWeekStamp) {
         WeeklyAzure rec = weeklyAzure.get(playerId);
@@ -121,8 +141,8 @@ public final class AgentBountySavedData extends SavedData {
     }
 
     /**
-     * 置位某玩家的入职标志 (玩家真正执行任一特勤活计时调用, 如封印申请成功)。一旦置位永久保留 (用户定: 做过工作
-     * 才吃福利, 不存经验); 仅首次置位时 {@code setDirty} (幂等, 已置位再调不重复落盘)。
+     * 置位某玩家的入职标志 (接取悬赏成功 / 封印申请成功时调用)。一旦置位永久保留 (用户定: 做过工作才吃福利,
+     * 不存经验); 仅首次置位时 {@code setDirty} (幂等, 已置位再调不重复落盘)。
      *
      * @param playerId 执行了特勤活计的玩家 UUID
      * @return 是否为首次置位 (true = 本次新增; false = 该玩家此前已是 activeAgent)
@@ -165,6 +185,15 @@ public final class AgentBountySavedData extends SavedData {
             agents.add(entry);
         }
         tag.put(K_ACTIVE_AGENTS, agents);
+
+        ListTag boardList = new ListTag();
+        for (Map.Entry<UUID, BountyBoard> e : boards.entrySet()) {
+            CompoundTag entry = new CompoundTag();
+            entry.putUUID(K_UUID, e.getKey());
+            entry.put(K_BOARD, e.getValue().toTag());
+            boardList.add(entry);
+        }
+        tag.put(K_BOARDS, boardList);
         return tag;
     }
 
@@ -186,6 +215,15 @@ public final class AgentBountySavedData extends SavedData {
                 CompoundTag entry = agents.getCompound(i);
                 if (entry.hasUUID(K_UUID)) {
                     data.activeAgents.add(entry.getUUID(K_UUID));
+                }
+            }
+        }
+        if (tag.contains(K_BOARDS)) {
+            ListTag boardList = tag.getList(K_BOARDS, Tag.TAG_COMPOUND);
+            for (int i = 0; i < boardList.size(); i++) {
+                CompoundTag entry = boardList.getCompound(i);
+                if (entry.hasUUID(K_UUID)) {
+                    data.boards.put(entry.getUUID(K_UUID), BountyBoard.fromTag(entry.getCompound(K_BOARD)));
                 }
             }
         }

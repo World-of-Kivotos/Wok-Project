@@ -1,5 +1,6 @@
 package com.miningdim.job.agent.integration;
 
+import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.MiningChampionData;
 import com.miningdim.champion.MiningChampions;
 import com.miningdim.champion.reward.ChampionReward;
@@ -10,11 +11,12 @@ import com.miningdim.economy.EconomyConstants;
 import com.miningdim.economy.EconomyServices;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
-import com.miningdim.job.agent.AgentClock;
-import com.miningdim.job.agent.AgentEnhancedReward;
+import com.miningdim.job.agent.AgentBountyService;
 import com.miningdim.job.agent.AgentBountySavedData;
+import com.miningdim.job.agent.AgentEnhancedReward;
 import com.miningdim.job.agent.AgentKillXp;
 import com.miningdim.job.agent.AgentLevels;
+import com.miningdim.job.agent.BountyKill;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -25,6 +27,7 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -50,9 +53,9 @@ import java.util.UUID;
  *      不产青辉石 (7.1)。"从池外给"= 这是池瓜分之外的个人 faucet, 不参与池的加权占比 (不挤占他人), 但仍受统一
  *      衰减主闸约束。
  *  (2) 悬赏推进 (10.5): 该击杀的 qualifiedKill = 是否达贡献池入池门槛 (合格者集合 contains; 封印不计贡献 -> 封了
- *      没打则不在合格集 -> qualifiedKill=false 不计数)。悬赏进度/完成发奖的逐玩家多槽实例持久化属 b 阶段面板接线,
- *      本任务交付 qualifiedKill 口径 + 周青辉石软上限门控持久层 {@link AgentBountySavedData}, 具体悬赏实例推进留
- *      deferred (见交付报告)。
+ *      没打则不在合格集 -> qualifiedKill=false 不计数)。对每名合格者经 {@link AgentBountyService#onQualifiedKill}
+ *      推进其已接悬赏、刚完成的当场发奖; 被击倒的是世界 BOSS 时再经 {@link AgentBountyService#onWorldBossKill}
+ *      给 L8+ 已入职干员结算讨伐令。
  *
  * 探测源已改自研 {@link MiningChampions#get}, 不再触任何 top.theillusivec4.champions.*, 由 {@link AgentIntegrationBootstrap}
  * 挂 forgeBus。
@@ -63,7 +66,7 @@ import java.util.UUID;
  */
 public final class AgentRewardHandler {
 
-    /** 诊断日志: 只记特勤侧自己发出的那两笔 (经验 / 加强信用点); 贡献池主结算的诊断行归 ChampionRewardHandler。 */
+    /** 诊断日志: 只记特勤侧自己发出的几笔 (经验 / 加强信用点 / 讨伐令); 贡献池主结算的诊断行归 ChampionRewardHandler。 */
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/agent/reward");
 
     /**
@@ -124,8 +127,16 @@ public final class AgentRewardHandler {
         // 继续只给做过特勤活计的人 (isActiveAgent)。经验不算福利泄漏: 它只是职业曲线, 不产货币, 且走职业框架经验
         // 软上限, 与"泄漏信用点/伤害放大"性质不同。
         // fixedPoolRaw (= 该星固定信用点总池) 是占比反推分母 (payout = pool × 占比), 传给经验入账复用同一口径。
+        // 悬赏只认精英"本来"带的词条: 击杀瞬间仍挂着的 + 正被封印摘走的 (见 BountyKill 注释)。封印记录在默认优先级的
+        // AgentSealHandler.onChampionDeath 才清, 本 handler 在 HIGHEST, 此刻一定还读得到。
+        EnumSet<AffixDef> originalAffixes = EnumSet.noneOf(AffixDef.class);
+        originalAffixes.addAll(champ.affixes().keySet());
+        originalAffixes.addAll(AgentSealExecutor.sealedAffixesOf(championId).keySet());
+        BountyKill bountyKill = new BountyKill(star, BountyKill.poolsOf(originalAffixes), champ.isWorldBoss(), true);
+
         int xpGranted = 0;
         int bonusGranted = 0;
+        int worldBossOrders = 0;
         for (Map.Entry<UUID, Long> entry : payout.entrySet()) {
             ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
             if (player == null) {
@@ -137,12 +148,17 @@ public final class AgentRewardHandler {
                 grantAgentKillBonus(player, star);
                 bonusGranted++;
             }
+            // 悬赏推进 (10.5): payout 的键就是 qualifiedKill 的合格集 (在线 + 盖章双门槛; 封印不计贡献, 封了没打不在集内)。
+            AgentBountyService.onQualifiedKill(player, bountyKill);
+            if (bountyKill.worldBoss() && AgentBountyService.onWorldBossKill(player)) {
+                worldBossOrders++;
+            }
         }
 
-        // 诊断 (真服首验): 只记特勤侧自己做的那两笔。刻意不再照抄 ChampionRewardHandler 的同名 champion-death 行
+        // 诊断 (真服首验): 只记特勤侧自己做的那几笔。刻意不再照抄 ChampionRewardHandler 的同名 champion-death 行
         // —— 主结算已经归它, 两边打同样的字段只会让日志里出现两行看似矛盾的重复记录。
-        LOGGER.info("agent-bonus champion={} star{} qualified={} xp={} bonus={}",
-                victim.getType().getDescriptionId(), star, payout.size(), xpGranted, bonusGranted);
+        LOGGER.info("agent-bonus champion={} star{} qualified={} xp={} bonus={} worldBossOrders={}",
+                victim.getType().getDescriptionId(), star, payout.size(), xpGranted, bonusGranted, worldBossOrders);
     }
 
     /**
@@ -198,31 +214,5 @@ public final class AgentRewardHandler {
             return; // 占比折算后不足 1 经验: 不发 (低星 + 极小占比)。
         }
         AgentLevels.grantRawXp(player, xpRaw);
-    }
-
-    /**
-     * 周常悬赏发青辉石的统一出口 (10.5 + 7.2 + 缺口 A 周产软上限门控): 先经 {@link AgentBountySavedData#tryGrantWeeklyAzure}
-     * 按 ISO 周戳门控本周已产量, 撞顶则只发剩余额度 (软上限语义); 周门控放行的 grantable 再经 {@code grantAzureDaily}
-     * 并入【与精英怪掉落共享的】每人每日青辉石产出硬上限 (azure_faucet 键, 日+周双轴): 周 cap 防本悬赏路单独超发, 日
-     * cap 防"周常悬赏 + 精英怪掉落"两路当日合计绕过日上限印钞。日 cap 截断后的实发量为最终入账量。b 阶段悬赏完成发奖
-     * 调本法 (本任务交付门控接线 + 出口, 具体悬赏实例触发留 deferred)。
-     *
-     * @param player 完成周常悬赏的特勤玩家
-     * @param amount 悬赏定义的青辉石奖励量 (BountyDefinition.azureReward)
-     * @return 本次经周产软上限 + 每日产出硬上限双轴门控后实发的青辉石量 (0 = 本周或当日撞顶不发)
-     */
-    public static long grantWeeklyBountyAzure(ServerPlayer player, long amount) {
-        if (amount <= 0L) {
-            return 0L;
-        }
-        ServerLevel overworld = player.server.overworld();
-        AgentBountySavedData data = AgentBountySavedData.get(overworld);
-        long weekStamp = AgentClock.currentUtcWeekStamp();
-        long grantable = data.tryGrantWeeklyAzure(player.getUUID(), amount, weekStamp);
-        if (grantable <= 0L) {
-            return 0L; // 本周青辉石已撞顶。
-        }
-        return EconomyServices.economyService().grantAzureDaily(player, grantable,
-                EconomyConstants.AZURE_DAILY_FAUCET_CAP);
     }
 }

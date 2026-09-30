@@ -34,12 +34,12 @@
 | 千年工程师 | 造板/修甲收费（P2P 服务） | 收铁 + 下界合金 | 服务职·sink |
 | 厨师 | 卖 buff 菜（P2P） | 收菜料 | 辅助产出 |
 | 塔罗师 | 卖余卡（P2P,少） | 抽卡包（信用点+青辉石，巨 sink） | 收集·sink 终点 |
-| 特勤 * | 悬赏（faucet 信用点 + 周青辉石） | — | 情报产出 |
+| 特勤 * | 悬赏（faucet 信用点 + 周青辉石；日常 2,000~6,000 CP、周常 15,000~30,000 CP + 8~15 青辉石、世界 BOSS 讨伐令 30,000 CP + 15 青辉石） | — | 情报产出 |
 | 精英怪 * | 击杀奖励（faucet,按星级；并入主闸 8.5） | — | 战斗 faucet |
 | 酿酒师 ‡ | （当前无） | （当前无，仅耗实物原料） | 长周期制造职·尚未接入信用点经济 |
 | 任务（全职业，非职业 faucet）§ | 日常/周常/特殊/隐藏奖励（faucet，独立键 `quest_faucet`，**不并入主闸、默认不衰减**） | — | 全员保底收入源 |
 
-\* = 依赖代码已接线，剩余的是真服跑量后的数值校准：精英怪已自研 `MiningChampions` capability 替代 Champions API（1–10 星全星级发奖，`ChampionRewardHandler` 经 `grantDaily` 并入 `credit_faucet` 主闸、青辉石经 `grantAzureDaily` 撞每人每日硬上限），特勤加强奖励与周常悬赏青辉石经 `AgentRewardHandler` 已接线，军火商整条产销/工费链在 `MunitionsConfig` 已有全套默认值。TACZ 与 Champions 在 `mods.toml` 均是 `mandatory = false` 的可选依赖。
+\* = 依赖代码已接线，剩余的是真服跑量后的数值校准：精英怪已自研 `MiningChampions` capability 替代 Champions API（1–10 星全星级发奖，`ChampionRewardHandler` 经 `grantDaily` 并入 `credit_faucet` 主闸、青辉石经 `grantAzureDaily` 撞每人每日硬上限），特勤加强奖励经 `AgentRewardHandler`、悬赏信用点与青辉石经 `AgentBountyService` 已接线（2026-09-30 上线，悬赏信用点并入 `credit_faucet` 主闸、不走任务的独立键；绝对量在 `miningdim-agent.toml`），军火商整条产销/工费链在 `MunitionsConfig` 已有全套默认值。TACZ 与 Champions 在 `mods.toml` 均是 `mandatory = false` 的可选依赖。
 
 † = 渔夫模块当前只有图鉴/矿石鱼/鱼羹, 无职业身份与等级 (见 [Ore_Fish_And_Soup.md](Ore_Fish_And_Soup.md))。实测量级: 每次成功钓获期望 28.4 CP (五种矿石鱼权重 2000/800/200/100/20 万分位 × 单价 20/80/400/600/2000, 剩余 68.8% 保留原渔获); 不带附魔约 5700 CP/小时, 饵钓(Lure) III 约 25600 CP/小时 —— 缩短咬钩间隔的是饵钓(FishingHook 每级减 100 tick), 不是海之眷顾; 海之眷顾只改战利品类别权重, 而矿石鱼是在钓上来之后无条件替换渔获的, 对渔夫收益严格零影响, 反洗钱与产出封顶要盯的是饵钓。对照衰减主闸渐近线 ~14.9 万 CP/日: 一个钓鱼位约 6 小时即可跑满当日额度。
 
@@ -159,7 +159,7 @@
 1. **消耗假设是拟定值**：弹/日、死/日、卡包频率为设计拍定，上线靠 7.3 观测校准（弹药价是战斗 sink 杠杆，太轻没压力、太重逼死人）。
 2. **战斗 faucet 必须并入主闸**（8.5 DECIDED，已落码）：精英怪/特勤奖励均经 `grantDaily` 走同一 `credit_faucet` 衰减曲线（`ChampionRewardHandler` / `AgentRewardHandler`），否则刷精英 = 绕过主闸印钞。当前唯一的主闸例外是任务 faucet，判据见第五章第 1 条。
 3. **「毕业」通胀**：需持续上新大额 sink（新枪/新卡池/赛季）吸收老玩家储蓄。原先把塔罗天价当主力缓冲的算法已作废（见第三章「塔罗毕业行注」），信用点侧的大额 sink 当前只剩开箱。
-4. **军火商/特勤/精英怪收入待真服校准**：三条 faucet 均已落码接线（精英怪经自研 `MiningChampions` capability 发奖、特勤经 `AgentRewardHandler` 发放加强奖励与悬赏青辉石、军火商经 `MunitionsConfig` 全套默认值产销），不再是「待依赖接入」；剩余风险是真服跑量后的数值校准，与本节其余 PENDING 项合并管理。
+4. **军火商/特勤/精英怪收入待真服校准**：三条 faucet 均已落码接线（精英怪经自研 `MiningChampions` capability 发奖、特勤经 `AgentRewardHandler` 发放加强奖励、经 `AgentBountyService` 发放悬赏信用点与青辉石、军火商经 `MunitionsConfig` 全套默认值产销），不再是「待依赖接入」；剩余风险是真服跑量后的数值校准，与本节其余 PENDING 项合并管理。
 5. **农夫小麦单价**未定标（~2–3 CP/株），与矿工共用 credit_faucet 主闸，须联合标定。
 6. **渔夫卖鱼无身份门（未闭合）**：`/fishing sell` 目前对所有玩家开放。农夫卖菜有 `SELL_MIN_MASTERY_LEVEL` 这道反洗钱身份门（拦白板小号套现 /give 或跨账号转来的货），渔夫职业身份本阶段尚未落地故无等级可依。衰减按卖家账号计而矿石鱼可自由堆叠转移，小号数量直接放大全服总注入 —— 与既有的跨账号洗额度结构性问题同源。决策（2026-09-19）：按现状合入，此条挂 PENDING，待渔夫职业等级落地后补门，或与跨账号洗额度问题一并按方向 A（职业门）/ B（全服供给定价）统一处理。本条已在第七章 C-2 正式登记为 carry-forward 项并附代码取证。
 7. **渔夫产出可挂机（未闭合）**：钓鱼可用自动化钓鱼机无人值守产出，而 18.4 的 AFK 冻结闸门（`AbuseGuard.evaluateAfk` → `PlayerAbuseState.afkFrozen`）目前只作用于高价矿当日计数，不覆盖卖鱼这条 faucet。是否把 AFK 冻结推广到全部 faucet 待定。

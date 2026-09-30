@@ -69,6 +69,14 @@ MCEF 客户端不在本机时把该配置改成开发机的局域网地址即可
 设计评审入口：假数据模式下侧栏底部的「组件与配色预览」（`#/components`）——
 一屏穷举全部语义档与控件尺寸，换皮回归时先看这一页。
 
+自管区（`#/district`）的 26 条 action（`district.*` / `plot.*` / `admin.district.*` / `admin.plot.*`，接线清单 K 组）
+已接真契约，后端是 wok-district 模块（`docs/District_Backend_Design.md`）；开发构建（无宿主）仍由
+`src/mock/district-handlers.ts` 的内存世界作答，规则以 Java 为准。侧栏入口由服务端经 `hub.panels` 决定（`TabletShell` 的
+`hubGated`）：真服只在 `miningdim-district.toml` 的 `enabled` 为真且 Flan 自检通过时下发，开发构建的假后端恒按生效下发；页顶的「预览身份」切换器（管理员 / 区务长 / 住户 / 无地块住户 / 外人）只在假数据模式下出现，
+选「管理员」等于勾上顶栏的「OP 视图」，其余各项会把它关掉。区务长（circuit_owl）和住户（chapel_mouse）都有地块，
+「无地块住户」（dustyboots）用来试直接买地（购买默认关，先以管理员在阿拜多斯的「管理员操作」里打开「开放购买」）。
+「本区地块」页签有俯视平面图：区务长和管理员在图上拖出矩形或填坐标划地块；千年-04 是冻结中的地块样本。
+
 ## 与 Java 侧的桥接契约
 
 - 入站：`window.miningdimQuery({request, onSuccess, onFailure})`，封装见 `src/bridge/query.ts`
@@ -83,8 +91,8 @@ MCEF 客户端不在本机时把该配置改成开发机的局域网地址即可
    （`WebUiBridge.onQuery`），而 CEF 的 `getURL()` 带 fragment。页面一旦改 hash，此后所有 cefQuery
    会被以 -3 拒绝——症状是"界面能翻页但所有数据请求全废"。路由实现见 `src/router.ts` 的头注释。
 2. **`callMock` 的 planned 分流在生产构建下必须硬失败。** 见 `src/mock/handlers.ts`。缺了这道门，
-   尚未接线的 planned action 会在真客户端里由内存世界作答（当前只剩 `shop.catalog` / `shop.detail`
-   两条——后端在 WOK-ChestShop 跨仓；条数以 `src/mock/planned.ts` 的 `PLANNED_ACTIONS` 为准，别在此写死数字）。
+   尚未接线的 planned action 会在真客户端里由内存世界作答（当前是系统商店 `shop.*` 两条——后端在
+   WOK-ChestShop 跨仓；条数以 `src/mock/planned.ts` 的 `PLANNED_ACTIONS` 为准，别在此写死数字）。
 
 ## mod 贴图挂载
 

@@ -13,6 +13,7 @@ import { AdminPage } from './pages/admin/AdminPage'
 import { CasePage } from './pages/CasePage'
 import { CodexPage } from './pages/CodexPage'
 import { ComponentsPage } from './pages/ComponentsPage'
+import { DistrictPage } from './pages/district/DistrictPage'
 import { HomePage } from './pages/HomePage'
 import { JobDetailPage } from './pages/jobs/JobDetailPage'
 import { JobsOverviewPage } from './pages/jobs/JobsOverviewPage'
@@ -33,6 +34,7 @@ import {
   ROUTE_CASE,
   ROUTE_CODEX,
   ROUTE_COMPONENTS,
+  ROUTE_DISTRICT,
   ROUTE_HOME,
   ROUTE_JOBS,
   ROUTE_JOB_DETAIL,
@@ -72,6 +74,7 @@ const ROUTE_ELEMENTS: Record<RoutePattern, () => ReactElement> = {
   [ROUTE_CODEX]: () => <CodexPage />,
   [ROUTE_MARRIAGE]: () => <MarriagePage />,
   [ROUTE_CASE]: () => <CasePage />,
+  [ROUTE_DISTRICT]: () => <DistrictPage />,
   [ROUTE_SETTINGS]: () => <SettingsPage />,
   [ROUTE_ADMIN]: () => <AdminPage />,
   [ROUTE_COMPONENTS]: () => <ComponentsPage />,

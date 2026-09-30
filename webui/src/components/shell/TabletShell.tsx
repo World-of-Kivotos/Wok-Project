@@ -6,6 +6,7 @@ import {
   GiftIcon,
   HeartIcon,
   HomeIcon,
+  LandPlotIcon,
   type LucideIcon,
   PickaxeIcon,
   SettingsIcon,
@@ -36,6 +37,7 @@ import {
   ROUTE_CASE,
   ROUTE_CODEX,
   ROUTE_COMPONENTS,
+  ROUTE_DISTRICT,
   ROUTE_HOME,
   ROUTE_JOBS,
   ROUTE_MARKET,
@@ -78,6 +80,15 @@ interface ShellNavEntry {
   readonly icon: LucideIcon
   /** 真为 OP 专属: 非 OP 时整个入口不渲染 (而不是渲染成禁用态)。 */
   readonly opOnly: boolean
+  /**
+   * 真为"由服务端决定显不显示": 只在 hub.panels 已就绪、列出了这个 id 且 enabled 为真时才渲染; 未就绪或请求失败一律
+   * 不渲染 —— 与 isOp 同一口径, 宁可晚一帧出现, 也不能先画出来再收回去。与 opOnly 不同, 这不是权限而是"这个功能在
+   * 这台服务器上开着没有"。
+   *
+   * 当前只有自管区带着它: 服务端只在自管区功能生效 (miningdim-district.toml 的 enabled 为真且 Flan 自检通过) 时才在
+   * hub.panels 里下发 district (docs/District_Backend_Design.md 20.9)。开发构建 (无宿主) 的假后端恒按生效下发。
+   */
+  readonly hubGated?: true
 }
 
 /** 一级导航。顺序照接线清单第一章的信息架构树, 不按字母序 —— 首页与市场是高频入口, 必须在最上。 */
@@ -98,6 +109,7 @@ const SHELL_NAV_ENTRIES: readonly ShellNavEntry[] = [
   { icon: BookOpenIcon, id: 'codex', label: '图鉴', opOnly: false, route: ROUTE_CODEX },
   { icon: HeartIcon, id: 'marriage', label: '婚姻', opOnly: false, route: ROUTE_MARRIAGE },
   { icon: GiftIcon, id: 'case', label: '开箱', opOnly: false, route: ROUTE_CASE },
+  { hubGated: true, icon: LandPlotIcon, id: 'district', label: '自管区', opOnly: false, route: ROUTE_DISTRICT },
   { icon: SettingsIcon, id: 'settings', label: '设置', opOnly: false, route: ROUTE_SETTINGS },
   { icon: ShieldCheckIcon, id: 'admin', label: '管理后台', opOnly: true, route: ROUTE_ADMIN },
 ]
@@ -245,6 +257,11 @@ export function TabletShell({ children, onClose }: TabletShellProps): ReactEleme
    * 账号, 这四项还在" —— 玩家读到时那句话是假的。外壳是全部面板的共同祖先, 对齐点只能在这里。
    */
   const prefs = useMockAction('player.prefs.get', EMPTY_PAYLOAD)
+  /*
+   * 受门控的导航入口 (hubGated, 当前只有自管区) 由服务端经 hub.panels 决定显不显示。与首页用同一个无入参的键 (可批量,
+   * 已在首页的预取表里), 外壳多挂这一条不会多发请求。
+   */
+  const hubPanels = useMockAction('hub.panels', EMPTY_PAYLOAD)
   const [handshakeReport, setHandshakeReport] = useState<HandshakeReport | null>(null)
   const [handshakeError, setHandshakeError] = useState<string | null>(null)
 
@@ -321,7 +338,12 @@ export function TabletShell({ children, onClose }: TabletShellProps): ReactEleme
 
   // 未就绪一律按非 OP 处理: 管理入口宁可晚一帧出现, 也不能先画出来再收回去。
   const isOp = opState.status === 'ready' && opState.data.isOp
-  const visibleEntries = SHELL_NAV_ENTRIES.filter((entry) => !entry.opOnly || isOp)
+  // 受门控的入口同一口径: hub.panels 未就绪或失败一律不显示, 就绪后只显示列出且可进入的那些。
+  const hubGateOpen = (id: string): boolean =>
+    hubPanels.status === 'ready' && hubPanels.data.panels.some((panel) => panel.panelId === id && panel.enabled)
+  const visibleEntries = SHELL_NAV_ENTRIES.filter(
+    (entry) => (!entry.opOnly || isOp) && (entry.hubGated !== true || hubGateOpen(entry.id)),
+  )
   const title = match.pattern === null ? '页面不存在' : ROUTE_TITLES[match.pattern]
 
   return (

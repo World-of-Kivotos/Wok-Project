@@ -46,6 +46,7 @@ export const ROUTE_ACHIEVEMENT_SHOP = '/achievement-shop'
 export const ROUTE_CODEX = '/codex'
 export const ROUTE_MARRIAGE = '/marriage'
 export const ROUTE_CASE = '/case'
+export const ROUTE_DISTRICT = '/district'
 export const ROUTE_SETTINGS = '/settings'
 export const ROUTE_ADMIN = '/admin'
 export const ROUTE_COMPONENTS = '/components'
@@ -72,6 +73,7 @@ export const ROUTE_PATTERNS = [
   ROUTE_CODEX,
   ROUTE_MARRIAGE,
   ROUTE_CASE,
+  ROUTE_DISTRICT,
   ROUTE_SETTINGS,
   ROUTE_ADMIN,
   ROUTE_COMPONENTS,
@@ -97,9 +99,10 @@ const ROUTE_TRANSITION_RANK: Record<RoutePattern, number> = {
   [ROUTE_CODEX]: 12,
   [ROUTE_MARRIAGE]: 13,
   [ROUTE_CASE]: 14,
-  [ROUTE_SETTINGS]: 15,
-  [ROUTE_ADMIN]: 16,
-  [ROUTE_COMPONENTS]: 17,
+  [ROUTE_DISTRICT]: 15,
+  [ROUTE_SETTINGS]: 16,
+  [ROUTE_ADMIN]: 17,
+  [ROUTE_COMPONENTS]: 18,
 }
 
 /**
@@ -124,6 +127,7 @@ export const ROUTE_TITLES: Record<RoutePattern, string> = {
   [ROUTE_CODEX]: '精英怪图鉴',
   [ROUTE_MARRIAGE]: '婚姻',
   [ROUTE_CASE]: '开箱',
+  [ROUTE_DISTRICT]: '自管区',
   [ROUTE_SETTINGS]: '设置',
   [ROUTE_ADMIN]: '管理后台',
   [ROUTE_COMPONENTS]: '组件与配色预览',

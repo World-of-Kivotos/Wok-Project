@@ -21,6 +21,7 @@
  */
 
 import type { PlayerJobProgressEntry, WebUiJobId } from '../lib/types'
+import { createDistrictWorld } from './district-seed'
 import type { PlannedShopEntry } from './planned'
 import type { MockWorld } from './store'
 
@@ -154,5 +155,7 @@ export function createInitialWorld(): MockWorld {
     walletOverlay: { credit: 0, azure: 0 },
     jobs: { progress: seedJobProgress() },
     shops: seedShops(),
+    // 自管区种子单独成文件 (district-seed.ts): 体量比本文件其余部分加起来还大, 且只服务一个页面。
+    district: createDistrictWorld(epoch),
   }
 }

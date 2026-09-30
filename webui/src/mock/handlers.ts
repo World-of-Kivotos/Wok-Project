@@ -2,11 +2,13 @@
  * mock 面板层的唯一调用口 —— callMock(action, payload), 与 lib/bridge 的 call(action, payload) 同签名。
  *
  * 它覆盖两种 action, 且两种走完全不同的路:
- *   1. **真契约那 65 个** (lib/actions.ts 的 SERVER_ACTIONS 63 条 + CLIENT_LOCAL_ACTIONS 2 条): 原样转调
+ *   1. **真契约那些** (lib/actions.ts 的 SERVER_ACTIONS + CLIENT_LOCAL_ACTIONS): 原样转调
  *      call(), 即 dev 下落 bridge.mock、装进游戏后落真服。本层一行业务规则都不加, 只在写操作成功后顺手
  *      重拉一次背包镜像 (动背包的 action), 或单纯把 world.revision 自增一下 (只动钱包不动背包的
- *      case.open/case.apply), 好让别的面板 (卖菜/买入/挂单页的背包格、顶栏余额) 立刻看见后果。
- *   2. **planned.ts 里剩下那 2 个** (shop.catalog / shop.detail): 后端还不存在 (在 WOK-ChestShop 跨仓),
+ *      case.open/case.apply/plot.buy), 好让别的面板 (卖菜/买入/挂单页的背包格、顶栏余额) 立刻看见后果。
+ *      自管区二十六条 (district.* / plot.* / admin.district.* / admin.plot.*) 已于 2026-09-29 接线, 也走这一类:
+ *      dev 下由 bridge.mock 转给 district-handlers.ts 的内存世界回答。
+ *   2. **planned.ts 里登记的那些** (系统商店 shop.catalog / shop.detail, 后端在 WOK-ChestShop 跨仓):
  *      由 store 的内存世界回答, 带 150-400ms 人为延迟。
  *
  * 为什么要有第 1 类的转调层 (而不是让面板直接用 call):
@@ -141,7 +143,12 @@ const MIRROR_AFTER_INVENTORY = new Set<string>([
  * 因此不再需要任何专属的镜像字段 —— 唯一还欠的是 world.revision 的那一次自增, 用来叫醒
  * TabletShell.tsx 的 "世界变了就重查 profile" effect, 顶栏 Currency 才会跟着扣费后的余额走。
  */
-const BUMP_REVISION_AFTER = new Set<string>(['case.open', 'case.apply'])
+const BUMP_REVISION_AFTER = new Set<string>([
+  'case.open',
+  'case.apply',
+  // 买地只从钱包扣信用点, 不动背包: 同样只需叫醒顶栏的余额重查。
+  'plot.buy',
+])
 
 /**
  * 拉一遍背包并写进镜像。成功时顺带清掉上一次的失败标记。

@@ -36,6 +36,8 @@ import type {
   AgentScanResult,
   AgentSealPayload,
   AgentSealResult,
+  AgentBountyAcceptPayload,
+  AgentBountyAcceptResult,
   MunitionsStatePayload,
   MunitionsStateResult,
   BlueprintsPayload,
@@ -235,6 +237,7 @@ type WebUiContractMap = {
   'job.agent.state': { payload: AgentStatePayload; result: AgentStateResult }
   'job.agent.scan': { payload: AgentScanPayload; result: AgentScanResult }
   'job.agent.seal': { payload: AgentSealPayload; result: AgentSealResult }
+  'job.agent.bounty.accept': { payload: AgentBountyAcceptPayload; result: AgentBountyAcceptResult }
   'job.munitions.state': { payload: MunitionsStatePayload; result: MunitionsStateResult }
   'job.blueprints': { payload: BlueprintsPayload; result: BlueprintsResult }
   'job.engineer.state': { payload: EngineerStatePayload; result: EngineerStateResult }

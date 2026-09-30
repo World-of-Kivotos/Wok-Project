@@ -64,6 +64,13 @@ import type {
   AdminSetBaseValuePayload,
   AdminSetBaseValueResult,
   AgentAffixEntry,
+  AgentAffixPool,
+  AgentBountyAcceptOutcomeCode,
+  AgentBountyAcceptPayload,
+  AgentBountyAcceptResult,
+  AgentBountyBoard,
+  AgentBountyEntry,
+  AgentBountyPeriod,
   AgentScanResult,
   AgentScanTarget,
   AgentSealCategory,
@@ -2933,6 +2940,166 @@ const AGENT_SECOND_SEAL_SLOT_UNLOCK_LEVEL = 9
 /** AgentBountySavedData.WEEKLY_AZURE_SOFT_CAP, 跨 ISO 周清零。 */
 const AGENT_WEEKLY_AZURE_CAP = 50
 
+/** BountyGenerator.DAILY_EXTRA_OFFERS / WEEKLY_EXTRA_OFFERS: 可接张数 = 槽位 + 余量。 */
+const AGENT_DAILY_EXTRA_OFFERS = 2
+const AGENT_WEEKLY_EXTRA_OFFERS = 1
+
+/** BountyGenerator 的讨伐只数表, 下标 = 目标星级 - 1 (1..9)。 */
+const AGENT_DAILY_STAR_COUNT: readonly number[] = [4, 3, 3, 2, 2, 1, 1, 1, 1]
+const AGENT_WEEKLY_STAR_COUNT: readonly number[] = [15, 12, 10, 8, 6, 4, 3, 2, 2]
+
+/** 词条类悬赏在 mock 里轮换的池; 机动与技能池低星几乎掷不出, 与服务端出现率门一样只在 4★+ 用。 */
+const AGENT_MOCK_POOLS: readonly AgentAffixPool[] = ['COMBAT', 'SURVIVAL', 'MOBILITY', 'SKILL']
+
+/** BountyRewardTable.DEFAULTS (2026-09-30 拍板"保守"档) 按目标星级 1..9 线性插值, 取整口径与 Java 一致。 */
+function agentBountyReward(period: AgentBountyPeriod, star: number): { credit: number; xp: number; azure: number } {
+  const t = (Math.min(Math.max(star, 1), 9) - 1) / 8
+  const lerp = (min: number, max: number): number => min + (max - min) * t
+  if (period === 'DAILY') {
+    return { credit: Math.round(lerp(2000, 6000) / 100) * 100, xp: Math.round(lerp(400, 1500) / 10) * 10, azure: 0 }
+  }
+  return {
+    credit: Math.round(lerp(15000, 30000) / 100) * 100,
+    xp: Math.round(lerp(2500, 6000) / 10) * 10,
+    azure: Math.round(lerp(8, 15)),
+  }
+}
+
+/** mock 悬赏板的接取与进度 (键 bountyId)。首张日常预置"已接、打了一只", 让进度条一打开就有东西可看。 */
+const agentBountyAccepted = new Set<string>(['d-0'])
+const agentBountyKills: Record<string, number> = { 'd-0': 1 }
+
+/**
+ * 按等级确定性地铺一块悬赏板 (服务端是随机掷, mock 只要形态对): 星级从上限往下轮, 每三张里一张是词条类。
+ */
+function agentBountyEntries(period: AgentBountyPeriod, level: number): AgentBountyEntry[] {
+  const index = clampJobLevel(level) - 1
+  const slots =
+    period === 'DAILY'
+      ? requireAt(AGENT_DAILY_BOUNTY_SLOTS, index, '日常悬赏槽表')
+      : requireAt(AGENT_WEEKLY_BOUNTY_SLOTS, index, '周常悬赏槽表')
+  if (slots === 0) {
+    return []
+  }
+  const count = slots + (period === 'DAILY' ? AGENT_DAILY_EXTRA_OFFERS : AGENT_WEEKLY_EXTRA_OFFERS)
+  const top = Math.min(clampJobLevel(level), 9)
+  const spread = period === 'DAILY' ? 3 : 2
+  const prefix = period === 'DAILY' ? 'd' : 'w'
+  const entries: AgentBountyEntry[] = []
+  for (let i = 0; i < count; i++) {
+    const star = Math.max(1, top - (i % (spread + 1)))
+    const starCount = requireAt(
+      period === 'DAILY' ? AGENT_DAILY_STAR_COUNT : AGENT_WEEKLY_STAR_COUNT,
+      star - 1,
+      '讨伐只数表',
+    )
+    const pool = i % 3 === 1 ? requireAt(AGENT_MOCK_POOLS, star >= 4 ? i % 4 : i % 2, '词条池表') : null
+    const requiredCount =
+      pool === null ? starCount : period === 'DAILY' ? Math.max(1, starCount - 1) : Math.max(1, Math.ceil(starCount / 2))
+    const bountyId = `${prefix}-${String(i)}`
+    const reward = agentBountyReward(period, star)
+    const killCount = Math.min(agentBountyKills[bountyId] ?? 0, requiredCount)
+    entries.push({
+      bountyId,
+      period,
+      targetType: pool === null ? 'KILL_STAR_AT_LEAST' : 'KILL_WITH_AFFIX_CATEGORY',
+      minStar: star,
+      targetPool: pool,
+      requiredCount,
+      killCount,
+      accepted: agentBountyAccepted.has(bountyId),
+      completed: killCount >= requiredCount,
+      creditReward: reward.credit,
+      xpReward: reward.xp,
+      azureReward: reward.azure,
+    })
+  }
+  return entries
+}
+
+function secondsUntilUtcMidnight(): number {
+  const now = Date.now()
+  return Math.ceil((86_400_000 - (now % 86_400_000)) / 1000)
+}
+
+function secondsUntilIsoMonday(): number {
+  const now = new Date()
+  const day = now.getUTCDay() // 0 = 周日
+  const daysAhead = day === 0 ? 1 : 8 - day
+  const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysAhead)
+  return Math.ceil((next - now.getTime()) / 1000)
+}
+
+function mockAgentBounty(level: number): AgentBountyBoard {
+  const daily = agentBountyEntries('DAILY', level)
+  const weekly = agentBountyEntries('WEEKLY', level)
+  return {
+    available: true,
+    dailySlots: requireAt(AGENT_DAILY_BOUNTY_SLOTS, clampJobLevel(level) - 1, '日常悬赏槽表'),
+    weeklySlots: requireAt(AGENT_WEEKLY_BOUNTY_SLOTS, clampJobLevel(level) - 1, '周常悬赏槽表'),
+    weeklyUnlocked: level >= AGENT_WEEKLY_BOUNTY_UNLOCK_LEVEL,
+    weeklyUnlockLevel: AGENT_WEEKLY_BOUNTY_UNLOCK_LEVEL,
+    maxBountyStar: clampJobLevel(level),
+    worldBossUnlocked: level >= AGENT_WORLD_BOSS_UNLOCK_LEVEL,
+    worldBossUnlockLevel: AGENT_WORLD_BOSS_UNLOCK_LEVEL,
+    weeklyAzureGranted: weekly.filter((entry) => entry.completed).reduce((sum, entry) => sum + entry.azureReward, 0),
+    weeklyAzureCap: AGENT_WEEKLY_AZURE_CAP,
+    dailyResetRemainingSeconds: secondsUntilUtcMidnight(),
+    weeklyResetRemainingSeconds: secondsUntilIsoMonday(),
+    dailyAccepted: daily.filter((entry) => entry.accepted).length,
+    weeklyAccepted: weekly.filter((entry) => entry.accepted).length,
+    pendingAzure: 0,
+    daily,
+    weekly,
+    worldBossOrder: {
+      unlocked: level >= AGENT_WORLD_BOSS_UNLOCK_LEVEL,
+      minStar: 8,
+      creditReward: 30000,
+      xpReward: 6000,
+      azureReward: 15,
+      completedThisWeek: 0,
+    },
+  }
+}
+
+/** 接取: 与 BountyBoard.accept 同序裁决 (找不到 -> 已接 -> 未解锁 -> 槽满 -> 星级过高)。 */
+function mockAgentBountyAccept(payload: AgentBountyAcceptPayload): AgentBountyAcceptResult {
+  if (payload.period !== 'DAILY' && payload.period !== 'WEEKLY') {
+    throw businessFailure('job.agent.bounty.accept', 'INVALID_REQUEST', '只能接取 DAILY 或 WEEKLY 悬赏', false, {
+      field: 'period',
+      value: truncateValue(String(payload.period)),
+    })
+  }
+  const level = mockJobLevel('agent')
+  const board = mockAgentBounty(level)
+  const list = payload.period === 'DAILY' ? board.daily : board.weekly
+  const slots = payload.period === 'DAILY' ? board.dailySlots : board.weeklySlots
+  const target = list.find((entry) => entry.bountyId === payload.bountyId)
+  let outcomeCode: AgentBountyAcceptOutcomeCode = 'OK'
+  if (target === undefined) {
+    outcomeCode = 'NOT_FOUND'
+  } else if (target.accepted) {
+    outcomeCode = 'ALREADY_ACCEPTED'
+  } else if (slots === 0) {
+    outcomeCode = 'LOCKED'
+  } else if (list.filter((entry) => entry.accepted).length >= slots) {
+    outcomeCode = 'NO_SLOT'
+  } else if (target.minStar > board.maxBountyStar) {
+    outcomeCode = 'STAR_TOO_HIGH'
+  }
+  if (outcomeCode === 'OK') {
+    agentBountyAccepted.add(payload.bountyId)
+  }
+  return {
+    ok: outcomeCode === 'OK',
+    outcomeCode,
+    // mock 的入职标志恒为 true (见 mockAgentState), 所以不会有"首次入职"。
+    newlyActiveAgent: false,
+    activeAgent: true,
+    bounty: mockAgentBounty(level),
+  }
+}
+
 /** 脉冲 CD (秒): L1=60 线性缩到 L10=30, 整数除法与 Java 逐字一致 (取整位置不同会差 1 秒)。 */
 function agentPulseCooldownTicks(level: number): number {
   return (60 - Math.floor(((clampJobLevel(level) - 1) * 30) / 9)) * 20
@@ -3105,20 +3272,7 @@ function mockAgentState(): AgentStateResult {
       slotsVsStar8Plus: level >= AGENT_SECOND_SEAL_SLOT_UNLOCK_LEVEL ? 2 : level >= AGENT_SEAL_UNLOCK_LEVEL ? 1 : 0,
       secondSlotUnlockLevel: AGENT_SECOND_SEAL_SLOT_UNLOCK_LEVEL,
     },
-    bounty: {
-      dailySlots: requireAt(AGENT_DAILY_BOUNTY_SLOTS, clampJobLevel(level) - 1, '日常悬赏槽表'),
-      weeklySlots: requireAt(AGENT_WEEKLY_BOUNTY_SLOTS, clampJobLevel(level) - 1, '周常悬赏槽表'),
-      weeklyUnlocked: level >= AGENT_WEEKLY_BOUNTY_UNLOCK_LEVEL,
-      weeklyUnlockLevel: AGENT_WEEKLY_BOUNTY_UNLOCK_LEVEL,
-      maxBountyStar: clampJobLevel(level),
-      worldBossUnlocked: level >= AGENT_WORLD_BOSS_UNLOCK_LEVEL,
-      worldBossUnlockLevel: AGENT_WORLD_BOSS_UNLOCK_LEVEL,
-      // 悬赏接取/进度/发奖尚未上线 (F017/F078), 真实后端此计数器永远无人写入, mock 必须如实恒为 0——
-      // 之前这里写死 32 只是为了让进度条"看起来不是空的", 属于伪造玩家从未达成过的既成进度, 已按复核意见改正。
-      weeklyAzureGranted: 0,
-      weeklyAzureCap: AGENT_WEEKLY_AZURE_CAP,
-      available: false,
-    },
+    bounty: mockAgentBounty(level),
     enhancedRewardMultiplier: requireAt(AGENT_ENHANCED_REWARD, clampJobLevel(level) - 1, '加强奖励表'),
     damageBonusPercent: requireAt(AGENT_DAMAGE_BONUS_PERCENT, clampJobLevel(level) - 1, '伤害加成表'),
     // 入职标志。false 那一态 (从未做过特勤活计) 会把整页数值变成"一分不吃", 不作默认。
@@ -5709,6 +5863,8 @@ function resolveMock(action: WebUiActionName, payload: unknown): unknown {
       return mockAgentScan()
     case 'job.agent.seal':
       return mockAgentSeal(payload as AgentSealPayload)
+    case 'job.agent.bounty.accept':
+      return mockAgentBountyAccept(payload as AgentBountyAcceptPayload)
     case 'job.munitions.state':
       return mockMunitionsState()
     case 'job.blueprints':

@@ -58,6 +58,7 @@ export const SERVER_ACTIONS = [
   'economy.status',
   'economy.today',
   'hub.panels',
+  'job.agent.bounty.accept',
   'job.agent.scan',
   'job.agent.seal',
   'job.agent.state',

@@ -993,12 +993,53 @@ export interface AgentSealPermissions {
   secondSlotUnlockLevel: number
 }
 
+/** 可接取的悬赏周期 (EVENT 是世界 BOSS 讨伐令, 不接取, 不出现在列表里)。 */
+export type AgentBountyPeriod = 'DAILY' | 'WEEKLY'
+
+/** 悬赏目标类型, 逐字取自 Java BountyDefinition.TargetType。 */
+export type AgentBountyTargetType = 'KILL_STAR_AT_LEAST' | 'KILL_WITH_AFFIX_CATEGORY' | 'KILL_WORLD_BOSS'
+
+/** 精英词条四池, 逐字取自 Java AffixPool (生存 / 战斗 / 机动 / 技能)。 */
+export type AgentAffixPool = 'SURVIVAL' | 'COMBAT' | 'MOBILITY' | 'SKILL'
+
+/** 悬赏板上的一张悬赏 (AgentBountyWebUi.entriesJson)。 */
+export interface AgentBountyEntry {
+  /** 本期板内唯一; 接取时原样回传。跨日/跨周后旧 id 作废 (接取会回 NOT_FOUND)。 */
+  bountyId: string
+  period: AgentBountyPeriod
+  targetType: AgentBountyTargetType
+  /** 目标最低星级 (讨伐 ≥X★)。 */
+  minStar: number
+  /** 仅词条类有值; 其余是 JSON null (键一定在)。 */
+  targetPool: AgentAffixPool | null
+  requiredCount: number
+  killCount: number
+  accepted: boolean
+  /** 完成即自动发奖, 没有"领取"这一步。 */
+  completed: boolean
+  creditReward: number
+  xpReward: number
+  /** 日常恒 0。 */
+  azureReward: number
+}
+
+/** 世界 BOSS 讨伐令: L8+ 已入职干员参与击倒 (达入池门槛) 任一世界 BOSS 即自动结算, 不占槽位、不用接取。 */
+export interface AgentWorldBossOrder {
+  unlocked: boolean
+  minStar: number
+  creditReward: number
+  xpReward: number
+  azureReward: number
+  completedThisWeek: number
+}
+
 /**
- * 干员悬赏**权限表**, 不是悬赏实例列表。
- * 全工程没有"玩家已接的悬赏"这个存储 (BountyDefinition/BountyProgress 是零构造点的逻辑骨架),
- * 故面板上的悬赏板这一屏本轮无数据可渲染, 只能显示这张权限一览。
+ * job.agent.state 回执里的悬赏段 (AgentBountyWebUi.bountyJson), 也是 job.agent.bounty.accept 回执里的同形整段。
+ * 槽位/星级门/翻期全由服务端裁决, 前端只渲染; 接取后用回执整段替换, 不在本地推算剩余槽位。
  */
-export interface AgentBountyPermissions {
+export interface AgentBountyBoard {
+  /** false = 运营在 miningdim-agent.toml 关掉了悬赏; 此时两张列表是空数组。 */
+  available: boolean
   dailySlots: number
   weeklySlots: number
   weeklyUnlocked: boolean
@@ -1006,14 +1047,45 @@ export interface AgentBountyPermissions {
   maxBountyStar: number
   worldBossUnlocked: boolean
   worldBossUnlockLevel: number
-  /** 单位青辉石; Cap 恒 50 (AgentBountySavedData.WEEKLY_AZURE_SOFT_CAP), 跨 ISO 周清零。 */
+  /** 本周已记账的悬赏青辉石; Cap 恒 50 (AgentBountySavedData.WEEKLY_AZURE_SOFT_CAP), 跨 ISO 周清零。精英掉落不计入。 */
   weeklyAzureGranted: number
   weeklyAzureCap: number
-  /**
-   * F017/F078: 悬赏接取/进度推进/发奖三个环节尚未上线, 恒为 false。以上字段是真实的等级门槛预览 (等级查表),
-   * 不是"可接取的悬赏列表"——面板必须据此字段诚实展示"权限预览"而非暗示玩家能接单, 严禁把它当纯装饰位忽略。
-   */
-  available: boolean
+  /** 距 UTC 零点 / ISO 周一零点的秒数 (翻期是墙钟, 故这里是秒而不是 tick)。 */
+  dailyResetRemainingSeconds: number
+  weeklyResetRemainingSeconds: number
+  dailyAccepted: number
+  weeklyAccepted: number
+  /** 被每日青辉石硬上限截掉、等下次登录或完成悬赏时补发的量。 */
+  pendingAzure: number
+  daily: AgentBountyEntry[]
+  weekly: AgentBountyEntry[]
+  worldBossOrder: AgentWorldBossOrder
+}
+
+/** job.agent.bounty.accept 入参。 */
+export interface AgentBountyAcceptPayload {
+  period: AgentBountyPeriod
+  bountyId: string
+}
+
+/** 接取结果码, 逐字取自 Java BountyBoard.AcceptOutcome (顺序即声明序)。 */
+export type AgentBountyAcceptOutcomeCode =
+  | 'OK'
+  | 'DISABLED'
+  | 'NOT_FOUND'
+  | 'ALREADY_ACCEPTED'
+  | 'LOCKED'
+  | 'NO_SLOT'
+  | 'STAR_TOO_HIGH'
+
+/** job.agent.bounty.accept 回执 (AgentBountyWebUi.ACCEPT)。业务拒绝走 outcomeCode, 只有入参非法才抛 INVALID_REQUEST。 */
+export interface AgentBountyAcceptResult {
+  ok: boolean
+  outcomeCode: AgentBountyAcceptOutcomeCode
+  /** true = 这一次接取让玩家首次入职 (加强奖励与对精英增伤从此生效)。 */
+  newlyActiveAgent: boolean
+  activeAgent: boolean
+  bounty: AgentBountyBoard
 }
 
 /**
@@ -1055,7 +1127,7 @@ export interface AgentStateResult {
   /** 按距离升序, 最多 8 条; 快照过期时是空数组。 */
   targets: AgentScanTarget[]
   seal: AgentSealPermissions
-  bounty: AgentBountyPermissions
+  bounty: AgentBountyBoard
   /** 倍率 1.0-3.0 (小数原样发, 未取整)。 */
   enhancedRewardMultiplier: number
   /** 整数百分比 5-15。 */

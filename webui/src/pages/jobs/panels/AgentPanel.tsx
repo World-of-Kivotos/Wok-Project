@@ -17,10 +17,16 @@ import { WebUiCallError } from '../../../lib/bridge'
 import { callErrorText } from '../../../lib/errorText'
 import { useItemNames } from '../../../lib/i18n'
 import type {
+  AgentAffixPool,
+  AgentBountyAcceptOutcomeCode,
+  AgentBountyBoard,
+  AgentBountyEntry,
+  AgentBountyPeriod,
   AgentScanResult,
   AgentScanTarget,
   AgentSealOutcomeCode,
   AgentSealResult,
+  AgentStateResult,
 } from '../../../lib/types'
 import { callMock, nowMs, useMockAction } from '../../../mock'
 import { formatCountdown, toError, useLiveNow } from './shared'
@@ -37,9 +43,8 @@ import { formatCountdown, toError, useLiveNow } from './shared'
  *      L7 升到 L8 之后旧快照里的 pos 仍是 null, 要坐标必须重扫。
  *   3. **时间一律是剩余 tick**: 服务端不发绝对时刻, 前端在收到回执那一刻折成本地基准再倒计时
  *      (与矿工面板同纪律)。快照倒计时归零即 targetNetworkId 作废, 封印按钮必须跟着变灰。
- *   4. **没有悬赏实例**: 全工程没有"玩家已接的悬赏"这个存储 (BountyDefinition/BountyProgress 是零构造点
- *      的逻辑骨架), 服务端发的是一张 bounty 权限表。旧版的悬赏板本轮无数据可渲染, 已改成权限一览 ——
- *      画一块假的进度条比空着更糟。
+ *   4. **悬赏板全在服务端**: 可接悬赏、槽位、进度、翻期都由服务端悬赏板裁决 (AgentBountyWebUi); 接取回执带
+ *      整段最新 bounty, 前端直接替换, 不在本地推算"还剩几个槽"。完成即自动发奖, 没有领取按钮。
  *
  * scanOnline=false (Champions 未加载) 必须显示"扫描离线"而不是渲染一张空的候选表: 前者是"这台服务器
  * 现在读不到精英词条", 后者是"周围没有精英", 对玩家是完全不同的两句话。
@@ -63,6 +68,63 @@ const SEAL_OUTCOME_TEXT: Record<AgentSealOutcomeCode, string> = {
 interface SealFeedback {
   readonly ok: boolean
   readonly message: string
+}
+
+/** job.agent.bounty.accept 的结果码文案 (服务端不下发中文)。 */
+const BOUNTY_ACCEPT_TEXT: Record<AgentBountyAcceptOutcomeCode, string> = {
+  OK: '接取成功',
+  DISABLED: '悬赏已被服务器关闭',
+  NOT_FOUND: '这张悬赏已过期 (跨日或跨周), 面板已刷新',
+  ALREADY_ACCEPTED: '已经接过这张悬赏',
+  LOCKED: '该周期的悬赏尚未解锁',
+  NO_SLOT: '本期悬赏位已经接满',
+  STAR_TOO_HIGH: '目标星级高于你当前可接的上限',
+}
+
+const AFFIX_POOL_TEXT: Record<AgentAffixPool, string> = {
+  SURVIVAL: '生存',
+  COMBAT: '战斗',
+  MOBILITY: '机动',
+  SKILL: '技能',
+}
+
+/** 接取回执覆盖在哪一份 state 之上: state 换了引用 (重查过) 就以新 state 为准, 覆盖自动作废。 */
+interface BountyOverride {
+  readonly base: AgentStateResult
+  readonly bounty: AgentBountyBoard
+  readonly activeAgent: boolean
+}
+
+function bountyTitle(entry: AgentBountyEntry): string {
+  const count = String(entry.requiredCount)
+  const star = String(entry.minStar)
+  if (entry.targetType === 'KILL_WITH_AFFIX_CATEGORY' && entry.targetPool !== null) {
+    return `讨伐 ${count} 只 ${star} 星及以上、带${AFFIX_POOL_TEXT[entry.targetPool]}类词条的精英`
+  }
+  return `讨伐 ${count} 只 ${star} 星及以上的精英`
+}
+
+function rewardText(credit: number, xp: number, azure: number): string {
+  const parts = [`${credit.toLocaleString('zh-CN')} 信用点`, `${xp.toLocaleString('zh-CN')} 干员经验`]
+  if (azure > 0) {
+    parts.push(`${String(azure)} 青辉石`)
+  }
+  return parts.join(' · ')
+}
+
+/** 翻期倒计时以天/小时计, 分:秒 的格式在这里没法读。 */
+function formatResetIn(deadlineMs: number, now: number): string {
+  const totalMinutes = Math.max(0, Math.ceil((deadlineMs - now) / 60_000))
+  const days = Math.floor(totalMinutes / 1440)
+  const hours = Math.floor((totalMinutes % 1440) / 60)
+  const minutes = totalMinutes % 60
+  if (days > 0) {
+    return `${String(days)} 天 ${String(hours)} 小时`
+  }
+  if (hours > 0) {
+    return `${String(hours)} 小时 ${String(minutes)} 分`
+  }
+  return `${String(minutes)} 分`
 }
 
 /** 一次脉冲的本地快照: 回执本身 + 收到它的时刻 (冷却与快照有效期都从这一刻起算)。 */
@@ -117,8 +179,30 @@ export function AgentPanel(): ReactElement {
   const [scanError, setScanError] = useState<Error | null>(null)
   const [sealingKey, setSealingKey] = useState<string | null>(null)
   const [sealFeedback, setSealFeedback] = useState<Record<string, SealFeedback>>({})
+  const [bountyOverride, setBountyOverride] = useState<BountyOverride | null>(null)
+  const [acceptingId, setAcceptingId] = useState<string | null>(null)
+  const [acceptFeedback, setAcceptFeedback] = useState<Record<string, SealFeedback>>({})
 
   const data = stateQuery.status === 'ready' ? stateQuery.data : null
+
+  /*
+   * 接取回执带回整段最新悬赏板, 叠在当前 state 上显示; state 一旦重查换了引用, 覆盖即作废 (新 state 已含接取结果)。
+   * 这样接取不必重查整个 job.agent.state —— 重查会闪骨架屏, 把刚展示的扫描候选表盖掉。
+   */
+  const override = bountyOverride !== null && bountyOverride.base === data ? bountyOverride : null
+  const bounty = override !== null ? override.bounty : data !== null ? data.bounty : null
+  const activeAgent = override !== null ? override.activeAgent : data !== null && data.activeAgent
+  /* 翻期剩余秒数只在收到它那一刻有意义 (与扫描 CD 同纪律), 故每份悬赏板折一次本地时刻。 */
+  const bountyResetAt = useMemo(
+    () =>
+      bounty === null
+        ? { daily: 0, weekly: 0 }
+        : {
+            daily: nowMs() + bounty.dailyResetRemainingSeconds * 1000,
+            weekly: nowMs() + bounty.weeklyResetRemainingSeconds * 1000,
+          },
+    [bounty],
+  )
 
   /*
    * 回执里的剩余 tick 只在"收到它那一刻"有意义, 故在 data 换引用时折一次本地时刻。
@@ -190,7 +274,7 @@ export function AgentPanel(): ReactElement {
   if (stateQuery.status === 'error') {
     return <ErrorBlock message={callErrorText(stateQuery.error)} onRetry={stateQuery.reload} />
   }
-  if (data === null) {
+  if (data === null || bounty === null) {
     return <ErrorBlock message="job.agent.state 回执为空" onRetry={stateQuery.reload} />
   }
 
@@ -238,6 +322,88 @@ export function AgentPanel(): ReactElement {
     }
   }
 
+  async function handleAccept(period: AgentBountyPeriod, bountyId: string, base: AgentStateResult): Promise<void> {
+    setAcceptingId(bountyId)
+    try {
+      const result = await callMock('job.agent.bounty.accept', { period, bountyId })
+      setBountyOverride({ base, bounty: result.bounty, activeAgent: result.activeAgent })
+      const message = result.newlyActiveAgent
+        ? `${BOUNTY_ACCEPT_TEXT[result.outcomeCode]} · 已入职: 加强奖励与对精英伤害加成从现在起生效`
+        : BOUNTY_ACCEPT_TEXT[result.outcomeCode]
+      setAcceptFeedback((previous) => ({ ...previous, [bountyId]: { ok: result.ok, message } }))
+    } catch (error) {
+      setAcceptFeedback((previous) => ({
+        ...previous,
+        [bountyId]: { ok: false, message: callErrorText(toError(error)) },
+      }))
+    } finally {
+      setAcceptingId(null)
+    }
+  }
+
+  function renderBountyEntries(
+    period: AgentBountyPeriod,
+    entries: readonly AgentBountyEntry[],
+    slots: number,
+    acceptedCount: number,
+    base: AgentStateResult,
+    board: AgentBountyBoard,
+  ): ReactElement {
+    const slotsFull = acceptedCount >= slots
+    return (
+      <div className="flex flex-col gap-2">
+        {entries.map((entry) => {
+          const feedback = acceptFeedback[entry.bountyId]
+          return (
+            <Surface key={entry.bountyId} tone={entry.completed ? 'success' : 'neutral'}>
+              <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="font-medium text-foreground text-sm">{bountyTitle(entry)}</h4>
+                  {entry.completed ? (
+                    <Tag tone="success">已完成, 奖励已发放</Tag>
+                  ) : entry.accepted ? (
+                    <Tag tone="info">进行中</Tag>
+                  ) : null}
+                </div>
+                <span className="text-muted-foreground text-xs">
+                  奖励 {rewardText(entry.creditReward, entry.xpReward, entry.azureReward)}
+                </span>
+                {entry.accepted ? (
+                  <Meter
+                    label="合格击杀"
+                    max={entry.requiredCount}
+                    tone={entry.completed ? 'success' : 'info'}
+                    value={entry.killCount}
+                    valueText={`${String(entry.killCount)} / ${String(entry.requiredCount)}`}
+                  />
+                ) : (
+                  <div>
+                    <Button
+                      disabled={!board.available || slotsFull}
+                      loading={acceptingId === entry.bountyId}
+                      onClick={() => {
+                        void handleAccept(period, entry.bountyId, base)
+                      }}
+                      size="sm"
+                      variant="outline"
+                    >
+                      {slotsFull ? '本期悬赏位已满' : '接取'}
+                    </Button>
+                  </div>
+                )}
+                {feedback === undefined ? null : (
+                  <span className={`text-xs ${feedback.ok ? 'text-success' : 'text-destructive'}`}>
+                    {feedback.message}
+                  </span>
+                )}
+              </div>
+            </Surface>
+          )
+        })}
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <Panel title="特勤干员">
@@ -251,11 +417,11 @@ export function AgentPanel(): ReactElement {
             />
             <Stat
               label="入职状态"
-              value={data.activeAgent ? '已入职' : '尚未入职'}
+              value={activeAgent ? '已入职' : '尚未入职'}
               hint={
-                data.activeAgent
+                activeAgent
                   ? `奖励 x${data.enhancedRewardMultiplier.toFixed(2)} · 对精英伤害 +${String(data.damageBonusPercent)}%`
-                  : '做过一次特勤活计后才吃加强奖励与伤害加成'
+                  : '接取第一张悬赏 (或封印成功) 后入职, 才吃加强奖励与伤害加成'
               }
             />
           </div>
@@ -441,45 +607,98 @@ export function AgentPanel(): ReactElement {
         </div>
       </Panel>
 
-      <Panel title="悬赏权限一览">
+      <Panel title="特勤悬赏">
         <div className="flex flex-col gap-3">
-          {data.bounty.available ? null : (
-            <Tag tone="warning">悬赏系统尚未开放: 接单 / 进度推进 / 领奖目前游戏内外都没有入口</Tag>
+          {bounty.available ? null : (
+            <Surface tone="warning">
+              <p className="text-foreground text-sm">悬赏已被服务器关闭: 暂时不能接取, 击杀精英也不推进悬赏</p>
+            </Surface>
           )}
           <div className="grid grid-cols-3 gap-4">
-            <Stat label="每日悬赏位" value={`${String(data.bounty.dailySlots)} 个`} />
             <Stat
-              label="每周悬赏位"
+              label="每日悬赏"
+              value={`已接 ${String(bounty.dailyAccepted)} / ${String(bounty.dailySlots)}`}
+              hint={`${formatResetIn(bountyResetAt.daily, now)} 后刷新`}
+            />
+            <Stat
+              label="每周悬赏"
               value={
-                data.bounty.weeklyUnlocked
-                  ? `${String(data.bounty.weeklySlots)} 个`
-                  : `需要 Lv.${String(data.bounty.weeklyUnlockLevel)}`
+                bounty.weeklyUnlocked
+                  ? `已接 ${String(bounty.weeklyAccepted)} / ${String(bounty.weeklySlots)}`
+                  : `需要 Lv.${String(bounty.weeklyUnlockLevel)}`
               }
+              hint={bounty.weeklyUnlocked ? `${formatResetIn(bountyResetAt.weekly, now)} 后刷新` : undefined}
             />
             <Stat
               label="可接最高星级"
-              value={data.bounty.maxBountyStar === 0 ? '未解锁' : `${String(data.bounty.maxBountyStar)} 星`}
+              value={`${String(bounty.maxBountyStar)} 星`}
+              hint="日常与周常最高 9 星, 10 星只出自世界 BOSS"
             />
           </div>
-          {data.bounty.available ? (
-            <Meter
-              label="本周青辉石配额"
-              max={data.bounty.weeklyAzureCap}
-              tone={data.bounty.weeklyAzureGranted >= data.bounty.weeklyAzureCap ? 'danger' : 'info'}
-              value={data.bounty.weeklyAzureGranted}
-              valueText={`${String(data.bounty.weeklyAzureGranted)} / ${String(data.bounty.weeklyAzureCap)}`}
-            />
+          <Meter
+            label="本周悬赏青辉石"
+            max={bounty.weeklyAzureCap}
+            tone={bounty.weeklyAzureGranted >= bounty.weeklyAzureCap ? 'danger' : 'info'}
+            value={Math.min(bounty.weeklyAzureGranted, bounty.weeklyAzureCap)}
+            valueText={`${String(bounty.weeklyAzureGranted)} / ${String(bounty.weeklyAzureCap)}`}
+          />
+          {bounty.pendingAzure > 0 ? (
+            <Surface tone="info">
+              <p className="text-foreground text-sm">
+                有 {bounty.pendingAzure} 颗悬赏青辉石因今日青辉石上限 (与精英掉落共用) 暂未到账,
+                下次登录或完成悬赏时自动补发
+              </p>
+            </Surface>
+          ) : null}
+
+          <h3 className="font-medium text-foreground text-sm">日常悬赏</h3>
+          {bounty.daily.length === 0 ? (
+            <EmptyBlock hint="悬赏开放后每天 UTC 零点刷新" title="今天没有可接的日常悬赏" />
           ) : (
-            <Stat label="本周青辉石配额" value={`上限 ${String(data.bounty.weeklyAzureCap)} (系统未开放, 产量恒为 0)`} />
+            renderBountyEntries('DAILY', bounty.daily, bounty.dailySlots, bounty.dailyAccepted, data, bounty)
           )}
-          <div className="flex flex-wrap items-center gap-2">
-            <Tag tone={data.bounty.worldBossUnlocked ? 'success' : 'neutral'}>
-              世界 BOSS {data.bounty.worldBossUnlocked ? '已解锁' : `需要 Lv.${String(data.bounty.worldBossUnlockLevel)}`}
-            </Tag>
-          </div>
+
+          <h3 className="font-medium text-foreground text-sm">周常悬赏</h3>
+          {!bounty.weeklyUnlocked ? (
+            <Surface tone="warning">
+              <p className="text-muted-foreground text-xs">
+                干员 Lv.{bounty.weeklyUnlockLevel} 解锁周常悬赏, 周常额外奖励青辉石
+              </p>
+            </Surface>
+          ) : bounty.weekly.length === 0 ? (
+            <EmptyBlock hint="每周一 UTC 零点刷新" title="本周没有可接的周常悬赏" />
+          ) : (
+            renderBountyEntries('WEEKLY', bounty.weekly, bounty.weeklySlots, bounty.weeklyAccepted, data, bounty)
+          )}
+
+          <Surface tone={bounty.worldBossOrder.unlocked ? 'neutral' : 'warning'}>
+            <div className="flex flex-col gap-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-medium text-foreground text-sm">世界 BOSS 讨伐令</h3>
+                <Tag tone={bounty.worldBossOrder.unlocked ? 'success' : 'neutral'}>
+                  {bounty.worldBossOrder.unlocked ? '常驻生效' : `需要 Lv.${String(bounty.worldBossUnlockLevel)}`}
+                </Tag>
+                {bounty.worldBossOrder.completedThisWeek > 0 ? (
+                  <Tag tone="info">本周已结算 {bounty.worldBossOrder.completedThisWeek} 次</Tag>
+                ) : null}
+              </div>
+              <span className="text-muted-foreground text-xs">
+                世界 BOSS 出现时全服公告; 已入职干员参与击倒且输出达到入池门槛即自动结算, 不占悬赏位, 不用接取
+              </span>
+              <span className="text-foreground text-sm">
+                每次{' '}
+                {rewardText(
+                  bounty.worldBossOrder.creditReward,
+                  bounty.worldBossOrder.xpReward,
+                  bounty.worldBossOrder.azureReward,
+                )}
+              </span>
+            </div>
+          </Surface>
+
           <p className="text-muted-foreground text-xs">
-            这里只是按干员等级算出的权限预览 (槽位数 / 可接星级 / 青辉石上限), 不是可接取的悬赏列表: 具体悬赏的
-            接单、进度记录与领奖尚未实现, 游戏内也没有对应入口
+            接取后不能放弃或重摇, 完成即自动发奖; 只有输出达到入池门槛的击杀才算数。信用点与卖矿、击杀奖励共用每日收入衰减,
+            青辉石受本周悬赏上限与每日上限约束。接取第一张悬赏即算入职
           </p>
         </div>
       </Panel>

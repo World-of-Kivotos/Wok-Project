@@ -160,7 +160,7 @@ public final class PlateArmorGameTests {
             counts.get(variant.tier())[variant.weight().ordinal()]++;
         }
 
-        int[][] expected = {{2, 0, 0}, {1, 0, 0}, {2, 6, 0}, {6, 9, 3}, {5, 6, 9}, {1, 2, 2}};
+        int[][] expected = {{2, 0, 0}, {1, 0, 0}, {2, 6, 0}, {6, 9, 3}, {6, 5, 9}, {1, 2, 2}};
         for (PlateArmorTier tier : PlateArmorTier.values()) {
             for (PlateArmorWeight weight : PlateArmorWeight.values()) {
                 helper.assertTrue(counts.get(tier)[weight.ordinal()] == expected[tier.ordinal()][weight.ordinal()],

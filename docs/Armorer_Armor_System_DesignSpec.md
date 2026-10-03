@@ -70,9 +70,9 @@
 | II | 1 | 0 | 0 | 1 |
 | III | 2 | 6 | 0 | 8 |
 | IV | 6 | 9 | 3 | 18 |
-| V | 5 | 6 | 9 | 20 |
+| V | 6 | 5 | 9 | 20 |
 | VI | 1 | 2 | 2 | 5 |
-| 合计 | 17 | 23 | 14 | 54 |
+| 合计 | 18 | 22 | 14 | 54 |
 
 钻石套是平衡锚点而不是底层实现：无附魔满耐久钻石套在 Wok 中顶多相当于 III 级中型插板护甲。插板启用后不再调用原版护甲公式叠算。
 
@@ -329,13 +329,13 @@ Wok 借用《逃离塔科夫》的主防护材料关系来做 54 件物品归类
 | III | 轻型 | WARTECH TV-115 插板胸挂 | 超高分子聚乙烯 | miningdim:plate_armor_tv115 |
 | III | 中型 | 6B23-1 防弹衣（数码丛林迷彩） | 装甲钢 | miningdim:plate_armor_6b23_1_digital_flora |
 | III | 中型 | 6B5-16 Zh-86 Uley 防弹胸挂 | 复合材料 | miningdim:plate_armor_6b5_16 |
-| III | 中型 | BNTI Kirasa-N（胸甲-N）防弹衣（绿色） | 复合材料 | miningdim:plate_armor_kirasa_n_green |
+| III | 中型 | BNTI Kirasa-N（胸甲-N）防弹衣（藏青色） | 复合材料 | miningdim:plate_armor_kirasa_n_green |
 | III | 中型 | MF-UNTAR 防弹背心 | 铝 | miningdim:plate_armor_mf_untar |
 | III | 中型 | NPP KlASS Kora-Kulon 防弹衣 | 装甲钢 | miningdim:plate_armor_kora_kulon |
 | III | 中型 | NPP KlASS Kora-Kulon 防弹衣（数码迷彩） | 装甲钢 | miningdim:plate_armor_kora_kulon_digital |
-| IV | 轻型 | Eagle Industries MMAC 插板胸挂（丛林绿） | 超高分子聚乙烯 | miningdim:plate_armor_mmac_ranger_green |
-| IV | 轻型 | ECLiPSE RBAV-AF 插板胸挂（丛林绿） | 钛 | miningdim:plate_armor_rbav_af_ranger_green |
-| IV | 轻型 | FirstSpear Strandhogg 插板胸挂（丛林绿） | 铝 | miningdim:plate_armor_strandhogg_ranger_green |
+| IV | 轻型 | Eagle Industries MMAC 插板胸挂（游骑兵绿） | 超高分子聚乙烯 | miningdim:plate_armor_mmac_ranger_green |
+| IV | 轻型 | ECLiPSE RBAV-AF 插板胸挂（游骑兵绿） | 钛 | miningdim:plate_armor_rbav_af_ranger_green |
+| IV | 轻型 | FirstSpear Strandhogg 插板胸挂（游骑兵绿） | 铝 | miningdim:plate_armor_strandhogg_ranger_green |
 | IV | 轻型 | FirstSpear Strandhogg 插板胸挂（黑系复合迷彩） | 铝 | miningdim:plate_armor_strandhogg_black_multicam |
 | IV | 轻型 | HighCom Trooper TFO 防弹背心（复合迷彩） | 超高分子聚乙烯 | miningdim:plate_armor_trooper_tfo_multicam |
 | IV | 轻型 | Shellback Tactical Banshee 插板胸挂（A-Tacs AU 迷彩） | 超高分子聚乙烯 | miningdim:plate_armor_banshee_atacs_au |
@@ -343,15 +343,15 @@ Wok 借用《逃离塔科夫》的主防护材料关系来做 54 件物品归类
 | IV | 中型 | 6B3TM-01M 防弹胸挂（卡其色） | 钛 | miningdim:plate_armor_6b3tm_01m_khaki |
 | IV | 中型 | ANA Tactical M1 防弹胸挂（橄榄绿） | 装甲钢 | miningdim:plate_armor_ana_m1_olive |
 | IV | 中型 | Ars Arma A18 Skanda 插板胸挂（复合迷彩） | 复合材料 | miningdim:plate_armor_a18_skanda_multicam |
-| IV | 中型 | Crye Precision AVS 插板胸挂（丛林绿） | 复合材料 | miningdim:plate_armor_avs_ranger_green |
+| IV | 中型 | Crye Precision AVS 插板胸挂（游骑兵绿） | 复合材料 | miningdim:plate_armor_avs_ranger_green |
 | IV | 中型 | Crye Precision AVS 插板胸挂（复合迷彩） | 复合材料 | miningdim:plate_armor_avs_multicam |
 | IV | 中型 | NFM THOR 隐蔽型强化防弹背心 | 复合材料 | miningdim:plate_armor_thor_concealable |
 | IV | 中型 | Stich Profi V2 插板胸挂（黑色） | 装甲钢 | miningdim:plate_armor_stich_profi_v2_black |
-| IV | 中型 | Wartech TV-110 插板胸挂（灰褐色） | 装甲钢 | miningdim:plate_armor_tv110_coyote |
+| IV | 中型 | Wartech TV-110 插板胸挂（卡其色） | 装甲钢 | miningdim:plate_armor_tv110_coyote |
 | IV | 重型 | 6B23-2 防弹衣（山地丛林迷彩） | 装甲钢 | miningdim:plate_armor_6b23_2_mountain_flora |
 | IV | 重型 | 6B5-15 Zh-86 Uley 防弹胸挂（丛林迷彩） | 复合材料 | miningdim:plate_armor_6b5_15_flora |
 | IV | 重型 | CQC 鱼鹰 MK4A 防弹胸挂（突击型，多地形迷彩） | 铝 | miningdim:plate_armor_osprey_mk4a_assault |
-| V | 轻型 | 5.11 Tactical TacTec 插板胸挂（丛林绿） | 超高分子聚乙烯 | miningdim:plate_armor_tactec_ranger_green |
+| V | 轻型 | 5.11 Tactical TacTec 插板胸挂（游骑兵绿） | 超高分子聚乙烯 | miningdim:plate_armor_tactec_ranger_green |
 | V | 轻型 | Ars Arma CPC MOD.1 插板胸挂（A-TACS FG 迷彩） | 超高分子聚乙烯 | miningdim:plate_armor_cpc_mod1_atacs_fg |
 | V | 轻型 | Ferro Concepts FCPC V5 插板胸挂 | 超高分子聚乙烯 | miningdim:plate_armor_fcpc_v5 |
 | V | 轻型 | FORT Gladiator-S（格斗-S）轻型插板胸挂（复合迷彩） | 陶瓷 | miningdim:plate_armor_gladiator_s_light_multicam |
@@ -360,12 +360,12 @@ Wok 借用《逃离塔科夫》的主防护材料关系来做 54 件物品归类
 | V | 中型 | 6B45 防弹胸挂（医疗型） | 陶瓷 | miningdim:plate_armor_6b45_medic |
 | V | 中型 | BNTI Gzhel-K（彩瓷-K）防弹衣 | 陶瓷 | miningdim:plate_armor_gzhel_k |
 | V | 中型 | FORT Gladiator-S（格斗-S）插板胸挂（灰色） | 陶瓷 | miningdim:plate_armor_gladiator_s_gray |
-| V | 中型 | FORT Gladiator-S（格斗-S）轻型插板胸挂（维京） | 陶瓷 | miningdim:plate_armor_gladiator_s_viking |
+| V | 轻型 | FORT Gladiator-S（格斗-S）轻型插板胸挂（维京） | 陶瓷 | miningdim:plate_armor_gladiator_s_viking |
 | V | 中型 | Tasmanian Tiger MKIII 插板胸挂（狼棕色） | 复合材料 | miningdim:plate_armor_tt_mkiii_coyote |
 | V | 重型 | CQC 鱼鹰 MK4A 防弹胸挂（防护型，多地形迷彩） | 复合材料 | miningdim:plate_armor_osprey_mk4a_protection |
 | V | 重型 | FORT Defender-2 防弹衣（格赫娜斑点迷彩） | 陶瓷 | miningdim:plate_armor_defender_2_spot_camo |
 | V | 重型 | FORT Defender-2 防弹衣 | 陶瓷 | miningdim:plate_armor_defender_2 |
-| V | 重型 | FORT Gladiator-S（格斗-S）插板胸挂（无惧死亡） | 陶瓷 | miningdim:plate_armor_gladiator_s_deathless |
+| V | 重型 | FORT Gladiator-S（格斗-S）插板胸挂（死亡不可避免） | 陶瓷 | miningdim:plate_armor_gladiator_s_deathless |
 | V | 重型 | FORT Redut-M（堡垒-M）防弹衣 | 陶瓷 | miningdim:plate_armor_redut_m |
 | V | 重型 | IOTV Gen4 防弹衣（高机动型，复合迷彩） | 钛 | miningdim:plate_armor_iotv_gen4_high_mobility |
 | V | 重型 | IOTV Gen4 防弹衣（全面防护型，复合迷彩） | 钛 | miningdim:plate_armor_iotv_gen4_full_protection |

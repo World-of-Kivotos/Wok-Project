@@ -1,0 +1,9 @@
+# 本地预览 / 核对产物，不入库
+vendor/
+out/
+scratch*/
+*.html
+!template.html
+.check_*
+current_embed.js
+tools/edge-profile-*/

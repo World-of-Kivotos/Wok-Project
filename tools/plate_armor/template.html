@@ -1,0 +1,155 @@
+<title>插板护甲改模预览</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a range-card strip. Three equal "sight" windows, one control rail on top, findings beneath. */
+:root {
+  --bg: #eceee6; --panel: #f7f8f3; --stage: #dfe3d6; --line: #c9cebd; --fg: #1d2118; --muted: #5d6452;
+  --accent: #9a6a2c; --accent-fg: #fffaf2; --bad: #b3412f; --good: #3f7a3a;
+  --f-display: "Chakra Petch", "Microsoft YaHei", "PingFang SC", sans-serif;
+  --f-body: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #15170f; --panel: #1d2017; --stage: #262a1f; --line: #353a2b; --fg: #e5e8dc; --muted: #9aa18c;
+  --accent: #d19a52; --accent-fg: #1a1409; --bad: #ec7a64; --good: #8cc47f; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #15170f; --panel: #1d2017; --stage: #262a1f; --line: #353a2b; --fg: #e5e8dc; --muted: #9aa18c;
+  --accent: #d19a52; --accent-fg: #1a1409; --bad: #ec7a64; --good: #8cc47f; color-scheme: dark }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 15px; line-height: 1.6; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 56px; display: grid; gap: 22px; }
+header { display: grid; gap: 6px; }
+.eyebrow { font-family: var(--f-mono); font-size: 12px; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; }
+h1 { font-family: var(--f-display); font-weight: 700; font-size: clamp(26px, 4vw, 38px); line-height: 1.15; margin: 0; text-wrap: balance; }
+.lede { margin: 0; max-width: 68ch; color: var(--muted); }
+.rail { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+button { font: 600 14px var(--f-body); color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 6px 12px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tier { font-family: var(--f-mono); font-weight: 400; font-size: 12px; opacity: .8; margin-left: 4px; }
+.toggles { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.toggles label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-size: 14px; }
+input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+.views { margin-left: auto; }
+.views button { font-weight: 500; padding: 5px 10px; }
+.stage { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.card[data-variant=M] { border-color: var(--accent); }
+@media (max-width: 1100px) { .stage { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.card { display: grid; grid-template-rows: auto auto 1fr; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; min-width: 0; }
+.card h2 { margin: 0; padding: 12px 14px 4px; font: 700 18px/1.3 var(--f-display); display: flex; gap: 10px; align-items: baseline; }
+.card h2 .new { font: 600 12px var(--f-body); color: var(--accent); margin-left: auto; }
+.card h2 .tag { font: 600 12px var(--f-mono); padding: 1px 7px; border-radius: 3px; border: 1px solid var(--line); color: var(--muted); }
+.card[data-variant=M] h2 .tag { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.card .sub { margin: 0; padding: 0 14px 10px; color: var(--muted); font-size: 13.5px; min-height: 3.2em; }
+.view { position: relative; background: radial-gradient(ellipse at 50% 35%, var(--panel), var(--stage) 70%); border-block: 1px solid var(--line); }
+.view canvas { display: block; width: 100%; aspect-ratio: 4 / 5; max-width: 100%; touch-action: none; cursor: grab; }
+.view canvas:active { cursor: grabbing; }
+.foot { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 12px 14px 14px; align-items: start; }
+dl { margin: 0; display: grid; grid-template-columns: auto auto; gap: 2px 12px; font-size: 13px; }
+dt { color: var(--muted); }
+dd { margin: 0; font: 600 13px var(--f-mono); font-variant-numeric: tabular-nums; text-align: right; }
+dd[data-bad="true"] { color: var(--bad); }
+dd[data-bad="false"] { color: var(--good); }
+.atlas { display: grid; gap: 4px; justify-items: end; }
+.atlas img { width: 96px; height: auto; image-rendering: pixelated; border: 1px solid var(--line); border-radius: 3px;
+  background: repeating-conic-gradient(var(--stage) 0 25%, var(--panel) 0 50%) 0 0 / 12px 12px; }
+.atlas span { font: 11px var(--f-mono); color: var(--muted); }
+.refs { display: grid; } .refs a { color: var(--accent); } .notes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.note { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px 18px; min-width: 0; }
+.note h3 { margin: 0 0 8px; font: 700 17px var(--f-display); }
+.note ul { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; }
+.note b { font-family: var(--f-mono); font-weight: 600; }
+.hint { font-size: 13px; color: var(--muted); margin: 0; }
+@media (max-width: 640px) { .stage { grid-template-columns: minmax(0, 1fr); } } @media (max-width: 900px) { .notes { grid-template-columns: minmax(0, 1fr); } .views { margin-left: 0; } .view canvas { aspect-ratio: 1 / 1; } }
+.picker { display: grid; gap: 8px; padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+.tier-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tier-row > .tier-tag { font: 700 13px var(--f-display); min-width: 2.2em; color: var(--muted); }
+.tier-row button { padding: 4px 10px; font-weight: 500; font-size: 13px; }
+.tier-row button .tier { display: none; }
+.stage { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+.stage .view canvas { aspect-ratio: 1 / 1; }
+@media (max-width: 640px) { .stage { grid-template-columns: minmax(0, 1fr) !important; } }
+/* only the new model (no old model to compare with): one centred card */
+.stage.solo { grid-template-columns: minmax(0, 620px) !important; justify-content: center; }</style>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">铸甲师 · plate_armor · 穿戴模型</span>
+    <h1>插板护甲改模预览</h1>
+    <p class="lede">全部插板护甲按《逃离塔科夫》里的原物重做，统一用折中 2× 画法（半像素网格、2 倍贴图、每个面单独分贴图）。点上面的护甲名切换；左边是旧模型（构建时有 current_embed.js 才显示），右边是新模型。拖动旋转、滚轮缩放，两格同步；每件下面有原图链接和“对照原图改了什么”。</p>
+  </header>
+
+  <nav class="picker" aria-label="护甲">
+<!--ARMOR_BUTTONS-->
+  </nav>
+
+  <div class="rail">
+    <div class="toggles">
+      <label><input type="checkbox" id="t-jacket"> 皮肤外套层</label>
+      <label><input type="checkbox" id="t-slim"> 细手臂</label>
+      <label><input type="checkbox" id="t-walk"> 走路</label>
+      <label><input type="checkbox" id="t-auto"> 自动旋转</label>
+    </div>
+    <div class="seg views" role="group" aria-label="视角">
+      <button type="button" id="v-front" data-view="0">正面</button>
+      <button type="button" id="v-side" data-view="-1.5708">侧面</button>
+      <button type="button" id="v-back" data-view="3.1416">背面</button>
+      <button type="button" id="v-close" data-view="-0.45" data-pitch="0.05" data-dist="34">近看</button>
+    </div>
+  </div>
+
+  <section class="stage">
+    <article class="card" data-variant="now">
+      <h2>现在 <span class="tag">main</span></h2>
+      <p class="sub">手写 Java 方块，贴图基本是单色，细节全靠亚像素薄片。</p>
+      <div class="view"><canvas aria-label="现有模型三维预览"></canvas></div>
+      <div class="foot">
+        <dl><dt>方块数</dt><dd data-k="n"></dd><dt>贴图</dt><dd data-k="tex"></dd><dt>埋在外套层下</dt><dd data-k="hid"></dd><dt>比 0.5px 还薄</dt><dd data-k="thin"></dd><dt>尺寸不在 ¼px 网格</dt><dd data-k="off"></dd></dl>
+        <div class="atlas"><img alt="现有贴图"><span>贴图</span></div>
+      </div>
+    </article>
+
+    <article class="card" data-variant="M">
+      <h2>新模型 <span class="tag">折中 2×</span></h2>
+      <p class="sub">按原图重做：原图上的挂件都在，半像素网格、2 倍贴图，近看不糊、远看不碎。</p>
+      <div class="view"><canvas aria-label="折中方案三维预览"></canvas></div>
+      <div class="foot">
+        <dl><dt>方块数</dt><dd data-k="n"></dd><dt>贴图</dt><dd data-k="tex"></dd><dt>埋在外套层下</dt><dd data-k="hid"></dd><dt>比 0.5px 还薄</dt><dd data-k="thin"></dd><dt>尺寸不在 ¼px 网格</dt><dd data-k="off"></dd></dl>
+        <div class="atlas"><img alt="折中方案贴图"><span>贴图</span></div>
+      </div>
+    </article>
+
+  </section>
+
+  <section class="refs">
+<!--ARMOR_REFS-->
+  </section>
+
+  <section class="notes">
+    <div class="note">
+      <h3>现在的模型哪里不对</h3>
+      <ul>
+        <li>49 个模型一共 <b>1910</b> 个方块，<b>1893</b> 个尺寸不在 ¼ 像素网格上，<b>1305</b> 个比 0.5 像素还薄。贴图被拉伸取样，近看发糊，远看只剩一团纯色。</li>
+        <li><b>43</b> 个模型有部件整块埋在玩家皮肤的外套/袖子层里（外套层外扩 0.25px，很多护甲主体只外扩 0.08–0.22）。JayPC 有 <b>45%</b> 的面积被盖住，肩带整条看不见。勾掉“皮肤外套层”能看到被盖住的部分。</li>
+        <li>128×128 贴图几乎全是底色，MOLLE、缝线、扣具都是用 0.2px 的细方块堆出来的。</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h3>新模型的共同规矩</h3>
+      <ul>
+        <li>不走 GeckoLib：export.mjs 把设计离线烘焙成四边形网格 + 贴图，游戏里用一个很小的自定义 HumanoidModel 照着画；可以旋转方块、每个面单独分贴图、用透明像素镂空，和这里看到的一模一样。</li>
+        <li>所有看得见的面离皮肤外套层至少 0.25 像素，穿带外套的皮肤也不会盖住；肩带挂在身体上，细手臂不会悬空。</li>
+        <li>挂件要插进或贴实承载它的东西，不搁在边沿上；同一平面上不叠两层面，进游戏不闪。</li>
+        <li>颜色、迷彩、挂件以原图为准；和 MOD 名字对不上的，会在该件的说明里标出来。</li>
+      </ul>
+      <p class="hint">预览里的贴图由设计脚本逐像素生成；node export.mjs 用同一套算法产出游戏用的网格 JSON 和 PNG，parity.mjs 逐个核对两边一致。</p>
+    </div>
+  </section>
+</div>
+
+<script type="module">
+/*SCRIPT*/
+</script>

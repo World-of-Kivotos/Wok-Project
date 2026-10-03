@@ -52,35 +52,17 @@ public final class PlateArmorItem extends ArmorItem {
         consumer.accept(PlateArmorClient.forItem(this));
     }
 
+    /**
+     * 胸甲槽穿戴贴图：每个外观都有一张与物品 ID 同名、由 tools/plate_armor/export.mjs 和烘焙网格一起导出的图集，
+     * 网格 uv 就是按这张图归一化的。不再按外观逐个列举，新增外观不会因为漏写一行而落到材质的默认贴图上。
+     */
     @Override
     @Nullable
     public String getArmorTexture(ItemStack stack, Entity entity, EquipmentSlot slot, String type) {
         if (slot != EquipmentSlot.CHEST) {
             return null;
         }
-        return switch (variant) {
-            case JAYPC_OLIVE, JAYPC_BLACK, PACA,
-                    MBSS, TV115, B6B23_1_DIGITAL_FLORA, B6B5_16,
-                    KIRASA_N_GREEN, MF_UNTAR, KORA_KULON, KORA_KULON_DIGITAL,
-                    MMAC_RANGER_GREEN, RBAV_AF_RANGER_GREEN,
-                    STRANDHOGG_RANGER_GREEN, STRANDHOGG_BLACK_MULTICAM,
-                    TROOPER_TFO_MULTICAM, BANSHEE_ATACS_AU,
-                    B6B13_FLORA, B6B3TM_01M_KHAKI, ANA_M1_OLIVE,
-                    A18_SKANDA_MULTICAM, AVS_RANGER_GREEN, AVS_MULTICAM,
-                    THOR_CONCEALABLE, STICH_PROFI_V2_BLACK, TV110_COYOTE,
-                    B6B23_2_MOUNTAIN_FLORA, B6B5_15_FLORA, OSPREY_MK4A_ASSAULT,
-                    TACTEC_RANGER_GREEN, CPC_MOD1_ATACS_FG, FCPC_V5,
-                    GLADIATOR_S_LIGHT_MULTICAM, HEXATAC_HPC_BLACK_MULTICAM,
-                    B6B45_GENERAL, B6B45_MEDIC, GZHEL_K,
-                    GLADIATOR_S_GRAY, GLADIATOR_S_VIKING, TT_MKIII_COYOTE,
-                    OSPREY_MK4A_PROTECTION, DEFENDER_2_SPOT_CAMO, DEFENDER_2,
-                    GLADIATOR_S_DEATHLESS, REDUT_M,
-                    IOTV_GEN4_HIGH_MOBILITY, IOTV_GEN4_FULL_PROTECTION,
-                    IOTV_GEN4_ASSAULT, KORUND_VM_BLACK,
-                    HEXGRID, SLICK, STICH_DEFENSE_MOD2, B6B43_ZABRALO_SH,
-                    THOR_INTEGRATED -> MODEL_TEXTURE_PREFIX + variant.id() + "_layer_1.png";
-            default -> null;
-        };
+        return MODEL_TEXTURE_PREFIX + variant.id() + "_layer_1.png";
     }
 
     @Override

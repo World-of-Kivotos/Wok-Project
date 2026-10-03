@@ -1,7 +1,7 @@
 # 铸甲师护甲系统设计与实装规格
 
 > 状态：插板护甲与电浆护盾两个护甲种类均已实装，数值仍可调。
-> 更新日期：2026-09-20。
+> 更新日期：2026-10-04（穿戴模型改为预览设计离线烘焙的网格，见第八章）。
 > 适用平台：Minecraft 1.20.1、Forge 47.x、Java 17、TaCZ 1.1.8。
 > 文档分工：本文件负责铸甲师的护甲子系统，即护甲种类、身份字段、R/Q/G/T、材料修正与耐久、54 件插板映射、电浆护盾与枪匠联动；同一职业的纳米维修套件、生产台、职业等级与纳米特效见 docs/MillenniumEngineer_Mod_DesignSpec.md。两份文档描述的是同一个职业的两个部分，不是两个职业：它们共用 JobId.ENGINEER、共用 com.miningdim.job.engineer.EngineerSystem（name() 返回 ArmorerSystem）、共用 miningdim-engineer.toml 与同一个铸甲师创造页签。
 > 界面、创造页签与 /job 系列命令的显示名称统一为“铸甲师”（翻译键 job.miningdim.engineer）；/job info 与 /job set 的职业参数同时接受 engineer、armorer 与“铸甲师”三种写法（JobId.byId）。JobId.ENGINEER、engineer 注册 ID、NBT 键与配置文件名 miningdim-engineer.toml 保留不动，以兼容旧存档与既有模块。
@@ -10,7 +10,7 @@
 
 本子系统已实装“插板护甲”与“电浆护盾”两个护甲种类。
 
-插板护甲已经完成 54 件独立胸甲物品、54 张 48×48 物品图标、54 张自定义穿戴贴图与 49 个自定义穿戴模型（同款不同配色共享几何）、I 至 VI 六个等级、轻中重三种类型、七种材料特性、TaCZ 弹道结算、普通物理伤害结算、FE 电力层（见 3.6）和服务端配置。
+插板护甲已经完成 54 件独立胸甲物品、54 张 48×48 物品图标、54 份由预览设计离线烘焙的穿戴网格与配套穿戴贴图（每件一份，见第八章）、I 至 VI 六个等级、轻中重三种类型、七种材料特性、TaCZ 弹道结算、普通物理伤害结算、FE 电力层（见 3.6）和服务端配置。
 
 电浆护盾已经完成 18 件正式物品（nano、standard、quantum 三个系列各 I 至 VI 六级，见 PlasmaShieldVariant 与 PlasmaShieldSeries）、3 个不进创造页签的旧 ID 兼容物品（PlasmaShieldType：nano、light、heavy_ion）、能量池与过热重启状态机、散热与回能、移速修正、独立网络频道与客户端 HUD，详见第十一章。
 
@@ -416,7 +416,13 @@ Wok 借用《逃离塔科夫》的主防护材料关系来做 54 件物品归类
 - 本文档早期记录的 64×64 画布与 56×56 安全区已不再与仓库资源一致，现按实测的 48×48 重写；重新出图时以 48×48 为准，不要按旧稿交付 64×64。48 不是 2 的幂，非 2 幂贴图会拉低所在图集的 mipmap 质量，若日后要换回 2 的幂尺寸需整批重出并同步本节；
 - 当前没有任何 GameTest 断言图标的像素尺寸（PlateArmorGameTests 里没有读 PNG 头的用例），这条规则没有机械兜底，尺寸再被改动也不会被质量门拦住；
 - 每件护甲保留独立的扁平物品显示 JSON，用于让 PNG 在物品栏、手持和掉落实体上正常显示；它不是自定义 3D 模型，不能删除；
-- 穿在人身上的显示由铸甲师自有资源承担：每件护甲在 miningdim:textures/models/armor/ 下有一张与物品 ID 同名的 plate_armor_*_layer_1.png（54 张，均为 128×128），并配一个继承 HumanoidModel 的自定义几何模型（armor/client/ 下 49 个 *ArmorModel.java，同款不同配色共享几何，经 PlateArmorModelDefinition 映射、PlateArmorClientRegistration 在客户端注册、PlateArmorClient.getHumanoidArmorModel 取用）。PlateArmorEquipmentMaterial 继续复用原版皮革、铁、下界合金，但只为了装备音效与材质名占位，不再提供穿戴贴图层；
+- 穿在人身上的显示由铸甲师自有资源承担，不依赖 GeckoLib。外观的唯一来源是 tools/plate_armor 下的设计脚本：designs.js 是公共工具，armors/<key>.js 每件护甲一个设计（统一用“折中 2×”的 M 档，建模与上色规则见同目录 STYLE.md），items.json 把设计键映射到物品 ID，viewer.js 是浏览器预览，check.mjs 是无头几何校验；
+- export.mjs 把 54 件设计逐件离线烘焙成两份资源。assets/miningdim/armor_meshes/plate_armor_<id>.json 是按躯干、右臂、左臂分部位的四边形网格（format 1；坐标是部位局部的皮肤像素坐标，y 朝下、正面为 -z，手臂挂点不烘焙进顶点；带旋转的盒子已把位置与法线离线转好；每个面的 uv 已按贴图尺寸归一化到 0 至 1）；miningdim:textures/models/armor/plate_armor_<id>_layer_1.png 是按预览同一套逐面打包与上色规则画出的穿戴贴图，像素尺寸随设计而定，必须与网格的 textureSize 一致；
+- 客户端由 armor/client/ 下四个类接手：PlateArmorMesh 解析并校验网格；PlateArmorMeshCache 按外观懒加载网格，并在客户端资源重载（RegisterClientReloadListenersEvent）时整表清空；PlateArmorBakedModel 是一副不含方块的原版人形骨架，只承接 Forge 拷来的部位位姿与可见性，逐顶点复刻原版 ModelPart 的绘制，所以走路摆臂、潜行、细手臂、儿童与小盔甲架缩放都自动跟随；PlateArmorClient.getHumanoidArmorModel 只在胸甲槽返回它。贴图仍由 PlateArmorItem.getArmorTexture 按物品 ID 拼出（胸甲槽一律返回 plate_armor_<id>_layer_1.png，不再逐个外观列举），渲染类型沿用原版护甲层的双面镂空；
+- 网格缺失、JSON 损坏或违反数据契约时，该外观只打一条警告并在本次资源周期内退回原版胸甲模型，不会拖垮实体渲染，也不会每帧重复读盘。贴图已是逐面图集而不是原版 64×32 的箱式 uv 排布，所以退回时显示的是贴图错乱的原版胸甲，这是有意保留的“出错一眼可见”的退路；
+- 不支持盔甲纹饰（Trim）：原版纹饰层也走烘焙模型，用纹饰图集取色时 uv 会错乱。插板护甲不在 #minecraft:trimmable_armor 里，生存拿不到，只有用命令写入 Trim NBT 才会看到；
+- 游戏里看到的几何与贴图和预览同源。改外观只改设计脚本，跑 check.mjs 后重新导出，不再手写 Java 几何；原先手写 addBox 的 49 个 *ArmorModel.java、PlateArmorModelDefinition 与 PlateArmorClientRegistration 已删除，同款不同配色也不再共享几何，每件一份网格与贴图；
+- PlateArmorEquipmentMaterial 继续复用原版皮革、铁、下界合金，但只为了装备音效与材质名占位，不再提供穿戴贴图层；
 - 第一版尚未加入生存配方、掉落、商店或生产台获取，测试阶段使用创造模式页签或 /give；
 - 示例：/give @s miningdim:plate_armor_iotv_gen4_assault。
 
@@ -493,7 +499,8 @@ balanceV4 与 materialProfiles 同理，是刻意与旧平衡路径隔离的新�
 
 - FE 电力层：PlateArmorGameTests 覆盖“按实际吸收量扣电”“电量耗尽后不再减伤、余额不足按比例回退”“能量 capability 只进不出，抽干后仍可充电”三条（plateArmorBillsPowerPerAbsorbedDamage、drainedPlateArmorStopsAbsorbingAndPartialPowerScalesBack、plateArmorEnergyIsReceiveOnly）；
 - 电浆护盾：PlasmaShieldGameTests 共 31 条，覆盖能量吸收、过热与重启阈值、散热与回能延迟、移速修正与状态同步；
-- 自定义穿戴贴图与模型、48×48 图标尺寸目前没有任何 GameTest 断言，属于已知的机械兜底缺口，改动资源时不会被质量门拦住。
+- 穿戴网格与贴图：PlateArmorMeshGameTests 共 3 条，逐件读取打进 JAR 的网格与贴图。everyVariantShipsAWellFormedBakedMesh 断言 format、物品名、body 非空、每个四边形恰好 23 个有限数、uv 落在 0 至 1 且按 (u2,v1)(u1,v1)(u1,v2)(u2,v2) 排成正向矩形、法线为单位长度并与顶点绕序算出的几何法线同向，再按部位锚定包围盒：躯干盖住 x -4 至 4、y 1 至 10，右臂 minX ≤ -3 且 -1 ≤ maxX ≤ 2，左臂镜像，专门拦手臂挂点被重复烘焙、左右臂写反和单位错（另有 x ±12、y -8 至 20、z ±8 的粗外框拦乘了 16 的数）；everyMeshMatchesTheArmorTextureTheGameUses 用游戏实际调用的 PlateArmorItem.getArmorTexture 取贴图路径，断言 PNG 宽高等于网格的 textureSize，且每个四边形的贴图矩形里至少有一个不透明像素（只重导了网格或只重导了贴图会在这里断）；clientMeshParserAcceptsEveryShippedMesh 要求客户端实际使用的 PlateArmorMesh 解析器接受每一份网格。几何与预览是否逐项一致不在质量门里，由 tools/plate_armor/parity.mjs 核对；
+- 48×48 图标尺寸目前仍没有任何 GameTest 断言，属于已知的机械兜底缺口，改动图标时不会被质量门拦住；穿戴模型“看起来对不对”同样只能靠预览与实机目测。
 
 开发 GameTest 不加载 compileOnly 的 TaCZ。自动测试对 TaCZ 只做字符串伤害分类、纯账本调用、手工清空胸甲槽模拟死亡和二次 settle 模拟 Post/Kill；它没有注册真实 TaCZ 事件，也没有用真实枪械射击玩家。发布前仍需在固定测试客户端手测：
 
@@ -503,7 +510,7 @@ balanceV4 与 materialProfiles 同理，是刻意与旧平衡路径隔离的新�
 4. 护甲击碎、死亡掉落、纳米维修；
 5. 冠军强酸与高伤害精英攻击；
 6. 轻中重移速与卸甲恢复；
-7. 客户端提示、48×48 图标、自定义穿戴模型显示与物品显示 JSON 均无缺失；
+7. 客户端提示、48×48 图标、物品显示 JSON 均无缺失；穿戴网格在站立、走路、潜行、细手臂皮肤与 F3+T 资源重载后都与 tools/plate_armor 预览一致，日志里没有“插板护甲网格”退回原版的警告；
 8. 插板电量的充电、耗尽退化与耗尽后重新充电恢复防护；
 9. 电浆护盾的破盾、过热停机、冷却重启与 HUD 同步。
 
@@ -549,6 +556,6 @@ balanceV4 与 materialProfiles 同理，是刻意与旧平衡路径隔离的新�
 5. 单独评审强酸的“先腐蚀还是先防护”顺序；
 6. 单独评审其他槽位旧纳米生命恢复与图腾是否允许和插板并存；
 7. 纳米陶瓷板和弹力护甲各自另开功能分支（电浆护盾已于本子系统内交付，见 11.1，不再属于后续工作）；
-8. 给自定义穿戴贴图、穿戴模型与 48×48 图标补机械断言，填上第十章末尾记录的质量门缺口。
+8. 给 48×48 图标补机械断言，填上第十章末尾记录的质量门缺口（穿戴网格与贴图已由 PlateArmorMeshGameTests 覆盖）。
 
 本文件是护甲种类、身份字段、R/Q/G/T、材料修正与耐久、54 件插板映射、电浆护盾和枪匠联动的当前权威文档。同一职业的纳米生产、职业等级、维修经济和工作台设计继续参考 docs/MillenniumEngineer_Mod_DesignSpec.md。

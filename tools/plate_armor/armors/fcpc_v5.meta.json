@@ -1,0 +1,20 @@
+{
+  "key": "fcpc_v5",
+  "name": "FCPC V5",
+  "tier": "V · 轻型",
+  "title": "Ferro Concepts FCPC V5 插板胸挂：对照原图",
+  "refs": [
+    { "label": "FCPC V5（黑色部队版）", "url": "https://assets.tarkov.dev/689479cb47e5acd1e10be986-512.webp" },
+    { "label": "正面", "url": "https://static.wikia.nocookie.net/escapefromtarkov_gamepedia/images/7/76/Ferro_Concepts_FCPC_V5_Plate_Carrier_Front.png/revision/latest?cb=20260723150850" },
+    { "label": "背面", "url": "https://static.wikia.nocookie.net/escapefromtarkov_gamepedia/images/d/db/Ferro_Concepts_FCPC_V5_Plate_Carrier_Back.png/revision/latest?cb=20260723151057" },
+    { "label": "左侧", "url": "https://static.wikia.nocookie.net/escapefromtarkov_gamepedia/images/8/86/Ferro_Concepts_FCPC_V5_Plate_Carrier_Left.png/revision/latest?cb=20260723151234" },
+    { "label": "右侧", "url": "https://static.wikia.nocookie.net/escapefromtarkov_gamepedia/images/c/ce/Ferro_Concepts_FCPC_V5_Plate_Carrier_Right.png/revision/latest?cb=20260723150939" }
+  ],
+  "notes": [
+    "原图是塔科夫里的 FCPC V5（黑色部队版），浅土狼棕、满身泥污，背板上有大块深色污渍，内衬和包边是深墨绿色。上胸挂着一部浅棕色三防手机，中间一块魔术贴、角上一组黑色三摄，两头是黑色夹座和 PTT，两侧电台的黑色线缆绕上来接到这里；两条肩带上各有一个银色快拆扣。",
+    "正面是三个激光切割弹匣包，黑色 PMAG 插得比较深，只露出大约半个包高，每个弹匣用挂在手机支架下面的棕色拉环加卡其色弹力绳固定；穿戴者右侧（正面看在左边）的包上插一支红帽减压针，另外两个包上横绑一根黑色止血带，末端是灰色的“TIME”标签带；弹匣包下面挂一卷胖胖的卡其色创伤包，四条长边都削了角，从哪个角度看都是圆滚滚的一卷，两头收口，各垂着一小段带子。",
+    "两个前角各有一部电台：穿戴者右侧（正面看在左边）是绿色 PRC-152，穿戴者左侧（正面看在右边）是黑色 PRC-148，都塞在腰封前翼后面，底部从前翼下沿露出一点。腰封是卡其色，中段一条宽宽的浅灰松紧带，嵌着一排棕色圆孔。",
+    "背面是激光切割背板，两边各一道拉链；穿戴者左侧（正面看在右边）挂着橙色和黑色两副 ASP 手铐。穿戴者右侧（正面看在左边）一根长鞭状天线从背板下角一直竖到肩膀上方；穿戴者左侧（正面看在右边）肩后竖着两根天线，外侧那根更高。",
+    "现在的模型只有四个弹匣、一部带长天线的绿电台和一个棕色杂物包，没有手机、止血带、创伤包、腰封松紧带和背面的东西，穿戴者左侧（正面看在右边）也应该是黑色电台而不是杂物包，这次全部按原图补齐。受 Minecraft 头和手臂所限，三根天线都稍微向外斜才能从头旁边露出来，挥臂时两角的电台和背后的天线会和手臂穿插一下。"
+  ]
+}

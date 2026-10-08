@@ -304,6 +304,21 @@ tasks.matching { it.name == 'runGameTestServer' }.configureEach {
                 logger.lifecycle("[gametest] 已清除 ${wiped.length} 个 miningdim serverconfig, 本轮从代码默认值起跑")
             }
         }
+
+        // Flan (自管区带进开发运行时, 见 dependencies) 开服建 ClaimStorage 时会把 world/playerdata/claimData 里每个玩家文件
+        // 过一遍不活跃判定 (PlayerDataHandler.initInactivePlayers -> OfflinePlayerData.isExpired), 那里要取
+        // MinecraftServer.getProfileCache(), 而 GameTestServer 没有档案缓存 (恒为 null)。run/world 是跨轮复用的:
+        // 上一轮的 mock 玩家只要留下一个文件, 这一轮就在 createLevels 里 NPE 崩服, 一条用例都跑不起来, 表现为
+        // "第一轮全绿, 第二轮起不来"。这个目录是 Flan 的派生状态, 每轮开跑前清掉; 领地本身 (data/claims) 不动,
+        // 真 Flan 的用例自己收拾槽位。
+        def flanPlayerData = file("$projectDir/run/world/playerdata/claimData")
+        if (flanPlayerData.isDirectory()) {
+            def stale = flanPlayerData.listFiles().length
+            if (!flanPlayerData.deleteDir()) {
+                throw new GradleException("[gametest] 清不掉 ${flanPlayerData}: Flan 会在开服时读它并让 GameTest 服务端崩溃, 先手工删掉")
+            }
+            logger.lifecycle("[gametest] 已清除 Flan 的 ${stale} 个玩家数据文件 (playerdata/claimData)")
+        }
     }
 }
 

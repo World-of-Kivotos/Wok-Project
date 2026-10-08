@@ -5,6 +5,7 @@ import com.miningdim.champion.integration.AoeImmunityBuffer;
 import com.miningdim.champion.integration.ChampionAttackHandler;
 import com.miningdim.champion.integration.ChampionBloodPoolHandler;
 import com.miningdim.champion.integration.ChampionBossBarHandler;
+import com.miningdim.champion.integration.ChampionConversionGuard;
 import com.miningdim.champion.integration.ChampionCounterUnitHandler;
 import com.miningdim.champion.integration.ChampionDeathMarkHandler;
 import com.miningdim.champion.integration.ChampionDotTickHandler;
@@ -105,6 +106,7 @@ public final class ChampionSystem implements Subsystem {
         forgeBus.register(new ChampionPhaseWalkHandler());        // 灵体移动: noPhysics 漂移 + 四级回退链
         // 世界 BOSS: 被玩家击倒时全服公告输出排行 (HIGH 上 peek, 早于奖励 drain), 其余离场只写日志。
         forgeBus.register(new WorldBossHandler());
+        forgeBus.register(new ChampionConversionGuard());         // 否决原版生物转化 (溺尸化/僵尸化等会把精英整只换掉)
 
         // 平板精英怪图鉴的 champion.codex / champion.inspect (进程级静态注册, 与事件总线无关)。
         ChampionWebUiActions.registerAll();

@@ -1,6 +1,7 @@
 package com.miningdim.champion;
 
 import com.miningdim.champion.bloodpool.BloodPoolRegistry;
+import com.miningdim.champion.integration.ChampionConversionGuard;
 import com.miningdim.champion.reward.ContributionTracker;
 import com.miningdim.core.Difficulty;
 import com.miningdim.core.InstanceState;
@@ -36,6 +37,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.ForgeEventFactory;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
@@ -135,7 +137,9 @@ public final class WorldBossGameTests {
                             + playerData.affixes().keySet());
 
             helper.assertTrue(run(dispatcher, asOp, "mchampion summon minecraft:zombie 10") == 1, "前提: 普通召唤应成功");
-            List<Mob> plain = level.getEntitiesOfClass(Mob.class, AABB.ofSize(playerSpot, 8.0D, 4.0D, 8.0D),
+            // 取样盒只罩 summon 的落点 (玩家正前方 2 格, 朝向 0 即 +Z): 罩一大片会数进别处残留的精英。
+            List<Mob> plain = level.getEntitiesOfClass(Mob.class,
+                    AABB.ofSize(playerSpot.add(0.0D, 0.0D, 2.0D), 2.0D, 2.0D, 2.0D),
                     mob -> MiningChampions.isChampion(mob) && !WorldBoss.isWorldBoss(mob));
             spawned.addAll(plain);
             helper.assertTrue(plain.size() == 1 && !plain.get(0).isPersistenceRequired(),
@@ -149,6 +153,9 @@ public final class WorldBossGameTests {
                     "世界 BOSS 的星级只收 8-10");
             helper.assertTrue(run(dispatcher, console, "mchampion worldboss minecraft:armor_stand 9") == 0,
                     "不是 Mob 的实体不能当世界 BOSS");
+            // 实体注册表查不到时返回默认值 (猪) 而不是 null: 打错一个字母不能召出一只世界 BOSS 猪。
+            helper.assertTrue(run(dispatcher, console, "mchampion worldboss minecraft:zombi 9") == 0,
+                    "不存在的实体 id 不能召唤世界 BOSS");
             helper.assertTrue(level.getEntitiesOfClass(Mob.class, AABB.ofSize(consoleSpot, 2.0D, 2.0D, 2.0D),
                     WorldBoss::isWorldBoss).size() == 1, "被拒的命令不得多召唤出世界 BOSS");
         } finally {
@@ -274,6 +281,54 @@ public final class WorldBossGameTests {
                 boss.discard();
             }
             players.forEach(player -> logout(server, player));
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 精英不被原版的生物转化换掉: 转化会新建一只实体并丢掉旧的, capability (星级、词条、世界 BOSS 标记) 不跟过去。
+     * 走 Forge 给原版各处转化用的同一个否决口 (僵尸溺水、猪灵僵尸化等都先问它): 世界 BOSS 被否决并推迟重试,
+     * 同类型的普通生物照常放行。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void championsAreNotReplacedByVanillaConversion(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        List<Mob> spawned = new ArrayList<>();
+        try {
+            Mob boss = spawnBoss(helper, level, spot(helper, 1, 2, 1), spawned);
+            int[] retry = {-1};
+            helper.assertTrue(!ForgeEventFactory.canLivingConvert(boss, EntityType.DROWNED, ticks -> retry[0] = ticks),
+                    "世界 BOSS 僵尸不得被转化成溺尸");
+            helper.assertTrue(retry[0] == ChampionConversionGuard.RETRY_DELAY_TICKS,
+                    "否决的同时应推迟原版的下一次询问, 实为 " + retry[0]);
+
+            Mob plain = EntityType.ZOMBIE.create(level);
+            spawned.add(plain);
+            Vec3 at = spot(helper, 1, 2, 1);
+            plain.moveTo(at.x, at.y, at.z, 0.0F, 0.0F);
+            helper.assertTrue(ForgeEventFactory.canLivingConvert(plain, EntityType.DROWNED, ticks -> { }),
+                    "不是精英的僵尸照常可以转化");
+        } finally {
+            spawned.forEach(Entity::discard);
+        }
+        helper.succeed();
+    }
+
+    /**
+     * 血池精英掉出世界会死: 虚空伤害每次只有 4 点, 而血池精英的原版血每 tick 被镜像写回, 不按致死放行就永远扣不完,
+     * 掉出世界的世界 BOSS 会一直往下掉。打一下真实的 fellOutOfWorld 伤害 (不是合成的死亡事件) 即死。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void bloodPoolChampionDiesWhenItFallsOutOfTheWorld(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        List<Mob> spawned = new ArrayList<>();
+        try {
+            Mob boss = spawnBoss(helper, level, spot(helper, 1, 2, 1), spawned);
+            helper.assertTrue(BloodPoolRegistry.has(boss.getUUID()), "前提: 10 星世界 BOSS 建了影子血池");
+            boss.hurt(level.damageSources().fellOutOfWorld(), 4.0F);
+            helper.assertTrue(boss.isDeadOrDying(), "掉出世界的血池精英应当场死亡, 实际血量 " + boss.getHealth());
+        } finally {
+            spawned.forEach(Entity::discard);
         }
         helper.succeed();
     }

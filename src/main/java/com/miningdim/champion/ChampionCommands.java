@@ -135,11 +135,12 @@ public final class ChampionCommands {
 
     /** 按实体 id 建一只尚未入世的 Mob; 未知类型 / 非 Mob 时 sendFailure 并返回 null。 */
     private static Mob createMob(CommandSourceStack src, ServerLevel level, ResourceLocation id) {
-        EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(id);
-        if (type == null) {
+        // 先问 containsKey: 实体注册表带默认值 (猪), getValue 对不存在的 id 不返回 null —— 打错一个字母会召出一只精英猪。
+        if (!ForgeRegistries.ENTITY_TYPES.containsKey(id)) {
             src.sendFailure(Component.literal("未知实体类型: " + id));
             return null;
         }
+        EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(id);
         Entity entity = type.create(level);
         if (!(entity instanceof Mob mob)) {
             if (entity != null) {

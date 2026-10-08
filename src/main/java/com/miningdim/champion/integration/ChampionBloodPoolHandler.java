@@ -94,6 +94,11 @@ public final class ChampionBloodPoolHandler {
         // 管线: 刚毅单次封顶会把 /kill 的 Float.MAX_VALUE 削成 <=120/次 (9527 血带刚毅的 8★ 要 /kill 上百次,
         // 真服验收反馈), 而该类伤害语义上无视一切 -> 直接放行 vanilla 全额扣血致死, 血池由 onLivingDeath 随死亡回收。
         if (event.getSource().is(DamageTypeTags.BYPASSES_INVULNERABILITY)) {
+            // 虚空不像 /kill 那样一击致死 (每次 4 点): 血池冠军的原版血每 tick 被镜像写回去 (onServerTick), 这 4 点
+            // 永远扣不完, 掉出世界的冠军就带着常驻标记一直往下掉, 谁也够不着。掉出世界即按致死放行, 走"非玩家击倒"收尾。
+            if (event.getSource().is(DamageTypes.FELL_OUT_OF_WORLD) && BloodPoolRegistry.has(victim.getUUID())) {
+                event.setAmount(Float.MAX_VALUE);
+            }
             return;
         }
 

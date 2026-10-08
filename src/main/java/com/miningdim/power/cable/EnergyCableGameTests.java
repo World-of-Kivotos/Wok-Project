@@ -11,6 +11,7 @@ import com.miningdim.power.grid.VoltageClass;
 import com.miningdim.power.rubber.PowerRubberRegistry;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.gametest.framework.AfterBatch;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
@@ -41,7 +42,57 @@ public final class EnergyCableGameTests {
     private static final String P3_NBTI_BATCH = "power_endgame_nbti";
     private static final String P3_DISTANCE_BATCH = "power_endgame_distance";
 
+    /**
+     * 距离损耗用例两段虚拟线的起点 (绝对坐标)。批结束回调只拿得到 ServerLevel, 靠这两个字段在失败路径上兜底撤线;
+     * 该批只有这一条用例, 不存在并发写。
+     */
+    private static BlockPos p3DistanceGrapheneFirst;
+    private static BlockPos p3DistanceYbcoFirst;
+
     private EnergyCableGameTests() {
+    }
+
+    // 合成端点与虚拟线缆只存在进程级的 EnergyNetworkManager 里, 不在世界里, 框架清场碰不到。下面几个批的跨 tick 用例
+    // 把收尾写在序列最后一步, 中途断言失败或超时就整段跳过: 残留的无限源/汇会让旧网一直被结算, 残留的虚拟线会并进
+    // 别的用例的网。批结束回调无论成败都会跑, 在这里兜底; @AfterBatch 不能重复标注, 所以一个批一个方法。
+
+    @AfterBatch(batch = BATCH)
+    public static void clearSyntheticEndpointsAfterCableBatch(ServerLevel level) {
+        EnergyNetworkManager.get(level).debugClearSyntheticEndpoints();
+    }
+
+    @AfterBatch(batch = "energy_cable_multi_face")
+    public static void clearSyntheticEndpointsAfterMultiFaceBatch(ServerLevel level) {
+        EnergyNetworkManager.get(level).debugClearSyntheticEndpoints();
+    }
+
+    @AfterBatch(batch = "energy_cable_overflow_drain")
+    public static void clearSyntheticEndpointsAfterOverflowDrainBatch(ServerLevel level) {
+        EnergyNetworkManager.get(level).debugClearSyntheticEndpoints();
+    }
+
+    @AfterBatch(batch = "energy_cable_overflow_pull")
+    public static void clearSyntheticEndpointsAfterOverflowPullBatch(ServerLevel level) {
+        EnergyNetworkManager.get(level).debugClearSyntheticEndpoints();
+    }
+
+    @AfterBatch(batch = "energy_cable_voltage")
+    public static void clearSyntheticEndpointsAfterVoltageBatch(ServerLevel level) {
+        EnergyNetworkManager.get(level).debugClearSyntheticEndpoints();
+    }
+
+    @AfterBatch(batch = P3_DISTANCE_BATCH)
+    public static void clearP3DistanceLeftovers(ServerLevel level) {
+        EnergyNetworkManager manager = EnergyNetworkManager.get(level);
+        manager.debugClearSyntheticEndpoints();
+        // 用例开头几条纯数学断言先失败时线还没铺, 起点没记下, 没有可撤的。
+        if (p3DistanceGrapheneFirst == null) {
+            return;
+        }
+        for (int index = 0; index < 20; index++) {
+            manager.removeCable(p3DistanceGrapheneFirst.east(index));
+            manager.removeCable(p3DistanceYbcoFirst.east(index));
+        }
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
@@ -120,49 +171,54 @@ public final class EnergyCableGameTests {
         BlockPos first = helper.absolutePos(new BlockPos(2, 2_001, 2));
         BlockPos controllerA = helper.absolutePos(new BlockPos(2, 2_003, 2));
         BlockPos controllerB = helper.absolutePos(new BlockPos(2, 2_003, 4));
-        for (int i = 0; i < 64; i++) {
-            manager.addCable(first.east(i), ConductorMaterial.NBTI_SUPERCONDUCTOR);
-        }
-        manager.updateCoolingController(controllerA, first, 64);
-        EnergyNetworkSnapshot active = manager.snapshotAt(first).orElseThrow();
-        helper.assertTrue(active.coolingState() == EnergyNetworkSnapshot.CoolingState.ACTIVE
-                        && active.effectiveCapacityFe() == 16_384
-                        && !active.faults().contains(EnergyNetworkFault.SUPERCONDUCTOR_QUENCH),
-                "64 段 NbTi 恰好由一台控制器覆盖时必须保持 ACTIVE 和 16384 FE/t");
+        // 虚拟线缆与控制器只存在进程级的管理器里, 框架清场碰不到: 断言中途失败也必须撤干净,
+        // 否则同在相对 y=2001 这层铺线的距离损耗用例会并进这张网。
+        try {
+            for (int i = 0; i < 64; i++) {
+                manager.addCable(first.east(i), ConductorMaterial.NBTI_SUPERCONDUCTOR);
+            }
+            manager.updateCoolingController(controllerA, first, 64);
+            EnergyNetworkSnapshot active = manager.snapshotAt(first).orElseThrow();
+            helper.assertTrue(active.coolingState() == EnergyNetworkSnapshot.CoolingState.ACTIVE
+                            && active.effectiveCapacityFe() == 16_384
+                            && !active.faults().contains(EnergyNetworkFault.SUPERCONDUCTOR_QUENCH),
+                    "64 段 NbTi 恰好由一台控制器覆盖时必须保持 ACTIVE 和 16384 FE/t");
 
-        manager.addCable(first.east(64), ConductorMaterial.NBTI_SUPERCONDUCTOR);
-        EnergyNetworkSnapshot insufficient = manager.snapshotAt(first).orElseThrow();
-        helper.assertTrue(insufficient.coolingState() == EnergyNetworkSnapshot.CoolingState.INSUFFICIENT
-                        && insufficient.effectiveCapacityFe() == 1_638
-                        && insufficient.faults().contains(EnergyNetworkFault.SUPERCONDUCTOR_QUENCH),
-                "新增第65段后必须失超，容量降为额定10%%并报告 SUPERCONDUCTOR_QUENCH");
+            manager.addCable(first.east(64), ConductorMaterial.NBTI_SUPERCONDUCTOR);
+            EnergyNetworkSnapshot insufficient = manager.snapshotAt(first).orElseThrow();
+            helper.assertTrue(insufficient.coolingState() == EnergyNetworkSnapshot.CoolingState.INSUFFICIENT
+                            && insufficient.effectiveCapacityFe() == 1_638
+                            && insufficient.faults().contains(EnergyNetworkFault.SUPERCONDUCTOR_QUENCH),
+                    "新增第65段后必须失超，容量降为额定10%%并报告 SUPERCONDUCTOR_QUENCH");
 
-        manager.updateCoolingController(controllerB, first.east(64), 64);
-        EnergyNetworkSnapshot restored = manager.snapshotAt(first).orElseThrow();
-        helper.assertTrue(restored.coolingState() == EnergyNetworkSnapshot.CoolingState.ACTIVE
-                        && restored.effectiveCapacityFe() == 16_384
-                        && manager.debugNetworkSize(first) == 65,
-                "第二台控制器补足覆盖后必须恢复 ACTIVE，且65段线缆不得被销毁");
+            manager.updateCoolingController(controllerB, first.east(64), 64);
+            EnergyNetworkSnapshot restored = manager.snapshotAt(first).orElseThrow();
+            helper.assertTrue(restored.coolingState() == EnergyNetworkSnapshot.CoolingState.ACTIVE
+                            && restored.effectiveCapacityFe() == 16_384
+                            && manager.debugNetworkSize(first) == 65,
+                    "第二台控制器补足覆盖后必须恢复 ACTIVE，且65段线缆不得被销毁");
 
-        BlockPos splitCable = first.east(32);
-        manager.removeCable(splitCable);
-        EnergyNetworkSnapshot leftSplit = manager.snapshotAt(first).orElseThrow();
-        EnergyNetworkSnapshot rightSplit = manager.snapshotAt(first.east(64)).orElseThrow();
-        helper.assertTrue(leftSplit.coolingState() == EnergyNetworkSnapshot.CoolingState.ACTIVE
-                        && rightSplit.coolingState() == EnergyNetworkSnapshot.CoolingState.ACTIVE
-                        && manager.debugNetworkSize(first) == 32
-                        && manager.debugNetworkSize(first.east(64)) == 32,
-                "拆网后两台控制器必须分别覆盖32段分量且都保持 ACTIVE");
-        manager.addCable(splitCable, ConductorMaterial.NBTI_SUPERCONDUCTOR);
-        EnergyNetworkSnapshot remerged = manager.snapshotAt(first).orElseThrow();
-        helper.assertTrue(remerged.coolingState() == EnergyNetworkSnapshot.CoolingState.ACTIVE
-                        && remerged.effectiveCapacityFe() == 16_384
-                        && manager.debugNetworkSize(first) == 65,
-                "重新并网后两台控制器覆盖必须重新汇总并保持65段 ACTIVE");
-        manager.removeCoolingController(controllerA);
-        manager.removeCoolingController(controllerB);
-        for (int i = 0; i < 65; i++) {
-            manager.removeCable(first.east(i));
+            BlockPos splitCable = first.east(32);
+            manager.removeCable(splitCable);
+            EnergyNetworkSnapshot leftSplit = manager.snapshotAt(first).orElseThrow();
+            EnergyNetworkSnapshot rightSplit = manager.snapshotAt(first.east(64)).orElseThrow();
+            helper.assertTrue(leftSplit.coolingState() == EnergyNetworkSnapshot.CoolingState.ACTIVE
+                            && rightSplit.coolingState() == EnergyNetworkSnapshot.CoolingState.ACTIVE
+                            && manager.debugNetworkSize(first) == 32
+                            && manager.debugNetworkSize(first.east(64)) == 32,
+                    "拆网后两台控制器必须分别覆盖32段分量且都保持 ACTIVE");
+            manager.addCable(splitCable, ConductorMaterial.NBTI_SUPERCONDUCTOR);
+            EnergyNetworkSnapshot remerged = manager.snapshotAt(first).orElseThrow();
+            helper.assertTrue(remerged.coolingState() == EnergyNetworkSnapshot.CoolingState.ACTIVE
+                            && remerged.effectiveCapacityFe() == 16_384
+                            && manager.debugNetworkSize(first) == 65,
+                    "重新并网后两台控制器覆盖必须重新汇总并保持65段 ACTIVE");
+        } finally {
+            manager.removeCoolingController(controllerA);
+            manager.removeCoolingController(controllerB);
+            for (int i = 0; i < 65; i++) {
+                manager.removeCable(first.east(i));
+            }
         }
         helper.succeed();
     }
@@ -188,6 +244,9 @@ public final class EnergyCableGameTests {
         BlockPos grapheneFirst = helper.absolutePos(new BlockPos(2, 2_001, 2));
         BlockPos grapheneSource = grapheneFirst.west();
         BlockPos grapheneSink = grapheneFirst.east(20);
+        // 两段虚拟线的收尾写在序列最后一步, 中途断言失败或超时就走不到: 铺线前先记下起点, 由批结束回调兜底撤线。
+        p3DistanceGrapheneFirst = grapheneFirst;
+        p3DistanceYbcoFirst = helper.absolutePos(new BlockPos(2, 2_001, 10));
         for (int index = 0; index < 20; index++) {
             manager.addCable(grapheneFirst.east(index), ConductorMaterial.GRAPHENE);
         }
@@ -901,7 +960,10 @@ public final class EnergyCableGameTests {
                     int load = manager.debugLastLoadAt(aAbs);
                     helper.assertTrue(load < rated,
                             "过热后有效吞吐必须被压到低于额定 " + rated + ", 实为 " + load);
-                    helper.assertTrue(load > 0, "平衡态仍应有部分吞吐 (非全断), 实为 " + load);
+                    // 这条断言在未改动的 main 上偶发失败过 (实为 0, 而网温仍高于环境), 至今没能复现。
+                    // 失败时把网络现场一并打出来: 线缆还在不在、端点还剩几个, 一眼就能分清是哪一类。
+                    helper.assertTrue(load > 0, "平衡态仍应有部分吞吐 (非全断), 实为 " + load
+                            + overheatScene(helper, manager, a, mid, b, temp));
                 })
                 // 撤掉源与汇 -> 负载归零 -> 冷却回升。
                 .thenExecute(manager::debugClearSyntheticEndpoints)
@@ -912,6 +974,18 @@ public final class EnergyCableGameTests {
                             "撤载冷却后网温必须回落近环境, 实为 " + temp);
                 })
                 .thenSucceed();
+    }
+
+    /** 过热用例失败时的现场: 网内线缆数、端点数、缓冲、网温, 以及三格线缆位置上现在是什么方块。 */
+    private static String overheatScene(GameTestHelper helper, EnergyNetworkManager manager,
+                                        BlockPos a, BlockPos mid, BlockPos b, double temp) {
+        BlockPos aAbs = helper.absolutePos(a);
+        return "; 现场: 网内线缆数=" + manager.debugNetworkSize(aAbs)
+                + " 端点数=" + manager.debugEndpointCountAt(aAbs)
+                + " 缓冲=" + manager.storedAt(aAbs)
+                + " 网温=" + temp
+                + " 方块=[" + helper.getBlockState(a).getBlock() + ", " + helper.getBlockState(mid).getBlock()
+                + ", " + helper.getBlockState(b).getBlock() + "]";
     }
 
     private static BooleanProperty connectionProperty(Direction direction) {

@@ -3,6 +3,7 @@ package com.miningdim.power;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.power.generator.GeneratorMenu;
 import com.miningdim.power.generator.GeneratorPortBlockEntity;
+import com.miningdim.testutil.EntityBaseline;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -138,20 +139,24 @@ public final class GeneratorGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void allThreeBlockItemsPlaceTwelveParts(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        player.setYRot(0.0F);
-        movePlayerClearOfFootprint(helper, player);
-        clearFootprint(helper, Direction.NORTH);
+        try {
+            player.setYRot(0.0F);
+            movePlayerClearOfFootprint(helper, player);
+            clearFootprint(helper, Direction.NORTH);
 
-        placeAndAssert(helper, player, PowerRegistry.INDUSTRIAL_GENERATOR.get(),
-                PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get());
-        removeStructureByReplacement(helper, PowerRegistry.INDUSTRIAL_GENERATOR.get());
-        placeAndAssert(helper, player, PowerRegistry.MODERN_GENERATOR.get(),
-                PowerRegistry.MODERN_GENERATOR_ITEM.get());
-        removeStructureByReplacement(helper, PowerRegistry.MODERN_GENERATOR.get());
-        placeAndAssert(helper, player, PowerRegistry.FUTURE_ENERGY_GENERATOR.get(),
-                PowerRegistry.FUTURE_ENERGY_GENERATOR_ITEM.get());
-        removeStructureByReplacement(helper, PowerRegistry.FUTURE_ENERGY_GENERATOR.get());
-        helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
+            placeAndAssert(helper, player, PowerRegistry.INDUSTRIAL_GENERATOR.get(),
+                    PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get());
+            removeStructureByReplacement(helper, PowerRegistry.INDUSTRIAL_GENERATOR.get());
+            placeAndAssert(helper, player, PowerRegistry.MODERN_GENERATOR.get(),
+                    PowerRegistry.MODERN_GENERATOR_ITEM.get());
+            removeStructureByReplacement(helper, PowerRegistry.MODERN_GENERATOR.get());
+            placeAndAssert(helper, player, PowerRegistry.FUTURE_ENERGY_GENERATOR.get(),
+                    PowerRegistry.FUTURE_ENERGY_GENERATOR_ITEM.get());
+            removeStructureByReplacement(helper, PowerRegistry.FUTURE_ENERGY_GENERATOR.get());
+            helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
+        } finally {
+            MockGameTestPlayers.logout(player);
+        }
 
         helper.succeed();
     }
@@ -160,30 +165,34 @@ public final class GeneratorGameTests {
     public static void everyPartOpensTheControllerScreen(GameTestHelper helper) {
         GeneratorMultiblockBlock block = PowerRegistry.INDUSTRIAL_GENERATOR.get();
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        player.setYRot(0.0F);
-        movePlayerClearOfFootprint(helper, player);
-        clearFootprint(helper, Direction.NORTH);
-        placeAndAssert(helper, player, block, PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get());
+        try {
+            player.setYRot(0.0F);
+            movePlayerClearOfFootprint(helper, player);
+            clearFootprint(helper, Direction.NORTH);
+            placeAndAssert(helper, player, block, PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get());
 
-        BlockPos anchorAbsolute = helper.absolutePos(ANCHOR_REL);
-        Direction facing = helper.getLevel().getBlockState(anchorAbsolute).getValue(GeneratorMultiblockBlock.FACING);
-        BlockEntity controller = helper.getLevel().getBlockEntity(anchorAbsolute);
-        helper.assertTrue(controller != null, "placed generator must have its controller at the anchor");
-        for (GeneratorMultiblockBlock.Part part : GeneratorMultiblockBlock.Part.values()) {
-            BlockPos partAbsolute = GeneratorMultiblockBlock.partPos(anchorAbsolute, facing, part);
+            BlockPos anchorAbsolute = helper.absolutePos(ANCHOR_REL);
+            Direction facing = helper.getLevel().getBlockState(anchorAbsolute).getValue(GeneratorMultiblockBlock.FACING);
+            BlockEntity controller = helper.getLevel().getBlockEntity(anchorAbsolute);
+            helper.assertTrue(controller != null, "placed generator must have its controller at the anchor");
+            for (GeneratorMultiblockBlock.Part part : GeneratorMultiblockBlock.Part.values()) {
+                BlockPos partAbsolute = GeneratorMultiblockBlock.partPos(anchorAbsolute, facing, part);
+                player.closeContainer();
+                BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(partAbsolute), facing, partAbsolute, false);
+                InteractionResult result = helper.getLevel().getBlockState(partAbsolute)
+                        .use(helper.getLevel(), player, InteractionHand.MAIN_HAND, hit);
+                helper.assertTrue(result.consumesAction(), part + " right-click must be consumed");
+                helper.assertTrue(player.containerMenu instanceof GeneratorMenu menu
+                                && menu.blockEntity() == controller,
+                        part + " must open the controller's screen, got " + player.containerMenu);
+            }
             player.closeContainer();
-            BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(partAbsolute), facing, partAbsolute, false);
-            InteractionResult result = helper.getLevel().getBlockState(partAbsolute)
-                    .use(helper.getLevel(), player, InteractionHand.MAIN_HAND, hit);
-            helper.assertTrue(result.consumesAction(), part + " right-click must be consumed");
-            helper.assertTrue(player.containerMenu instanceof GeneratorMenu menu
-                            && menu.blockEntity() == controller,
-                    part + " must open the controller's screen, got " + player.containerMenu);
-        }
-        player.closeContainer();
 
-        removeStructureByReplacement(helper, block);
-        helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
+            removeStructureByReplacement(helper, block);
+            helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
+        } finally {
+            MockGameTestPlayers.logout(player);
+        }
         helper.succeed();
     }
 
@@ -192,44 +201,48 @@ public final class GeneratorGameTests {
         GeneratorMultiblockBlock block = PowerRegistry.INDUSTRIAL_GENERATOR.get();
         Item item = PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get();
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        player.setYRot(0.0F);
-        movePlayerClearOfFootprint(helper, player);
-        clearFootprint(helper, Direction.NORTH);
-        BlockPlaceContext context = placementContext(helper, player, item, ANCHOR_REL);
-        assertClearFootprintPlaceable(helper, block, context);
-        BlockState clearState = block.getStateForPlacement(context);
-        helper.assertTrue(clearState != null, "clear 3x2x2 footprint must be placeable");
+        try {
+            player.setYRot(0.0F);
+            movePlayerClearOfFootprint(helper, player);
+            clearFootprint(helper, Direction.NORTH);
+            BlockPlaceContext context = placementContext(helper, player, item, ANCHOR_REL);
+            assertClearFootprintPlaceable(helper, block, context);
+            BlockState clearState = block.getStateForPlacement(context);
+            helper.assertTrue(clearState != null, "clear 3x2x2 footprint must be placeable");
 
-        Direction facing = clearState.getValue(GeneratorMultiblockBlock.FACING);
-        BlockPos blockedPos = GeneratorMultiblockBlock.partPos(
-                context.getClickedPos(), facing, GeneratorMultiblockBlock.Part.X2_Z1_Y1);
-        helper.getLevel().setBlock(blockedPos, Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL);
-        helper.assertTrue(block.getStateForPlacement(context) == null,
-                "one occupied subordinate cell must reject the entire structure");
-        InteractionResult blockedResult = ((BlockItem) item).place(context);
-        helper.assertTrue(blockedResult == InteractionResult.FAIL,
-                "blocked BlockItem placement must report failure");
-        helper.assertTrue(helper.getLevel().getBlockState(context.getClickedPos()).isAir(),
-                "failed placement must not leave the anchor behind");
-        for (GeneratorMultiblockBlock.Part part : GeneratorMultiblockBlock.Part.values()) {
-            BlockPos target = GeneratorMultiblockBlock.partPos(context.getClickedPos(), facing, part);
-            if (!target.equals(blockedPos)) {
-                helper.assertTrue(helper.getLevel().getBlockState(target).getBlock() != block,
-                        "failed placement must not leave part " + part);
+            Direction facing = clearState.getValue(GeneratorMultiblockBlock.FACING);
+            BlockPos blockedPos = GeneratorMultiblockBlock.partPos(
+                    context.getClickedPos(), facing, GeneratorMultiblockBlock.Part.X2_Z1_Y1);
+            helper.getLevel().setBlock(blockedPos, Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL);
+            helper.assertTrue(block.getStateForPlacement(context) == null,
+                    "one occupied subordinate cell must reject the entire structure");
+            InteractionResult blockedResult = ((BlockItem) item).place(context);
+            helper.assertTrue(blockedResult == InteractionResult.FAIL,
+                    "blocked BlockItem placement must report failure");
+            helper.assertTrue(helper.getLevel().getBlockState(context.getClickedPos()).isAir(),
+                    "failed placement must not leave the anchor behind");
+            for (GeneratorMultiblockBlock.Part part : GeneratorMultiblockBlock.Part.values()) {
+                BlockPos target = GeneratorMultiblockBlock.partPos(context.getClickedPos(), facing, part);
+                if (!target.equals(blockedPos)) {
+                    helper.assertTrue(helper.getLevel().getBlockState(target).getBlock() != block,
+                            "failed placement must not leave part " + part);
+                }
             }
-        }
-        helper.getLevel().setBlock(blockedPos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+            helper.getLevel().setBlock(blockedPos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
 
-        BlockPos topAnchor = new BlockPos(
-                context.getClickedPos().getX(), helper.getLevel().getMaxBuildHeight() - 1,
-                context.getClickedPos().getZ());
-        BlockPos topSupport = topAnchor.below();
-        helper.getLevel().setBlock(topSupport, Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL);
-        BlockPlaceContext topContext = placementContextAtSupport(helper, player, item, topSupport);
-        helper.assertTrue(block.getStateForPlacement(topContext) == null,
-                "upper layer outside build height must reject the entire structure");
-        helper.getLevel().setBlock(topSupport, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
-        helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
+            BlockPos topAnchor = new BlockPos(
+                    context.getClickedPos().getX(), helper.getLevel().getMaxBuildHeight() - 1,
+                    context.getClickedPos().getZ());
+            BlockPos topSupport = topAnchor.below();
+            helper.getLevel().setBlock(topSupport, Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL);
+            BlockPlaceContext topContext = placementContextAtSupport(helper, player, item, topSupport);
+            helper.assertTrue(block.getStateForPlacement(topContext) == null,
+                    "upper layer outside build height must reject the entire structure");
+            helper.getLevel().setBlock(topSupport, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+            helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
+        } finally {
+            MockGameTestPlayers.logout(player);
+        }
         helper.succeed();
     }
 
@@ -237,42 +250,48 @@ public final class GeneratorGameTests {
     public static void playerBreakUsesOneNormalDropAndCreativeUsesNone(GameTestHelper helper) {
         GeneratorMultiblockBlock block = PowerRegistry.INDUSTRIAL_GENERATOR.get();
         Direction facing = Direction.NORTH;
-
-        ServerPlayer survival = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
-        survival.setGameMode(GameType.SURVIVAL);
-        survival.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
-        placeStructure(helper, block, facing);
-        BlockPos wrongToolTarget = helper.absolutePos(GeneratorMultiblockBlock.partPos(
-                ANCHOR_REL, facing, GeneratorMultiblockBlock.Part.X2_Z1_Y1));
-        helper.assertTrue(survival.gameMode.destroyBlock(wrongToolTarget),
-                "survival player must be able to break a subordinate part");
-        assertStructureRemoved(helper, block, facing);
-        helper.assertTrue(countDrops(helper, PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get()) == 0,
-                "wrong tool must preserve the iron-block harvest gate");
-
-        survival.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.IRON_PICKAXE));
-        for (GeneratorMultiblockBlock.Part brokenPart : GeneratorMultiblockBlock.Part.values()) {
+        // 取样盒里可能躺着邻格用例或上一轮留下的同种掉落物: 只认本用例拆出来的, 收尾也只收自己的。
+        EntityBaseline<ItemEntity> drops = EntityBaseline.capture(
+                helper.getLevel(), ItemEntity.class, dropSampleBox(helper, facing));
+        try {
+            ServerPlayer survival = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
+            survival.setGameMode(GameType.SURVIVAL);
+            survival.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
             placeStructure(helper, block, facing);
-            BlockPos brokenAbsolute = helper.absolutePos(
-                    GeneratorMultiblockBlock.partPos(ANCHOR_REL, facing, brokenPart));
-            helper.assertTrue(survival.gameMode.destroyBlock(brokenAbsolute),
-                    "correct pickaxe must break " + brokenPart);
+            BlockPos wrongToolTarget = helper.absolutePos(GeneratorMultiblockBlock.partPos(
+                    ANCHOR_REL, facing, GeneratorMultiblockBlock.Part.X2_Z1_Y1));
+            helper.assertTrue(survival.gameMode.destroyBlock(wrongToolTarget),
+                    "survival player must be able to break a subordinate part");
             assertStructureRemoved(helper, block, facing);
-            helper.assertTrue(countDrops(helper, PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get()) == 1,
-                    brokenPart + " must be the only normal loot source for its teardown");
-            discardDrops(helper, PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get());
-        }
+            helper.assertTrue(countDrops(drops, PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get()) == 0,
+                    "wrong tool must preserve the iron-block harvest gate");
 
-        ServerPlayer creative = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        creative.setGameMode(GameType.CREATIVE);
-        placeStructure(helper, block, facing);
-        BlockPos creativeTarget = helper.absolutePos(GeneratorMultiblockBlock.partPos(
-                ANCHOR_REL, facing, GeneratorMultiblockBlock.ANCHOR_PART));
-        helper.assertTrue(creative.gameMode.destroyBlock(creativeTarget),
-                "creative player must be able to break the anchor part");
-        assertStructureRemoved(helper, block, facing);
-        helper.assertTrue(countDrops(helper, PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get()) == 0,
-                "creative teardown must create no item drop");
+            survival.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.IRON_PICKAXE));
+            for (GeneratorMultiblockBlock.Part brokenPart : GeneratorMultiblockBlock.Part.values()) {
+                placeStructure(helper, block, facing);
+                BlockPos brokenAbsolute = helper.absolutePos(
+                        GeneratorMultiblockBlock.partPos(ANCHOR_REL, facing, brokenPart));
+                helper.assertTrue(survival.gameMode.destroyBlock(brokenAbsolute),
+                        "correct pickaxe must break " + brokenPart);
+                assertStructureRemoved(helper, block, facing);
+                helper.assertTrue(countDrops(drops, PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get()) == 1,
+                        brokenPart + " must be the only normal loot source for its teardown");
+                drops.discardFresh();
+            }
+
+            ServerPlayer creative = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            creative.setGameMode(GameType.CREATIVE);
+            placeStructure(helper, block, facing);
+            BlockPos creativeTarget = helper.absolutePos(GeneratorMultiblockBlock.partPos(
+                    ANCHOR_REL, facing, GeneratorMultiblockBlock.ANCHOR_PART));
+            helper.assertTrue(creative.gameMode.destroyBlock(creativeTarget),
+                    "creative player must be able to break the anchor part");
+            assertStructureRemoved(helper, block, facing);
+            helper.assertTrue(countDrops(drops, PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get()) == 0,
+                    "creative teardown must create no item drop");
+        } finally {
+            drops.discardFresh();
+        }
         helper.succeed();
     }
 
@@ -308,18 +327,22 @@ public final class GeneratorGameTests {
         GeneratorMultiblockBlock block = PowerRegistry.MODERN_GENERATOR.get();
         Item item = PowerRegistry.MODERN_GENERATOR_ITEM.get();
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        player.setYRot(0.0F);
-        movePlayerClearOfFootprint(helper, player);
-        clearFootprint(helper, Direction.NORTH);
+        try {
+            player.setYRot(0.0F);
+            movePlayerClearOfFootprint(helper, player);
+            clearFootprint(helper, Direction.NORTH);
 
-        InteractionResult result = ForgeHooks.onPlaceItemIntoWorld(
-                useOnContext(helper, player, item, ANCHOR_REL));
-        helper.assertTrue(result.consumesAction(),
-                "forge placement path must consume the action, got " + result);
-        assertTwelveParts(helper, block, Direction.NORTH);
+            InteractionResult result = ForgeHooks.onPlaceItemIntoWorld(
+                    useOnContext(helper, player, item, ANCHOR_REL));
+            helper.assertTrue(result.consumesAction(),
+                    "forge placement path must consume the action, got " + result);
+            assertTwelveParts(helper, block, Direction.NORTH);
 
-        removeStructureByReplacement(helper, block);
-        helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
+            removeStructureByReplacement(helper, block);
+            helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
+        } finally {
+            MockGameTestPlayers.logout(player);
+        }
         helper.succeed();
     }
 
@@ -333,32 +356,36 @@ public final class GeneratorGameTests {
         GeneratorMultiblockBlock block = PowerRegistry.INDUSTRIAL_GENERATOR.get();
         Item item = PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get();
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        player.setYRot(0.0F);
-        movePlayerClearOfFootprint(helper, player);
-        clearFootprint(helper, Direction.NORTH);
-
-        int[] capturedSnapshots = {0};
-        Object placementCanceler = new Object() {
-            @SubscribeEvent
-            public void onMultiPlace(BlockEvent.EntityMultiPlaceEvent event) {
-                capturedSnapshots[0] = event.getReplacedBlockSnapshots().size();
-                event.setCanceled(true);
-            }
-        };
-        MinecraftForge.EVENT_BUS.register(placementCanceler);
-        InteractionResult result;
         try {
-            result = ForgeHooks.onPlaceItemIntoWorld(useOnContext(helper, player, item, ANCHOR_REL));
-        } finally {
-            MinecraftForge.EVENT_BUS.unregister(placementCanceler);
-        }
+            player.setYRot(0.0F);
+            movePlayerClearOfFootprint(helper, player);
+            clearFootprint(helper, Direction.NORTH);
 
-        helper.assertTrue(result == InteractionResult.FAIL,
-                "canceled placement must report FAIL, got " + result);
-        helper.assertTrue(capturedSnapshots[0] == 12,
-                "the whole 3x2x2 must reach the event as one multi-place, got " + capturedSnapshots[0]);
-        assertStructureRemoved(helper, block, Direction.NORTH);
-        helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
+            int[] capturedSnapshots = {0};
+            Object placementCanceler = new Object() {
+                @SubscribeEvent
+                public void onMultiPlace(BlockEvent.EntityMultiPlaceEvent event) {
+                    capturedSnapshots[0] = event.getReplacedBlockSnapshots().size();
+                    event.setCanceled(true);
+                }
+            };
+            MinecraftForge.EVENT_BUS.register(placementCanceler);
+            InteractionResult result;
+            try {
+                result = ForgeHooks.onPlaceItemIntoWorld(useOnContext(helper, player, item, ANCHOR_REL));
+            } finally {
+                MinecraftForge.EVENT_BUS.unregister(placementCanceler);
+            }
+
+            helper.assertTrue(result == InteractionResult.FAIL,
+                    "canceled placement must report FAIL, got " + result);
+            helper.assertTrue(capturedSnapshots[0] == 12,
+                    "the whole 3x2x2 must reach the event as one multi-place, got " + capturedSnapshots[0]);
+            assertStructureRemoved(helper, block, Direction.NORTH);
+            helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
+        } finally {
+            MockGameTestPlayers.logout(player);
+        }
         helper.succeed();
     }
 
@@ -434,39 +461,43 @@ public final class GeneratorGameTests {
         GeneratorMultiblockBlock block = PowerRegistry.INDUSTRIAL_GENERATOR.get();
         Item item = PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get();
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        player.setYRot(0.0F);
-        movePlayerClearOfFootprint(helper, player);
-        clearFootprint(helper, Direction.NORTH);
-        BlockPlaceContext context = placementContext(helper, player, item, ANCHOR_REL);
-        Direction facing = Direction.NORTH;
-        helper.assertTrue(block.findObstruction(context, facing) == null,
-                "a clear footprint must report no obstruction");
+        try {
+            player.setYRot(0.0F);
+            movePlayerClearOfFootprint(helper, player);
+            clearFootprint(helper, Direction.NORTH);
+            BlockPlaceContext context = placementContext(helper, player, item, ANCHOR_REL);
+            Direction facing = Direction.NORTH;
+            helper.assertTrue(block.findObstruction(context, facing) == null,
+                    "a clear footprint must report no obstruction");
 
-        BlockPos blockedPos = GeneratorMultiblockBlock.partPos(
-                context.getClickedPos(), facing, GeneratorMultiblockBlock.Part.X2_Z1_Y1);
-        helper.getLevel().setBlock(blockedPos, Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL);
-        assertObstruction(helper, block.findObstruction(context, facing),
-                "message.miningdim.power.generator.blocked_by_block", blockedPos);
-        helper.getLevel().setBlock(blockedPos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+            BlockPos blockedPos = GeneratorMultiblockBlock.partPos(
+                    context.getClickedPos(), facing, GeneratorMultiblockBlock.Part.X2_Z1_Y1);
+            helper.getLevel().setBlock(blockedPos, Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL);
+            assertObstruction(helper, block.findObstruction(context, facing),
+                    "message.miningdim.power.generator.blocked_by_block", blockedPos);
+            helper.getLevel().setBlock(blockedPos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
 
-        BlockPos occupiedPos = GeneratorMultiblockBlock.partPos(
-                context.getClickedPos(), facing, GeneratorMultiblockBlock.Part.X0_Z0_Y0);
-        player.teleportTo(occupiedPos.getX() + 0.5D, occupiedPos.getY(), occupiedPos.getZ() + 0.5D);
-        assertObstruction(helper, block.findObstruction(context, facing),
-                "message.miningdim.power.generator.blocked_by_entity", occupiedPos);
-        movePlayerClearOfFootprint(helper, player);
+            BlockPos occupiedPos = GeneratorMultiblockBlock.partPos(
+                    context.getClickedPos(), facing, GeneratorMultiblockBlock.Part.X0_Z0_Y0);
+            player.teleportTo(occupiedPos.getX() + 0.5D, occupiedPos.getY(), occupiedPos.getZ() + 0.5D);
+            assertObstruction(helper, block.findObstruction(context, facing),
+                    "message.miningdim.power.generator.blocked_by_entity", occupiedPos);
+            movePlayerClearOfFootprint(helper, player);
 
-        BlockPos topSupport = new BlockPos(context.getClickedPos().getX(),
-                helper.getLevel().getMaxBuildHeight() - 1, context.getClickedPos().getZ()).below();
-        helper.getLevel().setBlock(topSupport, Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL);
-        BlockPlaceContext topContext = placementContextAtSupport(helper, player, item, topSupport);
-        Component outOfBounds = block.findObstruction(topContext, facing);
-        helper.assertTrue(outOfBounds != null && translationKeyOf(outOfBounds)
-                        .equals("message.miningdim.power.generator.out_of_bounds"),
-                "an upper layer above build height must be reported as out of bounds, got " + outOfBounds);
-        helper.getLevel().setBlock(topSupport, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+            BlockPos topSupport = new BlockPos(context.getClickedPos().getX(),
+                    helper.getLevel().getMaxBuildHeight() - 1, context.getClickedPos().getZ()).below();
+            helper.getLevel().setBlock(topSupport, Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL);
+            BlockPlaceContext topContext = placementContextAtSupport(helper, player, item, topSupport);
+            Component outOfBounds = block.findObstruction(topContext, facing);
+            helper.assertTrue(outOfBounds != null && translationKeyOf(outOfBounds)
+                            .equals("message.miningdim.power.generator.out_of_bounds"),
+                    "an upper layer above build height must be reported as out of bounds, got " + outOfBounds);
+            helper.getLevel().setBlock(topSupport, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
 
-        helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
+            helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
+        } finally {
+            MockGameTestPlayers.logout(player);
+        }
         helper.succeed();
     }
 
@@ -511,31 +542,35 @@ public final class GeneratorGameTests {
         GeneratorMultiblockBlock block = PowerRegistry.INDUSTRIAL_GENERATOR.get();
         Item item = PowerRegistry.INDUSTRIAL_GENERATOR_ITEM.get();
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
-        player.setYRot(0.0F);
-        movePlayerClearOfFootprint(helper, player);
-        clearFootprint(helper, Direction.NORTH);
+        try {
+            player.setYRot(0.0F);
+            movePlayerClearOfFootprint(helper, player);
+            clearFootprint(helper, Direction.NORTH);
 
-        InteractionResult result = ForgeHooks.onPlaceItemIntoWorld(
-                useOnContext(helper, player, item, ANCHOR_REL));
-        helper.assertTrue(result.consumesAction(), "placement must succeed, got " + result);
-        assertTwelveParts(helper, block, Direction.NORTH);
+            InteractionResult result = ForgeHooks.onPlaceItemIntoWorld(
+                    useOnContext(helper, player, item, ANCHOR_REL));
+            helper.assertTrue(result.consumesAction(), "placement must succeed, got " + result);
+            assertTwelveParts(helper, block, Direction.NORTH);
 
-        BlockPos anchorAbsolute = helper.absolutePos(ANCHOR_REL);
-        BlockPos portAbsolute = helper.absolutePos(GeneratorMultiblockBlock.partPos(
-                ANCHOR_REL, Direction.NORTH, GeneratorMultiblockBlock.PORT_PART));
-        BlockEntity portEntity = helper.getLevel().getBlockEntity(portAbsolute);
-        helper.assertTrue(portEntity instanceof GeneratorPortBlockEntity,
-                "the port cell must own a port block entity");
-        GeneratorPortBlockEntity port = (GeneratorPortBlockEntity) portEntity;
-        helper.assertTrue(anchorAbsolute.equals(port.controllerPos()),
-                "the port must point at the anchor, got " + port.controllerPos());
-        helper.assertTrue(port.linkVersion() > 0L,
-                "a linked port must carry a positive link version, got " + port.linkVersion());
-        helper.assertTrue(port.saveWithFullMetadata().contains("controller"),
-                "a linked port must persist its controller key");
+            BlockPos anchorAbsolute = helper.absolutePos(ANCHOR_REL);
+            BlockPos portAbsolute = helper.absolutePos(GeneratorMultiblockBlock.partPos(
+                    ANCHOR_REL, Direction.NORTH, GeneratorMultiblockBlock.PORT_PART));
+            BlockEntity portEntity = helper.getLevel().getBlockEntity(portAbsolute);
+            helper.assertTrue(portEntity instanceof GeneratorPortBlockEntity,
+                    "the port cell must own a port block entity");
+            GeneratorPortBlockEntity port = (GeneratorPortBlockEntity) portEntity;
+            helper.assertTrue(anchorAbsolute.equals(port.controllerPos()),
+                    "the port must point at the anchor, got " + port.controllerPos());
+            helper.assertTrue(port.linkVersion() > 0L,
+                    "a linked port must carry a positive link version, got " + port.linkVersion());
+            helper.assertTrue(port.saveWithFullMetadata().contains("controller"),
+                    "a linked port must persist its controller key");
 
-        removeStructureByReplacement(helper, block);
-        helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
+            removeStructureByReplacement(helper, block);
+            helper.setBlock(ANCHOR_REL.below(), Blocks.AIR);
+        } finally {
+            MockGameTestPlayers.logout(player);
+        }
         helper.succeed();
     }
 
@@ -623,6 +658,10 @@ public final class GeneratorGameTests {
         return placementContextAtSupport(helper, player, item, helper.absolutePos(supportRelative));
     }
 
+    /**
+     * 这一步把 mock 玩家挪进了测试网格, 而他不会自己下线: 留在格子里会被别的用例按范围扫玩家时算进去
+     * (冠军近场扫描就按玩家周围 48 格取样)。调用方必须在 finally 里交给 MockGameTestPlayers.logout。
+     */
     private static void movePlayerClearOfFootprint(GameTestHelper helper, ServerPlayer player) {
         BlockPos clearPosition = helper.absolutePos(ANCHOR_REL.above(4));
         player.teleportTo(
@@ -695,19 +734,22 @@ public final class GeneratorGameTests {
         }
     }
 
-    private static int countDrops(GameTestHelper helper, Item item) {
-        AABB area = new AABB(helper.absolutePos(ANCHOR_REL)).inflate(6.0D);
-        return helper.getLevel().getEntitiesOfClass(ItemEntity.class, area).stream()
-                .map(ItemEntity::getItem)
-                .filter(stack -> stack.is(item))
-                .mapToInt(ItemStack::getCount)
-                .sum();
+    /**
+     * 本体掉落物生成在被破坏的那一格里, 所以取样盒只罩 3x2x2 占地再留一圈余量: 罩得更大只会把
+     * 左右邻格和后一排用例的地盘一起罩进来。
+     */
+    private static AABB dropSampleBox(GameTestHelper helper, Direction facing) {
+        BlockPos lowCorner = helper.absolutePos(GeneratorMultiblockBlock.partPos(
+                ANCHOR_REL, facing, GeneratorMultiblockBlock.Part.X0_Z0_Y0));
+        BlockPos highCorner = helper.absolutePos(GeneratorMultiblockBlock.partPos(
+                ANCHOR_REL, facing, GeneratorMultiblockBlock.Part.X2_Z1_Y1));
+        return new AABB(lowCorner).minmax(new AABB(highCorner)).inflate(1.5D);
     }
 
-    private static void discardDrops(GameTestHelper helper, Item item) {
-        AABB area = new AABB(helper.absolutePos(ANCHOR_REL)).inflate(6.0D);
-        helper.getLevel().getEntitiesOfClass(ItemEntity.class, area).stream()
-                .filter(entity -> entity.getItem().is(item))
-                .forEach(ItemEntity::discard);
+    private static int countDrops(EntityBaseline<ItemEntity> drops, Item item) {
+        return drops.fresh(entity -> entity.getItem().is(item)).stream()
+                .map(ItemEntity::getItem)
+                .mapToInt(ItemStack::getCount)
+                .sum();
     }
 }

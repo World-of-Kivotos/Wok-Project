@@ -15,6 +15,7 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.storage.ServerLevelData;
 import net.minecraft.world.phys.AABB;
@@ -127,7 +128,9 @@ public final class RubberGameTests {
         ServerLevelData levelData = (ServerLevelData) level.getLevelData();
         long originalGameTime = level.getGameTime();
         BlockPos sourceRelative = new BlockPos(2, 2, 2);
-        BlockPos targetRelative = new BlockPos(4, 2, 2);
+        // 目标格必须落在本格开跑前的清场范围内 (模板 1x1x1, 方块只清 x[-2,+3] / z[-3,+3]): 探出去的原木连同
+        // 已割胶的方块实体会跨轮留在存档里, 而同种方块 setBlock 不重建方块实体, 下一轮的重放就成了"无变化"。
+        BlockPos targetRelative = new BlockPos(2, 2, 0);
         BlockPos source = helper.absolutePos(sourceRelative);
         BlockPos target = helper.absolutePos(targetRelative);
         RubberLogBlock logBlock = PowerRubberRegistry.RUBBER_LOG.get();
@@ -163,6 +166,9 @@ public final class RubberGameTests {
                     "拆放后的原木在原冷却截止前必须继续拒绝割胶");
         } finally {
             levelData.setGameTime(originalGameTime);
+            // 两根原木都带着已割胶的方块实体, 不留给后面的用例和下一轮。
+            helper.setBlock(sourceRelative, Blocks.AIR);
+            helper.setBlock(targetRelative, Blocks.AIR);
         }
         helper.succeed();
     }

@@ -22,6 +22,7 @@ import com.miningdim.job.munitions.block.MunitionsBenchCounter;
 import com.miningdim.job.munitions.block.MunitionsBenchGeometry;
 import com.miningdim.job.munitions.block.MunitionsBenchProgram;
 import com.miningdim.job.munitions.menu.MunitionsBenchMenu;
+import com.miningdim.testutil.EntityBaseline;
 import com.miningdim.testutil.MockGameTestPlayers;
 import com.mojang.math.Axis;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -363,18 +364,24 @@ public final class MunitionsGameTests {
         helper.assertTrue(extensionPos.equals(mainPos.east()),
                 "north-facing wide bench must put its extension on the clockwise side");
 
-        placeBenchPair(level, mainPos, extensionPos, mainState);
-        level.destroyBlock(extensionPos, true);
-        assertBenchRemoved(helper, level, mainPos, extensionPos, "wide extension-first destruction");
-        assertSingleBenchDrop(helper, level, mainPos, extensionPos, "wide extension-first destruction");
+        // 进场先清一次: 取样盒在副格一侧比结构清场多探出一格, 上一轮停在盒里的同种掉落物不清掉会被数成本次拆出来的。
         clearBenchDrops(level, mainPos, extensionPos);
+        try {
+            placeBenchPair(level, mainPos, extensionPos, mainState);
+            level.destroyBlock(extensionPos, true);
+            assertBenchRemoved(helper, level, mainPos, extensionPos, "wide extension-first destruction");
+            assertSingleBenchDrop(helper, level, mainPos, extensionPos, "wide extension-first destruction");
+            clearBenchDrops(level, mainPos, extensionPos);
 
-        placeBenchPair(level, mainPos, extensionPos, mainState);
-        level.destroyBlock(mainPos, true);
-        assertBenchRemoved(helper, level, mainPos, extensionPos, "wide main-first destruction");
-        assertSingleBenchDrop(helper, level, mainPos, extensionPos, "wide main-first destruction");
-        clearBenchDrops(level, mainPos, extensionPos);
-        helper.succeed();
+            placeBenchPair(level, mainPos, extensionPos, mainState);
+            level.destroyBlock(mainPos, true);
+            assertBenchRemoved(helper, level, mainPos, extensionPos, "wide main-first destruction");
+            assertSingleBenchDrop(helper, level, mainPos, extensionPos, "wide main-first destruction");
+            helper.succeed();
+        } finally {
+            // 断言中途失败时拆出来的那一个也要收走, 留在原地就是下一轮同一格的残留。
+            clearBenchDrops(level, mainPos, extensionPos);
+        }
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
@@ -831,7 +838,9 @@ public final class MunitionsGameTests {
             List<Long> loadedStrikes = new ArrayList<>();
 
             // 闪耀: 20 tick 一个循环 (2 倍速), 与普通那台同一 tick 开工
-            BlockPos radiantPos = mainPos.south(4);
+            // 摆在本格结构清场够得着、又不与邻格清场重叠的地方 (相对主格 x[-1,+2]、z[-3,+2]): 清场范围外的台子连同方块实体
+            // 跨轮留在存档里, 上一轮若断在取消制作之前, 这一轮读回来的就是还在 "制作中" 的旧实体, 选口径会被拒。
+            BlockPos radiantPos = mainPos.north(2).east();
             BlockState radiantState = ModMunitionsBlocks.MUNITIONS_BENCH_RADIANT.get().defaultBlockState()
                     .setValue(MunitionsBenchBlock.FACING, Direction.NORTH)
                     .setValue(MunitionsBenchBlock.LAYOUT, MunitionsBenchBlock.Layout.WIDE);
@@ -851,7 +860,9 @@ public final class MunitionsGameTests {
 
             // LEGACY 老台子 (没有运动件, 在主格中上方出声): 冲压音同样跟着程序时间按档位变快, 闪耀的 LEGACY 与 WIDE 同一个 5 + 20n
             // (拍板的是 "冲压音 = 起点 + 该档冲压时刻 + 该档循环 × n", 不分布局; 这一台把这个选择钉住)。副格在它南面 (LEGACY = 朝向的反面)。
-            BlockPos legacyPos = mainPos.west(3);
+            // 位置同样落在本格清场范围内 (理由见闪耀那台), 与另外三台互不相邻; 副格让开主格西北角那一格:
+            // 用例失败时框架会在那里放讲台, 压在上面的半台被顶掉, 整台连料一起撒出来。
+            BlockPos legacyPos = mainPos.north(3).west();
             BlockState legacyState = ModMunitionsBlocks.MUNITIONS_BENCH_RADIANT.get().defaultBlockState()
                     .setValue(MunitionsBenchBlock.FACING, Direction.NORTH)
                     .setValue(MunitionsBenchBlock.LAYOUT, MunitionsBenchBlock.Layout.LEGACY_DEPTH);
@@ -2282,17 +2293,24 @@ public final class MunitionsGameTests {
                 .setValue(MunitionsBenchBlock.ACTIVE, false);
         BlockPos extensionPos = MunitionsBenchBlock.extensionPos(mainPos, mainState);
 
-        placeBenchPair(level, mainPos, extensionPos, mainState);
-        level.destroyBlock(extensionPos, true);
-        assertBenchRemoved(helper, level, mainPos, extensionPos, "extension-first destruction");
-        assertSingleBenchDrop(helper, level, mainPos, extensionPos, "extension-first destruction");
+        // 进场先清一次: 取样盒在副格一侧比结构清场多探出一格, 上一轮停在盒里的同种掉落物不清掉会被数成本次拆出来的。
         clearBenchDrops(level, mainPos, extensionPos);
+        try {
+            placeBenchPair(level, mainPos, extensionPos, mainState);
+            level.destroyBlock(extensionPos, true);
+            assertBenchRemoved(helper, level, mainPos, extensionPos, "extension-first destruction");
+            assertSingleBenchDrop(helper, level, mainPos, extensionPos, "extension-first destruction");
+            clearBenchDrops(level, mainPos, extensionPos);
 
-        placeBenchPair(level, mainPos, extensionPos, mainState);
-        level.destroyBlock(mainPos, true);
-        assertBenchRemoved(helper, level, mainPos, extensionPos, "main-first destruction");
-        assertSingleBenchDrop(helper, level, mainPos, extensionPos, "main-first destruction");
-        helper.succeed();
+            placeBenchPair(level, mainPos, extensionPos, mainState);
+            level.destroyBlock(mainPos, true);
+            assertBenchRemoved(helper, level, mainPos, extensionPos, "main-first destruction");
+            assertSingleBenchDrop(helper, level, mainPos, extensionPos, "main-first destruction");
+            helper.succeed();
+        } finally {
+            // 第二次拆出来的那一个没人收, 留在原地就是下一轮同一格的残留。
+            clearBenchDrops(level, mainPos, extensionPos);
+        }
     }
 
     private static void placeBenchPair(ServerLevel level, BlockPos mainPos, BlockPos extensionPos,
@@ -2578,44 +2596,50 @@ public final class MunitionsGameTests {
                                 .isEmpty()
                         && beUnknownSize.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_OUTPUT).isEmpty(),
                 "inventory shape must be reset to empty current-layout slots after an unknown slot count");
-        beUnknownSize.serverTick();
-        AABB unknownSizeDropBox = new AABB(beUnknownSize.getBlockPos()).inflate(2.0D);
-        List<ItemEntity> unknownSizeDrops =
-                helper.getLevel().getEntitiesOfClass(ItemEntity.class, unknownSizeDropBox);
-        helper.assertTrue(unknownSizeDrops.size() == 1 && unknownSizeDrops.get(0).getItem().getCount() == 5
-                        && unknownSizeDrops.get(0).getItem().is(Items.IRON_INGOT),
-                "the unknown-shape inventory's only stack (5 iron ingots) must be queued for drop, not vanished");
-        // newBench 固定用 (0,1,0), 第二段场景的方块会摆在同一个绝对坐标: 先把这批掉落物清场, 不然第二段的
-        // dropBox 查询 (同一位置) 会把这批铁锭也算进去, 误判超栈溢出份数。
-        unknownSizeDrops.forEach(net.minecraft.world.entity.Entity::discard);
+        // 只认本用例吐出来的掉落物: 盒里可能躺着上一轮的残留 (清场那一刻该区块的实体还没读完盘就漏掉了), 也可能是
+        // 别的用例留下的, 按绝对数量数会把它们算进去。两段场景的台子在同一个绝对坐标, 取样盒相同, 共用这一条基线。
+        AABB dropBox = new AABB(beUnknownSize.getBlockPos()).inflate(2.0D);
+        EntityBaseline<ItemEntity> dropBaseline =
+                EntityBaseline.capture(helper.getLevel(), ItemEntity.class, dropBox);
+        try {
+            beUnknownSize.serverTick();
+            List<ItemEntity> unknownSizeDrops = dropBaseline.fresh();
+            helper.assertTrue(unknownSizeDrops.size() == 1 && unknownSizeDrops.get(0).getItem().getCount() == 5
+                            && unknownSizeDrops.get(0).getItem().is(Items.IRON_INGOT),
+                    "the unknown-shape inventory's only stack (5 iron ingots) must be queued for drop, not vanished");
+            // newBench 固定用 (0,1,0), 第二段场景的方块会摆在同一个绝对坐标: 先把这批掉落物清场, 不然第二段的
+            // dropBox 查询 (同一位置) 会把这批铁锭也算进去, 误判超栈溢出份数。
+            unknownSizeDrops.forEach(net.minecraft.world.entity.Entity::discard);
 
-        // 旧档输出槽超栈 (100 > 底火单栈上限 64) 必须按上限落槽 + 余量排队掉落, 不能在 load() 里抛出丢整台。
-        MunitionsBenchBlockEntity beOversizedOutput = newBench(helper, player);
-        UUID oversizedOutputOwner = beOversizedOutput.owner();
-        ItemStackHandler oversizedOutputFixture = new ItemStackHandler(4);
-        oversizedOutputFixture.setStackInSlot(3, new ItemStack(ModMunitionsItems.PRIMER.get(), 100));
-        net.minecraft.nbt.CompoundTag oversizedOutputTag = beOversizedOutput.saveWithoutMetadata();
-        oversizedOutputTag.put("Inv", oversizedOutputFixture.serializeNBT());
-        beOversizedOutput.load(oversizedOutputTag); // 必须不抛。
-        helper.assertTrue(oversizedOutputOwner != null && oversizedOutputOwner.equals(beOversizedOutput.owner()),
-                "an oversized legacy output stack must not wipe the owner (BE must survive)");
-        ItemStack settledOutput =
-                beOversizedOutput.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_OUTPUT);
-        helper.assertTrue(settledOutput.is(ModMunitionsItems.PRIMER.get()) && settledOutput.getCount() == 64,
-                "legacy output is clamped to the item's own stack limit (64), got " + settledOutput);
-        beOversizedOutput.serverTick();
-        AABB oversizedOutputDropBox = new AABB(beOversizedOutput.getBlockPos()).inflate(2.0D);
-        List<ItemEntity> oversizedOutputDrops =
-                helper.getLevel().getEntitiesOfClass(ItemEntity.class, oversizedOutputDropBox);
-        int overflowTotal = 0;
-        for (ItemEntity entity : oversizedOutputDrops) {
-            helper.assertTrue(entity.getItem().is(ModMunitionsItems.PRIMER.get()),
-                    "unexpected overflow drop item " + entity.getItem());
-            overflowTotal += entity.getItem().getCount();
+            // 旧档输出槽超栈 (100 > 底火单栈上限 64) 必须按上限落槽 + 余量排队掉落, 不能在 load() 里抛出丢整台。
+            MunitionsBenchBlockEntity beOversizedOutput = newBench(helper, player);
+            UUID oversizedOutputOwner = beOversizedOutput.owner();
+            ItemStackHandler oversizedOutputFixture = new ItemStackHandler(4);
+            oversizedOutputFixture.setStackInSlot(3, new ItemStack(ModMunitionsItems.PRIMER.get(), 100));
+            net.minecraft.nbt.CompoundTag oversizedOutputTag = beOversizedOutput.saveWithoutMetadata();
+            oversizedOutputTag.put("Inv", oversizedOutputFixture.serializeNBT());
+            beOversizedOutput.load(oversizedOutputTag); // 必须不抛。
+            helper.assertTrue(oversizedOutputOwner != null && oversizedOutputOwner.equals(beOversizedOutput.owner()),
+                    "an oversized legacy output stack must not wipe the owner (BE must survive)");
+            ItemStack settledOutput =
+                    beOversizedOutput.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_OUTPUT);
+            helper.assertTrue(settledOutput.is(ModMunitionsItems.PRIMER.get()) && settledOutput.getCount() == 64,
+                    "legacy output is clamped to the item's own stack limit (64), got " + settledOutput);
+            beOversizedOutput.serverTick();
+            List<ItemEntity> oversizedOutputDrops = dropBaseline.fresh();
+            int overflowTotal = 0;
+            for (ItemEntity entity : oversizedOutputDrops) {
+                helper.assertTrue(entity.getItem().is(ModMunitionsItems.PRIMER.get()),
+                        "unexpected overflow drop item " + entity.getItem());
+                overflowTotal += entity.getItem().getCount();
+            }
+            helper.assertTrue(overflowTotal == 36,
+                    "the 36-round overflow (100 - 64 clamped) must be queued for drop, got " + overflowTotal);
+            helper.succeed();
+        } finally {
+            // 第二段吐出来的 36 发底火 (以及断言中途失败时还没清的铁锭) 不收走, 就是下一轮同一格的残留。
+            dropBaseline.discardFresh();
         }
-        helper.assertTrue(overflowTotal == 36,
-                "the 36-round overflow (100 - 64 clamped) must be queued for drop, got " + overflowTotal);
-        helper.succeed();
     }
 
     /**
@@ -2649,27 +2673,36 @@ public final class MunitionsGameTests {
                         && be.inventory().getStackInSlot(MunitionsBenchBlockEntity.SLOT_BULLET_HEAD).isEmpty(),
                 "type-unknown legacy slots 0/1 (copper/gunpowder) must NOT leak into any new input slot");
 
-        be.serverTick(); // 冲掉待掉落队列。
-
+        // 只认这次冲出来的掉落物: 盒里可能躺着上一轮的残留 (清场那一刻该区块的实体还没读完盘就漏掉了), 也可能是
+        // 别的用例留下的, 按绝对数量数会把它们算进去。
         AABB dropBox = new AABB(be.getBlockPos()).inflate(2.0D);
-        List<ItemEntity> drops = helper.getLevel().getEntitiesOfClass(ItemEntity.class, dropBox);
-        helper.assertTrue(drops.size() == 2,
-                "exactly 2 legacy stacks (copper ingot + gunpowder) are queued for drop, got " + drops.size());
-        int copperCount = 0;
-        int gunpowderCount = 0;
-        for (ItemEntity entity : drops) {
-            ItemStack stack = entity.getItem();
-            if (stack.is(Items.COPPER_INGOT)) {
-                copperCount += stack.getCount();
-            } else if (stack.is(Items.GUNPOWDER)) {
-                gunpowderCount += stack.getCount();
-            } else {
-                helper.fail("unexpected legacy drop item " + stack);
+        EntityBaseline<ItemEntity> dropBaseline =
+                EntityBaseline.capture(helper.getLevel(), ItemEntity.class, dropBox);
+        try {
+            be.serverTick(); // 冲掉待掉落队列。
+
+            List<ItemEntity> drops = dropBaseline.fresh();
+            helper.assertTrue(drops.size() == 2,
+                    "exactly 2 legacy stacks (copper ingot + gunpowder) are queued for drop, got " + drops.size());
+            int copperCount = 0;
+            int gunpowderCount = 0;
+            for (ItemEntity entity : drops) {
+                ItemStack stack = entity.getItem();
+                if (stack.is(Items.COPPER_INGOT)) {
+                    copperCount += stack.getCount();
+                } else if (stack.is(Items.GUNPOWDER)) {
+                    gunpowderCount += stack.getCount();
+                } else {
+                    helper.fail("unexpected legacy drop item " + stack);
+                }
             }
+            helper.assertTrue(copperCount == 7, "dropped copper ingots must total exactly 7, got " + copperCount);
+            helper.assertTrue(gunpowderCount == 16, "dropped gunpowder must total exactly 16, got " + gunpowderCount);
+            helper.succeed();
+        } finally {
+            // 吐出来的铜锭和火药不收走, 就是下一轮同一格的残留。
+            dropBaseline.discardFresh();
         }
-        helper.assertTrue(copperCount == 7, "dropped copper ingots must total exactly 7, got " + copperCount);
-        helper.assertTrue(gunpowderCount == 16, "dropped gunpowder must total exactly 16, got " + gunpowderCount);
-        helper.succeed();
     }
 
     /**
@@ -2956,9 +2989,15 @@ public final class MunitionsGameTests {
 
             // 模拟 ForgeHooks.onPlaceItemIntoWorld 取消放置后回滚快照的那个窗口: 此时的 setBlock(AIR) 与真实
             // 破坏走的是同一个 LevelChunk.setBlockState -> oldState.onRemove 路径。
+            // 标志位挂在全进程共用的主世界上: setBlock 一旦抛出而没放回, 此后所有用例的方块掉落与台数回收都会被跳过,
+            // 所以记下进来时的值, 在 finally 里原样放回。
+            boolean wasRestoringSnapshots = level.restoringBlockSnapshots;
             level.restoringBlockSnapshots = true;
-            level.setBlock(benchPos, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 3);
-            level.restoringBlockSnapshots = false;
+            try {
+                level.setBlock(benchPos, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 3);
+            } finally {
+                level.restoringBlockSnapshots = wasRestoringSnapshots;
+            }
 
             helper.assertTrue(savedData.benchCount(owner.getUUID()) == 1,
                     "a block update during snapshot restore (cancelled placement rollback) must NOT decrement "

@@ -30,6 +30,7 @@ import net.minecraftforge.gametest.PrefixGameTestTemplate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -389,13 +390,15 @@ public final class MarriageWebUiGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void wedChargesBothHalvesAndReportsEngineOutcomeCodes(GameTestHelper helper) {
-        WalletEconomy economy = new WalletEconomy();
-        IEconomyService previous = swapEconomy(economy);
+        // 意向表与 mock 玩家先备好再换经济门面: 造玩家会同步派发进服事件, 那一步若在换上替身之后、进 try 之前抛出,
+        // 替身就永久留在定位器里, 之后所有要真实经济门面的批都跟着红。
         MarriageProposals table = proposals();
         ServerPlayer a = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         ServerPlayer b = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         ServerPlayer c = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         ServerPlayer d = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        WalletEconomy economy = new WalletEconomy();
+        IEconomyService previous = swapEconomy(economy);
         try {
             ServerLevel overworld = helper.getLevel().getServer().overworld();
             MarriageRegistry registry = MarriageRegistry.get(overworld);
@@ -469,12 +472,13 @@ public final class MarriageWebUiGameTests {
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void wedRefusesToGuessWhenTwoAcceptedProposalsExist(GameTestHelper helper) {
-        WalletEconomy economy = new WalletEconomy();
-        IEconomyService previous = swapEconomy(economy);
+        // 同上一条: 意向表与 mock 玩家先备好, 换经济门面的下一行就进 try。
         MarriageProposals table = proposals();
         ServerPlayer me = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         ServerPlayer suitorOne = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         ServerPlayer suitorTwo = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        WalletEconomy economy = new WalletEconomy();
+        IEconomyService previous = swapEconomy(economy);
         try {
             economy.setCredit(me, 1_000_000L);
             economy.setCredit(suitorOne, 1_000_000L);
@@ -524,6 +528,7 @@ public final class MarriageWebUiGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void divorceDissolvesOnceChargesOnceAndReportsTheNewCooldown(GameTestHelper helper) {
         WalletEconomy economy = new WalletEconomy();
+        Set<Long> pendingBefore = MarriageGameTests.pendingDivorceIds(helper);
         IEconomyService previous = swapEconomy(economy);
         try {
             ServerLevel overworld = helper.getLevel().getServer().overworld();
@@ -571,8 +576,10 @@ public final class MarriageWebUiGameTests {
                     "重复提交同样不许把次数推高 (关系压根还没到期解除)");
 
             // 到期结算: finalizeMatured 传入的判定基准精确踩在 filedTick + escrowTicks 这个 >= 边界值上。
-            int settledCount = new MarriageDivorce(overworld, MarriageWebUiActions.sessions())
-                    .finalizeMatured(filedTick + escrowTicks);
+            // 别的用例或上一轮存档留下的到期 pending 会被同一次扫描顺带结算, 经共用辅助扣掉后只数本用例这一对。
+            int settledCount = MarriageGameTests.finalizeMaturedCountingOwn(
+                    new MarriageDivorce(overworld, MarriageWebUiActions.sessions()), registry, a.getUUID(),
+                    filedTick + escrowTicks);
             helper.assertTrue(settledCount == 1, "到期扫描本次必须恰好结算这一对, 实得 " + settledCount);
             helper.assertTrue(registry.forPlayer(a.getUUID()) == null && registry.forPlayer(b.getUUID()) == null,
                     "到期结算后关系必须从 Registry 双向解除");
@@ -590,6 +597,7 @@ public final class MarriageWebUiGameTests {
             helper.succeed();
         } finally {
             restoreEconomy(previous);
+            MarriageGameTests.clearPendingDivorcesFiledSince(helper, pendingBefore);
         }
     }
 
@@ -605,6 +613,7 @@ public final class MarriageWebUiGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void marriageStatePendingDivorceFieldIsNullExceptDuringThePublicNoticeWindow(GameTestHelper helper) {
         WalletEconomy economy = new WalletEconomy();
+        Set<Long> pendingBefore = MarriageGameTests.pendingDivorceIds(helper);
         IEconomyService previous = swapEconomy(economy);
         try {
             ServerLevel overworld = helper.getLevel().getServer().overworld();
@@ -639,10 +648,11 @@ public final class MarriageWebUiGameTests {
                             && bPending.get("effectiveAtTick").getAsLong() == filedTick + escrowTicks,
                     "配偶一侧 (没提交的那一方) 读到的必须是同一条公示期状态, 不是各自一份, 实得 " + bPending);
 
-            MarriageRegistry.get(overworld).forPlayer(a.getUUID()).clearPendingDivorce();
             helper.succeed();
         } finally {
             restoreEconomy(previous);
+            // 本用例提交的公示期在这里撤: 写在 try 末尾的话, 中途任一断言失败它就留在全局关系表里了。
+            MarriageGameTests.clearPendingDivorcesFiledSince(helper, pendingBefore);
         }
     }
 
@@ -659,13 +669,15 @@ public final class MarriageWebUiGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void sharedInvStaysReadableWhilePendingDivorceFreezesTheState(GameTestHelper helper) {
         WalletEconomy economy = new WalletEconomy();
+        Set<Long> pendingBefore = MarriageGameTests.pendingDivorceIds(helper);
+        MarriageState married = null;
         IEconomyService previous = swapEconomy(economy);
         try {
             ServerLevel overworld = helper.getLevel().getServer().overworld();
             ServerPlayer a = richMock(helper, economy);
             ServerPlayer b = richMock(helper, economy);
             long marriageId = wedPair(overworld, a, b);
-            MarriageState married = MarriageRegistry.get(overworld).byId(marriageId);
+            married = MarriageRegistry.get(overworld).byId(marriageId);
             married.sharedInv().set(0, new ItemStack(Items.GOLD_INGOT, 5));
 
             JsonObject filed = handle(helper, DIVORCE, a, new JsonObject());
@@ -685,11 +697,14 @@ public final class MarriageWebUiGameTests {
                             && gold.get("count").getAsInt() == 5,
                     "读到的必须是冻结前放入的那件, 槽位/物品/数量不许被冻结逻辑改动, 实得 " + gold);
 
-            married.sharedInv().set(0, ItemStack.EMPTY);
-            married.clearPendingDivorce();
             helper.succeed();
         } finally {
             restoreEconomy(previous);
+            // 槽 0 的金锭与本用例提交的公示期都是这段关系的持久数据, 中途断言失败也要收走, 故放这里而不是 try 末尾。
+            if (married != null) {
+                married.sharedInv().set(0, ItemStack.EMPTY);
+            }
+            MarriageGameTests.clearPendingDivorcesFiledSince(helper, pendingBefore);
         }
     }
 

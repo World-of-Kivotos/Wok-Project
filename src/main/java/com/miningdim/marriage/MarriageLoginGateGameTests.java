@@ -46,6 +46,8 @@ public final class MarriageLoginGateGameTests {
     private static final String LOGIN_UNAVAILABLE_KEY = "message.miningdim.login_gate.unavailable";
     private static final String FILED_NOTIFY_KEY = "message.miningdim.marriage.divorce.filed_notify";
     private static final String CLAIMS_DELIVERED_KEY = "message.miningdim.marriage.divorce.claims_delivered";
+    /** divorceNoticeAndClaimsWaitForLogin 的超时上限, 也是它超时出口的触发拍; 两处必须同值, 故收成一个常量。 */
+    private static final int NOTICE_TIMEOUT_TICKS = 100;
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void weddingRingDoesNothingBeforeLogin(GameTestHelper helper) {
@@ -93,45 +95,63 @@ public final class MarriageLoginGateGameTests {
      * 登录确认巡检触发 MarriageSystem 注册的监听器 -> 通知与清算物此刻送达。把 deliverClaims 或知情通知挪回
      * onPlayerLoggedIn, 或删掉 MarriageSystem.register 里那行监听器注册, 都会挂。
      */
-    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 100)
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH,
+            timeoutTicks = NOTICE_TIMEOUT_TICKS)
     public static void divorceNoticeAndClaimsWaitForLogin(GameTestHelper helper) {
         ServerPlayer spouse = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         ServerLevel overworld = spouse.getServer().overworld();
         UUID initiator = UUID.randomUUID();
         MarriageRegistry registry = MarriageRegistry.get(overworld);
         MarriageState state = registry.createMarriage(initiator, spouse.getUUID(), overworld.getGameTime());
-        state.beginPendingDivorce(initiator, overworld.getGameTime(), 0L);
-        registry.setDirty();
-        IMiningPlayerData data = MiningCapabilities.get(spouse).orElseThrow();
-        data.setMarriageId(state.marriageId());
-        data.setSpouseUUID(initiator);
-        MarriageHistory.get(overworld).queueSettlementClaim(spouse.getUUID(), new ItemStack(Items.DIAMOND, 3));
-        EmbeddedChannel channel = (EmbeddedChannel) spouse.connection.connection.channel();
-        drainChatKeys(channel);
-
-        try (PlayerLoginGate.ForcedVerdict ignored =
-                     PlayerLoginGate.forceVerdictForTest(spouse.getUUID(), PlayerLoginGate.Verdict.NOT_LOGGED_IN)) {
-            MinecraftForge.EVENT_BUS.post(new PlayerEvent.PlayerLoggedInEvent(spouse));
-            List<String> keys = drainChatKeys(channel);
-            helper.assertTrue(!keys.contains(FILED_NOTIFY_KEY) && !keys.contains(CLAIMS_DELIVERED_KEY),
-                    "a connection that has not passed the login gate must not be told about the divorce, got " + keys);
-            helper.assertTrue(spouse.getInventory().countItem(Items.DIAMOND) == 0,
-                    "settlement items must stay queued until the login is confirmed, have "
-                            + spouse.getInventory().countItem(Items.DIAMOND));
-        }
-
-        List<String> keys = new ArrayList<>();
-        helper.succeedWhen(() -> {
-            keys.addAll(drainChatKeys(channel));
-            helper.assertTrue(keys.contains(FILED_NOTIFY_KEY) && keys.contains(CLAIMS_DELIVERED_KEY),
-                    "once the login is confirmed the divorce notice and the claims notice must arrive, got " + keys);
-            helper.assertTrue(spouse.getInventory().countItem(Items.DIAMOND) == 3,
-                    "once the login is confirmed the queued settlement items must be delivered, have "
-                            + spouse.getInventory().countItem(Items.DIAMOND));
-            // 收尾: 撤掉这桩测试婚姻, 不把一条悬着的公示期留给后面的到期扫描。
+        // 这桩测试婚姻、它的公示期与待领取的钻石都落在 overworld 存档里。回收只挂在成功回调上的话, 用例失败或超时时
+        // 它们会留给后面批次的到期扫描, 并随 run/world 进下一轮, 故另备下面两条不依赖成功的出口。
+        Runnable discardTestMarriage = () -> {
             registry.dissolve(state.marriageId());
+            MarriageHistory.get(overworld).takeSettlementClaims(spouse.getUUID());
+        };
+        // 超时出口: 框架在 tick 超过 timeoutTicks 时才判超时, 同一 tick 里定时任务又先于判定执行, 所以排在
+        // timeoutTicks 这一拍必定赶在超时之前; 用例已经成功则框架不再 tick 它, 这条不会再跑。
+        helper.runAtTickTime(NOTICE_TIMEOUT_TICKS, discardTestMarriage);
+        try {
+            state.beginPendingDivorce(initiator, overworld.getGameTime(), 0L);
             registry.setDirty();
-        });
+            IMiningPlayerData data = MiningCapabilities.get(spouse).orElseThrow();
+            data.setMarriageId(state.marriageId());
+            data.setSpouseUUID(initiator);
+            MarriageHistory.get(overworld).queueSettlementClaim(spouse.getUUID(), new ItemStack(Items.DIAMOND, 3));
+            EmbeddedChannel channel = (EmbeddedChannel) spouse.connection.connection.channel();
+            drainChatKeys(channel);
+
+            try (PlayerLoginGate.ForcedVerdict ignored =
+                         PlayerLoginGate.forceVerdictForTest(spouse.getUUID(), PlayerLoginGate.Verdict.NOT_LOGGED_IN)) {
+                MinecraftForge.EVENT_BUS.post(new PlayerEvent.PlayerLoggedInEvent(spouse));
+                List<String> keys = drainChatKeys(channel);
+                helper.assertTrue(!keys.contains(FILED_NOTIFY_KEY) && !keys.contains(CLAIMS_DELIVERED_KEY),
+                        "a connection that has not passed the login gate must not be told about the divorce, got "
+                                + keys);
+                helper.assertTrue(spouse.getInventory().countItem(Items.DIAMOND) == 0,
+                        "settlement items must stay queued until the login is confirmed, have "
+                                + spouse.getInventory().countItem(Items.DIAMOND));
+            }
+
+            List<String> keys = new ArrayList<>();
+            helper.succeedWhen(() -> {
+                keys.addAll(drainChatKeys(channel));
+                helper.assertTrue(keys.contains(FILED_NOTIFY_KEY) && keys.contains(CLAIMS_DELIVERED_KEY),
+                        "once the login is confirmed the divorce notice and the claims notice must arrive, got "
+                                + keys);
+                helper.assertTrue(spouse.getInventory().countItem(Items.DIAMOND) == 3,
+                        "once the login is confirmed the queued settlement items must be delivered, have "
+                                + spouse.getInventory().countItem(Items.DIAMOND));
+                // 收尾: 撤掉这桩测试婚姻, 不把一条悬着的公示期留给后面的到期扫描。
+                registry.dissolve(state.marriageId());
+                registry.setDirty();
+            });
+        } catch (RuntimeException failure) {
+            // 同步段出口: 这里一抛框架当场判负, 之后不再 tick 本用例, 上面那条定时任务跑不到。
+            discardTestMarriage.run();
+            throw failure;
+        }
     }
 
     /**

@@ -20,7 +20,9 @@ import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -384,6 +386,7 @@ public final class MarriageGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void remarryBlockedWithinCooldownAllowedAfter(GameTestHelper helper) {
         LedgerEconomy eco = new LedgerEconomy();
+        Set<Long> pendingBefore = pendingDivorceIds(helper);
         IEconomyService prev = swapEconomy(eco);
         try {
             ServerLevel overworld = helper.getLevel().getServer().overworld();
@@ -403,7 +406,8 @@ public final class MarriageGameTests {
             MarriageDivorce.Filing filing = divorce.file(a, MARRIAGE_DIVORCE_COST);
             helper.assertTrue(filing.result() == MarriageDivorce.Result.OK,
                     "divorce filing succeeds for a married initiator");
-            int settledCount = divorce.finalizeMatured(filedTick + MarriageTuning.divorceEscrowTicks());
+            int settledCount = finalizeMaturedCountingOwn(divorce, registry, a.getUUID(),
+                    filedTick + MarriageTuning.divorceEscrowTicks());
             helper.assertTrue(settledCount == 1,
                     "finalizeMatured settles exactly the filed divorce once its escrow window matures");
             helper.assertTrue(registry.forPlayer(a.getUUID()) == null && registry.forPlayer(b.getUUID()) == null,
@@ -435,6 +439,7 @@ public final class MarriageGameTests {
             helper.succeed();
         } finally {
             restoreEconomy(prev);
+            clearPendingDivorcesFiledSince(helper, pendingBefore);
         }
     }
 
@@ -449,6 +454,7 @@ public final class MarriageGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void divorceFilingOpensEscrowWithoutDissolvingUntilMatured(GameTestHelper helper) {
         LedgerEconomy eco = new LedgerEconomy();
+        Set<Long> pendingBefore = pendingDivorceIds(helper);
         IEconomyService prev = swapEconomy(eco);
         try {
             ServerLevel overworld = helper.getLevel().getServer().overworld();
@@ -484,11 +490,12 @@ public final class MarriageGameTests {
                     "the repeated filing does not charge a second time");
 
             long escrowTicks = MarriageTuning.divorceEscrowTicks();
-            int tooEarly = divorce.finalizeMatured(filedTick + escrowTicks - 1L);
+            int tooEarly = finalizeMaturedCountingOwn(divorce, registry, a.getUUID(),
+                    filedTick + escrowTicks - 1L);
             helper.assertTrue(tooEarly == 0, "finalizeMatured settles nothing one tick before maturity");
             helper.assertTrue(registry.forPlayer(a.getUUID()) != null, "still married one tick before maturity");
 
-            int settled = divorce.finalizeMatured(filedTick + escrowTicks);
+            int settled = finalizeMaturedCountingOwn(divorce, registry, a.getUUID(), filedTick + escrowTicks);
             helper.assertTrue(settled == 1, "finalizeMatured settles exactly the one matured divorce");
             helper.assertTrue(registry.forPlayer(a.getUUID()) == null && registry.forPlayer(b.getUUID()) == null,
                     "both partners are unmarried once escrow matures");
@@ -498,6 +505,7 @@ public final class MarriageGameTests {
             helper.succeed();
         } finally {
             restoreEconomy(prev);
+            clearPendingDivorcesFiledSince(helper, pendingBefore);
         }
     }
 
@@ -508,6 +516,7 @@ public final class MarriageGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void divorceCancelRefundsFullyAndKeepsMarriageIntact(GameTestHelper helper) {
         LedgerEconomy eco = new LedgerEconomy();
+        Set<Long> pendingBefore = pendingDivorceIds(helper);
         IEconomyService prev = swapEconomy(eco);
         try {
             ServerLevel overworld = helper.getLevel().getServer().overworld();
@@ -533,7 +542,8 @@ public final class MarriageGameTests {
 
             // 撤回后关系存续: 即使推进到远超原公示期的 tick, finalizeMatured 也无 pending 可结。
             long escrowTicks = MarriageTuning.divorceEscrowTicks();
-            int settledAfterCancel = divorce.finalizeMatured(filedTick + escrowTicks * 10L);
+            int settledAfterCancel = finalizeMaturedCountingOwn(divorce, registry, a.getUUID(),
+                    filedTick + escrowTicks * 10L);
             helper.assertTrue(settledAfterCancel == 0,
                     "finalizeMatured settles nothing once the pending divorce was cancelled");
             helper.assertTrue(registry.forPlayer(a.getUUID()) != null && registry.forPlayer(b.getUUID()) != null,
@@ -562,6 +572,7 @@ public final class MarriageGameTests {
             helper.succeed();
         } finally {
             restoreEconomy(prev);
+            clearPendingDivorcesFiledSince(helper, pendingBefore);
         }
     }
 
@@ -573,6 +584,7 @@ public final class MarriageGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void divorceCancelWithZeroCostDoesNotThrowAndClearsPending(GameTestHelper helper) {
         LedgerEconomy eco = new LedgerEconomy();
+        Set<Long> pendingBefore = pendingDivorceIds(helper);
         IEconomyService prev = swapEconomy(eco);
         try {
             ServerLevel overworld = helper.getLevel().getServer().overworld();
@@ -601,6 +613,7 @@ public final class MarriageGameTests {
             helper.succeed();
         } finally {
             restoreEconomy(prev);
+            clearPendingDivorcesFiledSince(helper, pendingBefore);
         }
     }
 
@@ -610,6 +623,7 @@ public final class MarriageGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void divorceConfirmBySpouseDissolvesImmediately(GameTestHelper helper) {
         LedgerEconomy eco = new LedgerEconomy();
+        Set<Long> pendingBefore = pendingDivorceIds(helper);
         IEconomyService prev = swapEconomy(eco);
         try {
             ServerLevel overworld = helper.getLevel().getServer().overworld();
@@ -637,6 +651,7 @@ public final class MarriageGameTests {
             helper.succeed();
         } finally {
             restoreEconomy(prev);
+            clearPendingDivorcesFiledSince(helper, pendingBefore);
         }
     }
 
@@ -651,6 +666,7 @@ public final class MarriageGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void divorceSettlementReturnsSharedBackpackContentsToTheirDepositor(GameTestHelper helper) {
         LedgerEconomy eco = new LedgerEconomy();
+        Set<Long> pendingBefore = pendingDivorceIds(helper);
         IEconomyService prev = swapEconomy(eco);
         try {
             ServerLevel overworld = helper.getLevel().getServer().overworld();
@@ -679,7 +695,8 @@ public final class MarriageGameTests {
             long filedTick = overworld.getGameTime();
             MarriageDivorce.Filing filing = divorce.file(a, MARRIAGE_DIVORCE_COST);
             helper.assertTrue(filing.result() == MarriageDivorce.Result.OK, "filing succeeds");
-            int settled = divorce.finalizeMatured(filedTick + MarriageTuning.divorceEscrowTicks());
+            int settled = finalizeMaturedCountingOwn(divorce, registry, a.getUUID(),
+                    filedTick + MarriageTuning.divorceEscrowTicks());
             helper.assertTrue(settled == 1, "the divorce settles once escrow matures");
 
             // a/b 是注册在 playerList 里的在线 mock 玩家, MarriageDivorce.settle -> finalizeParty -> deliverClaims
@@ -702,6 +719,7 @@ public final class MarriageGameTests {
             helper.succeed();
         } finally {
             restoreEconomy(prev);
+            clearPendingDivorcesFiledSince(helper, pendingBefore);
         }
     }
 
@@ -778,6 +796,7 @@ public final class MarriageGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void divorceSettlementSplitsUnattributedSlotsDeterministicallyByParity(GameTestHelper helper) {
         LedgerEconomy eco = new LedgerEconomy();
+        Set<Long> pendingBefore = pendingDivorceIds(helper);
         IEconomyService prev = swapEconomy(eco);
         try {
             ServerLevel overworld = helper.getLevel().getServer().overworld();
@@ -797,7 +816,8 @@ public final class MarriageGameTests {
             MarriageDivorce divorce = new MarriageDivorce(overworld, new MarriageBackpackSessions());
             long filedTick = overworld.getGameTime();
             divorce.file(a, MARRIAGE_DIVORCE_COST);
-            int settled = divorce.finalizeMatured(filedTick + MarriageTuning.divorceEscrowTicks());
+            int settled = finalizeMaturedCountingOwn(divorce, registry, a.getUUID(),
+                    filedTick + MarriageTuning.divorceEscrowTicks());
             helper.assertTrue(settled == 1, "the divorce settles once escrow matures");
 
             // 同上一条测试: a/b 在线, 结算已把待领取物直接下发进背包, 断言看背包而不是已排空的 history 表。
@@ -815,6 +835,7 @@ public final class MarriageGameTests {
             helper.succeed();
         } finally {
             restoreEconomy(prev);
+            clearPendingDivorcesFiledSince(helper, pendingBefore);
         }
     }
 
@@ -880,6 +901,7 @@ public final class MarriageGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void sharedBackpackFreezesDuringDivorceEscrowAndThawsOnCancel(GameTestHelper helper) {
         LedgerEconomy eco = new LedgerEconomy();
+        Set<Long> pendingBefore = pendingDivorceIds(helper);
         IEconomyService prev = swapEconomy(eco);
         try {
             ServerLevel overworld = helper.getLevel().getServer().overworld();
@@ -907,6 +929,7 @@ public final class MarriageGameTests {
             helper.succeed();
         } finally {
             restoreEconomy(prev);
+            clearPendingDivorcesFiledSince(helper, pendingBefore);
         }
     }
 
@@ -1161,6 +1184,56 @@ public final class MarriageGameTests {
             }
         }
         return total;
+    }
+
+    /**
+     * 调 {@link MarriageDivorce#finalizeMatured}, 返回值里只留本用例这段婚姻的结算数。
+     *
+     * finalizeMatured 扫的是 overworld 存档里的整张关系表, 不按 marriageId 过滤: 别的用例失败后留下的、或上一轮
+     * run/world 带进来的到期 pending 会被同一次扫描顺带结算, 把"恰好结算 1 条"读成 2。这里先按同一条到期判据数出
+     * 不含 ownPartner 的关系里有几条会被带走, 再从返回值里扣掉, 调用方的期望值因此只描述自己那段婚姻。
+     * 包内可见: MarriageWebUiGameTests 的到期结算断言共用同一份口径。
+     */
+    static int finalizeMaturedCountingOwn(MarriageDivorce divorce, MarriageRegistry registry,
+                                          UUID ownPartner, long nowTick) {
+        long escrowTicks = MarriageTuning.divorceEscrowTicks();
+        int othersDue = 0;
+        for (MarriageState other : registry.all()) {
+            if (!other.involves(ownPartner) && other.hasPendingDivorce()
+                    && nowTick - other.pendingDivorceFiledTick() >= escrowTicks) {
+                othersDue++;
+            }
+        }
+        return divorce.finalizeMatured(nowTick) - othersDue;
+    }
+
+    /** 此刻已悬着公示期的关系 id; 在提交离婚之前取, 配 {@link #clearPendingDivorcesFiledSince} 用。 */
+    static Set<Long> pendingDivorceIds(GameTestHelper helper) {
+        Set<Long> ids = new HashSet<>();
+        for (MarriageState state : MarriageRegistry.get(helper.getLevel().getServer().overworld()).all()) {
+            if (state.hasPendingDivorce()) {
+                ids.add(state.marriageId());
+            }
+        }
+        return ids;
+    }
+
+    /**
+     * 撤掉本用例提交后还悬着的公示期 (放 finally)。
+     *
+     * 用例在提交离婚之后、撤回或结算之前断言失败时, 那条 pending 会留在全局关系表里: 同批后面的到期扫描会把它一并
+     * 结算, 它还会随 run/world 落盘进下一轮。调用方 (本类与 MarriageWebUiGameTests) 的用例都在一个 tick 内同步跑完,
+     * 进门快照之外新出现的 pending 只可能是本用例提交的; 快照里原有的不是本用例的, 不动。只清 pending 态, 关系本身
+     * 照旧 (同撤回)。
+     */
+    static void clearPendingDivorcesFiledSince(GameTestHelper helper, Set<Long> pendingBefore) {
+        MarriageRegistry registry = MarriageRegistry.get(helper.getLevel().getServer().overworld());
+        for (MarriageState state : registry.all()) {
+            if (state.hasPendingDivorce() && !pendingBefore.contains(state.marriageId())) {
+                state.clearPendingDivorce();
+                registry.setDirty();
+            }
+        }
     }
 
     private static IEconomyService swapEconomy(IEconomyService fake) {

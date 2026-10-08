@@ -66,8 +66,7 @@ import java.util.Set;
  * <ul>
  *   <li>register: 注册 miningdim-district.toml ({@link DistrictConfig}, enabled 默认 false); 向派发器登记 26 条动作
  *       (须排在 WebUiServerSubsystem 之后); 在 hub.panels 登记自管区入口的门 (功能 LIVE 才下发); RegisterCommandsEvent
- *       注册 /district 命令; 装上聊天通知的投递 gate (22.12: 本分支只在验证身份的服务器上上线即发, 离线模式下
- *       留在队列里)。</li>
+ *       注册 /district 命令; 装上聊天通知的投递 gate (22.12: 接在登录门上, 登录确认之后才发)。</li>
  *   <li>ServerStarting: enabled 为假 → 功能 OFF, 不绑定服务、不碰 Flan。否则建仓储; 库里缺 district_notice 表时直接
  *       降级 (22.19); 选网关 ({@link GatewaySelector}:
  *       记录型只限 GameTest 服务端 → 没装 Flan / 版本不符 / 自检不过 → Disabled (DEGRADED) → 真网关 (LIVE)), 绑定
@@ -75,8 +74,8 @@ import java.util.Set;
  *       开服备份, 然后才做别的事。</li>
  *   <li>ServerStarted: 见过的玩家回填 (只做一次)、补收停服期间到期的冻结地块; LIVE 时安排开服对账。</li>
  *   <li>ServerStopping: 解除绑定, 功能状态复位; 连接由存储子系统在 ServerStopped 关闭, 此处不碰。</li>
- *   <li>登录 / 登出: 记见过的玩家表, 首次登录补写待生效的住户与朋友 (排着的通知一并换键); 然后交给通知 gate, 登录确认
- *       之后补发离线期间的聊天通知 (22.10–22.12)。数据库失败只记 ERROR, 不能打断登录。</li>
+ *   <li>登录确认 (不是进服): 记见过的玩家表, 首次登录补写待生效的住户与朋友 (排着的通知一并换键), 然后补发离线期间
+ *       的聊天通知 (22.10–22.12)。登出: 刷新见过的玩家表里的最后在线时间。数据库失败只记 ERROR, 不能打断登录。</li>
  *   <li>ServerTick END: 每 1200 tick 收回一次到期的冻结地块、重建一次空间索引、清一次过期通知 (每小时至多一次); LIVE 时
  *       推进对账 (每 6000 tick 起一轮, 每 tick 限时 2 ms)。</li>
  *   <li>OnDatapackSyncEvent (玩家为 null = 整服 /reload): 作废 Flan 权限表缓存。</li>
@@ -157,8 +156,6 @@ public final class DistrictSystem implements Subsystem {
         if (live) {
             startupBackups(ctx);
         }
-        // 登录门的接缝 (22.12): 合并之后还装着默认 gate 记 ERROR; 离线模式的服务器上通知一条都不发, 记 WARN。
-        NoticeDeliveryGates.checkWiring(server);
     }
 
     /** 通知队列的表名。 */
@@ -311,14 +308,7 @@ public final class DistrictSystem implements Subsystem {
             return;
         }
         try {
-            DistrictServices.context().firstLogin().onLogin(player.getUUID(), player.getGameProfile().getName());
-        } catch (RuntimeException failure) {
-            // 登录是生命周期边界: 数据库失败只让这名玩家本次不补写, 不能把登录流程一起打断。
-            LOGGER.error("[miningdim] district login bookkeeping failed for {}", player.getGameProfile().getName(),
-                    failure);
-        }
-        try {
-            // 在首次登录补写 (含通知换键) 之后: 登录门的 gate 在这里什么都不做, 等登录确认再调 onLoginConfirmed (22.12)。
+            // 进服这一刻什么都不记: 登录门的 gate 在这里不做事, 等登录确认再调 onLoginConfirmed (22.12)。
             NoticeDeliveryGates.current().onPlayerJoined(player);
         } catch (RuntimeException failure) {
             LOGGER.error("[miningdim] district notice gate failed at login of {}", player.getGameProfile().getName(),
@@ -327,13 +317,25 @@ public final class DistrictSystem implements Subsystem {
     }
 
     /**
-     * 这名玩家可以看私人内容了 (22.12, 经 {@link NoticeDeliveryGates} 登记的回调): 上线补发排着的通知, 然后给 OP 发
-     * "机械动力防护不完整"(22.7) 与"个人圈地限制没有生效"(22.20) 的红字 (不入队)。功能 OFF 时什么都不做; 各段各自接住
-     * 异常, 不影响登录与别的监听者。
+     * 这名玩家的身份确认了 (22.12, 经 {@link NoticeDeliveryGates} 登记的回调): 先记见过的玩家表、补写待生效的住户与朋友
+     * (排着的通知一并换键), 再补发排着的通知, 最后给 OP 发"机械动力防护不完整"(22.7) 与"个人圈地限制没有生效"(22.20)
+     * 的红字 (不入队)。功能 OFF 时什么都不做; 各段各自接住异常, 不影响登录与别的监听者。
+     *
+     * <p>首次登录补写放在这里而不是进服事件里: 不做正版验证的服务器上, 任何人都能用名单里某个名字的另一种大小写连进来
+     * (离线 UUID 按名字原样大小写算, 是另一个 UUID), 没通过 /login 就走到进服事件。在那里补写, 待生效的名单行、区务长与
+     * 朋友行会被换键到一个无人能登录的 UUID 上, 见过的玩家表也会把按名字的解析带偏。单人、局域网、没装 AccessHub 的
+     * 服务器上登录门进服当场确认, 时机与原来相同。补写本身幂等, 管理员重置后重复确认无害。
      */
     static void onLoginConfirmed(ServerPlayer player) {
         if (!DistrictServices.isRegistered()) {
             return;
+        }
+        try {
+            DistrictServices.context().firstLogin().onLogin(player.getUUID(), player.getGameProfile().getName());
+        } catch (RuntimeException failure) {
+            // 数据库失败只让这名玩家本次不补写, 不能把登录确认的其余监听者一起打断。
+            LOGGER.error("[miningdim] district login bookkeeping failed for {}", player.getGameProfile().getName(),
+                    failure);
         }
         DistrictNotices.deliverPendingOnLogin(player);
         try {

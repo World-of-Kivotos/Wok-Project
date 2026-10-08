@@ -778,24 +778,9 @@ public final class DistrictNoticeGameTests {
         helper.succeed();
     }
 
-    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void loginGateSeamIsWiredWhenPresent(GameTestHelper helper) {
-        boolean loginGatePresent = NoticeDeliveryGates.loginGatePresent();
-        NoticeDeliveryGate current = NoticeDeliveryGates.current();
-        if (loginGatePresent) {
-            helper.assertTrue(!(current instanceof DefaultNoticeGate),
-                    "合并提醒 (22.12): 登录门 PlayerLoginGate 已在, 通知却仍是上线即发; 按 22.12 的清单装上按登录确认判定的 "
-                            + "gate");
-        } else {
-            helper.assertTrue(current instanceof DefaultNoticeGate,
-                    "本分支没有登录门: 装的应是 DefaultNoticeGate, 实为 " + current.getClass().getName());
-        }
-        helper.succeed();
-    }
-
     /**
-     * 生产装的 gate 接在真登录门上 (22.12 合并清单第 6 条): 没通过登录门的连接进服、以及进服之后提交的通知都不发, 行留着;
-     * 判定翻为放行之后由登录门自己的逐 tick 巡检触发补发。
+     * 生产装的 gate 接在真登录门上 (22.12 合并清单第 6 条): 没通过登录门的连接进服时不记见过的玩家表、不补写待生效的
+     * 名单行, 进服时与进服之后提交的通知都不发, 行留着; 判定翻为放行之后由登录门自己的逐 tick 巡检触发补写与补发。
      *
      * 独占一个 batch: 夹具把测试 context 挂在进程级的 DistrictServices 上, 这条用例要跨 tick 等巡检, 不能与同 batch
      * 里别的用例交错。到点仍没等到也先收夹具再失败, 不把测试 context 留给后面的 batch。
@@ -824,10 +809,15 @@ public final class DistrictNoticeGameTests {
                     PlayerLoginGate.Verdict.NOT_LOGGED_IN)) {
                 waiting[0] = onlinePlayer(helper, "Nt_Lg_Wait");
                 helper.assertTrue(drain(waiting[0]).isEmpty(), "没通过登录门: 进服时不补发");
+                helper.assertTrue(env.repo.seenByUuid(uuidOf("Nt_Lg_Wait")).isEmpty(),
+                        "没通过登录门: 不记见过的玩家表 (否则按名字的解析会被未认证的连接带偏)");
+                helper.assertTrue(env.member("Nt_Lg_Wait").syncStatus() == ResidentSyncStatus.PENDING,
+                        "没通过登录门: 待生效的名单行不补写, 实为 " + env.member("Nt_Lg_Wait").syncStatus());
                 env.resident(ABYDOS, "Nt_Lg_Owner");
                 String plot = env.plot(ABYDOS, 10, 10, 25, 25);
                 env.own(plot, "Nt_Lg_Owner");
-                env.ctx.plotOwners().addFriend(player("Nt_Lg_Owner"), ABYDOS, plot, "Nt_Lg_Wait", false);
+                // 见过的玩家表里还没有他 (上面刚断言过), 所以按"没进过服也加"走。
+                env.ctx.plotOwners().addFriend(player("Nt_Lg_Owner"), ABYDOS, plot, "Nt_Lg_Wait", true);
                 helper.assertTrue(drain(waiting[0]).isEmpty(), "没通过登录门: 提交后的即时投递也不发");
                 helper.assertTrue(env.repo.countNotices(uuidOf("Nt_Lg_Wait")) == 2, "两行都留在队列里, 实为 "
                         + env.repo.countNotices(uuidOf("Nt_Lg_Wait")));
@@ -847,11 +837,14 @@ public final class DistrictNoticeGameTests {
             }
             boolean arrived = delivered.equals(expected);
             boolean queueEmpty = !cleaned[0] && env.repo.countNotices(uuidOf("Nt_Lg_Wait")) == 0;
+            boolean activated = !cleaned[0] && env.repo.seenByUuid(uuidOf("Nt_Lg_Wait")).isPresent()
+                    && env.member("Nt_Lg_Wait").syncStatus() == ResidentSyncStatus.SYNCED;
             if (arrived || ++ticksWaited[0] >= LOGIN_GATE_WAIT_TICKS) {
                 cleanup.run();
             }
             helper.assertTrue(arrived, "登录确认之后应按发生顺序补发 " + expected + ", 实为 " + delivered);
             helper.assertTrue(queueEmpty, "补发之后行已删");
+            helper.assertTrue(activated, "登录确认之后记了见过的玩家表, 名单行也补写完成");
         });
     }
 

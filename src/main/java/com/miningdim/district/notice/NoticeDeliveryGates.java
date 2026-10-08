@@ -1,11 +1,8 @@
 package com.miningdim.district.notice;
 
 import net.minecraft.gametest.framework.GameTestServer;
-import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.server.ServerLifecycleHooks;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -15,8 +12,6 @@ import java.util.function.Consumer;
  * 变化 (登录门的监听者也只登记一次, 停服不清)。没装之前是一个回调为空的 {@link DefaultNoticeGate}。
  */
 public final class NoticeDeliveryGates {
-
-    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/district");
 
     private static volatile NoticeDeliveryGate current = new DefaultNoticeGate();
     private static volatile Consumer<ServerPlayer> callback = player -> {
@@ -36,42 +31,6 @@ public final class NoticeDeliveryGates {
 
     public static NoticeDeliveryGate current() {
         return current;
-    }
-
-    /** 登录门 (PR #72) 的类名: 两个分支合并之后才存在。 */
-    public static final String LOGIN_GATE_CLASS = "com.miningdim.core.auth.PlayerLoginGate";
-
-    /** 类路径上有没有登录门 (只加载、不初始化)。 */
-    public static boolean loginGatePresent() {
-        try {
-            Class.forName(LOGIN_GATE_CLASS, false, NoticeDeliveryGates.class.getClassLoader());
-            return true;
-        } catch (ClassNotFoundException | LinkageError absent) {
-            return false;
-        }
-    }
-
-    /**
-     * 开服检查 (功能打开时, DistrictSystem.onServerStarting): 装着的还是 {@link DefaultNoticeGate} 时,
-     * <ul>
-     *   <li>登录门的类已经在 (两个分支合并了, 却没按 22.12 换 gate) → ERROR;</li>
-     *   <li>服务器不做正版验证、也没有登录门 → WARN: 通知一条都不发, 留在队列里 (最多 30 天)。</li>
-     * </ul>
-     */
-    public static void checkWiring(MinecraftServer server) {
-        if (!(current instanceof DefaultNoticeGate)) {
-            return;
-        }
-        if (loginGatePresent()) {
-            LOGGER.error("[miningdim] district chat notices still use DefaultNoticeGate although {} is on the "
-                    + "classpath: install the login-confirmed gate as described in District_Backend_Design.md 22.12",
-                    LOGIN_GATE_CLASS);
-        }
-        if (!DefaultNoticeGate.verifiesIdentity(server)) {
-            LOGGER.warn("[miningdim] district chat notices are HELD BACK: this server does not use online-mode "
-                    + "authentication and the login gate (PR #72) is not installed. Notices stay queued for up to 30 "
-                    + "days and are delivered once the login gate is merged (District_Backend_Design.md 22.12)");
-        }
     }
 
     /**

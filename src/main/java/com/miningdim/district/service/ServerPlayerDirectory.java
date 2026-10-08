@@ -1,5 +1,6 @@
 package com.miningdim.district.service;
 
+import com.miningdim.core.auth.PlayerLoginGate;
 import com.miningdim.district.core.DistrictTexts;
 import com.miningdim.district.core.SeenPlayer;
 import com.miningdim.district.store.DistrictRepository;
@@ -21,7 +22,7 @@ import java.util.function.Predicate;
 /**
  * {@link PlayerDirectory} 的服务端实现, 按顺序查:
  * <ol>
- *   <li>在线玩家 (不分大小写) -&gt; 取 GameProfile 的规范名与 UUID;</li>
+ *   <li>已通过登录门的在线玩家 (不分大小写) -&gt; 取 GameProfile 的规范名与 UUID;</li>
  *   <li>见过的玩家表 (按小写名, 多行时取最后在线最新的);</li>
  *   <li>旧存档兜底: playerdata/&lt;离线UUID(输入)&gt;.dat 存在 -&gt; 进过服, 规范名就是输入 (离线 UUID 由名字原样大小写算出,
  *       文件存在就说明大小写正确), 并顺手补一行 backfill;</li>
@@ -49,8 +50,10 @@ public final class ServerPlayerDirectory implements PlayerDirectory {
     public static ServerPlayerDirectory forServer(MinecraftServer server, DistrictRepository repo, LongSupplier clock) {
         Path playerData = server.getWorldPath(LevelResource.PLAYER_DATA_DIR);
         return new ServerPlayerDirectory(repo, name -> {
+            // getPlayerByName 不分大小写, 也包含还没通过登录门的连接: 不做正版验证的服务器上, 那样的连接可以顶着
+            // 别人名字的另一种大小写在线, 不能把它当成这个名字的规范身份。
             ServerPlayer online = server.getPlayerList().getPlayerByName(name);
-            return online == null ? null : online.getGameProfile();
+            return online == null || !PlayerLoginGate.allows(online) ? null : online.getGameProfile();
         }, uuid -> Files.isRegularFile(playerData.resolve(uuid + ".dat")), clock);
     }
 

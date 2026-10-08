@@ -15,9 +15,8 @@ import java.util.function.Predicate;
  * <ul>
  *   <li>"身份已验证" 默认 = 服务器开着正版验证 ({@link MinecraftServer#usesAuthentication()}: 单人存档、局域网、正版服),
  *       或者是 GameTest 服务端 (mock 玩家没有真实身份可言)。</li>
- *   <li>不做正版验证的服务器 (整合包用 AccessHub 的 /login 确认身份) 上, 身份要等登录确认之后才算数。所以在登录门
- *       (PR #72) 合入之前, 这样的服务器上一条都不发: 行留在队列里 (30 天), 开服记一条 WARN
- *       ({@link NoticeDeliveryGates#checkWiring})。合入之后按 22.12 换成按"登录已确认"判定的 gate。</li>
+ *   <li>不做正版验证的服务器 (整合包用 AccessHub 的 /login 确认身份) 上, 身份要等登录确认之后才算数, 这个实现在
+ *       那里一条都不发: 行留在队列里 (30 天)。</li>
  *   <li>{@code onPlayerJoined}: 身份已验证就当场调回调 (上线即发), 否则什么都不做。</li>
  * </ul>
  */
@@ -43,7 +42,7 @@ public final class DefaultNoticeGate implements NoticeDeliveryGate {
         return server != null && verifiesIdentity(server);
     }
 
-    /** 这台服务器上默认 gate 放不放行 (开服检查也用它)。 */
+    /** 这台服务器上这个 gate 放不放行。 */
     public static boolean verifiesIdentity(MinecraftServer server) {
         return server.usesAuthentication() || server instanceof GameTestServer;
     }

@@ -35,8 +35,8 @@ import java.util.UUID;
  *   <li>玩家子命令 mine / wear 与 custom preview / set / info 对所有玩家开放 (只要求执行者是玩家),
  *       custom 的预览与提交在执行时再由服务端判断赞助资格。</li>
  * </ul>
- * grant / revoke / list 的玩家参数用 GameProfile, 离线玩家 (用户缓存里查得到的) 同样可以补发与回收;
- * equip 要刷新在线显示, 只接受在线玩家。称号 id 的补全候选: 管理员子命令取当前已加载的定义, wear 取执行者
+ * grant / revoke / list 的玩家参数用 GameProfile, 目标由 {@link TitleCommandTargets} 解析, 进过服的离线玩家同样可以
+ * 补发与回收; equip 要刷新在线显示, 只接受在线玩家。称号 id 的补全候选: 管理员子命令取当前已加载的定义, wear 取执行者
  * 自己拥有的称号。管理员对普通称号的每次变更写管理日志 (miningdim/title/admin), 与经济管理命令同口径;
  * 赞助与专属称号的变更由服务层统一写审计日志 (miningdim/title/custom)。
  */
@@ -111,7 +111,7 @@ public final class TitleCommands {
 
     private static int grant(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         CommandSourceStack source = context.getSource();
-        Collection<GameProfile> targets = GameProfileArgument.getGameProfiles(context, "targets");
+        Collection<GameProfile> targets = TitleCommandTargets.resolve(context, "targets");
         ResourceLocation titleId = ResourceLocationArgument.getId(context, "title");
         ITitleService titles = serviceOrFail(source);
         if (titles == null) {
@@ -145,7 +145,7 @@ public final class TitleCommands {
 
     private static int revoke(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         CommandSourceStack source = context.getSource();
-        Collection<GameProfile> targets = GameProfileArgument.getGameProfiles(context, "targets");
+        Collection<GameProfile> targets = TitleCommandTargets.resolve(context, "targets");
         ResourceLocation titleId = ResourceLocationArgument.getId(context, "title");
         ITitleService titles = serviceOrFail(source);
         if (titles == null) {
@@ -175,7 +175,7 @@ public final class TitleCommands {
 
     private static int list(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         CommandSourceStack source = context.getSource();
-        Collection<GameProfile> targets = GameProfileArgument.getGameProfiles(context, "targets");
+        Collection<GameProfile> targets = TitleCommandTargets.resolve(context, "targets");
         ITitleService titles = serviceOrFail(source);
         if (titles == null) {
             return 0;

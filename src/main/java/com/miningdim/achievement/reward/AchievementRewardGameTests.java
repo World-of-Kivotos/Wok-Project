@@ -430,8 +430,8 @@ public final class AchievementRewardGameTests {
         try {
             ServerPlayer player = env.player("ach-rw-cmd");
             UUID uuid = player.getUUID();
-            // GameTest 服务端没有用户缓存, 原版 GameProfileArgument 按裸名字解析会 NPE; 用选择器指向在线的 mock 玩家,
-            // 走的仍是同一个参数类型与同一条命令执行路径。
+            // 用选择器指向在线的 mock 玩家: 走的仍是同一个参数类型与同一条命令执行路径 (按玩家名指定的各种情形由
+            // 称号模块的 TitleCommandTargets 用例覆盖)。
             String target = "@a[name=" + player.getGameProfile().getName() + "]";
             CommandDispatcher<CommandSourceStack> dispatcher = env.server.getCommands().getDispatcher();
             CapturingSource playerOut = new CapturingSource();

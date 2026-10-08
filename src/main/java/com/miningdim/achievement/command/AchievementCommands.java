@@ -9,6 +9,7 @@ import com.miningdim.achievement.reward.AchievementRewardService;
 import com.miningdim.achievement.reward.AchievementRewardText;
 import com.miningdim.achievement.reward.ClaimResult;
 import com.miningdim.achievement.reward.PointBalance;
+import com.miningdim.title.TitleCommandTargets;
 import com.mojang.authlib.GameProfile;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
@@ -42,7 +43,8 @@ import java.util.stream.Collectors;
  *       进度 id 的补全候选取执行者自己的待领取奖励); 不带玩家参数的 {@code pending}、{@code points} 查看自己的待领取
  *       奖励与成就点。</li>
  *   <li>管理员 (权限等级 2): {@code pending <玩家>}、{@code points <玩家> [add|remove <数量>]}、{@code check}。
- *       玩家参数用 GameProfile, 用户缓存里查得到的离线玩家同样可以查看与调整。调整成就点的流水 reason 记 admin、
+ *       玩家参数用 GameProfile, 目标由 {@link TitleCommandTargets} 解析 (与称号的管理子命令同一套规则), 进过服的
+ *       离线玩家同样可以查看与调整。调整成就点的流水 reason 记 admin、
  *       ref 记执行者名字, 扣点最多扣到 0; 每次调整写管理日志 miningdim/achievement/admin。</li>
  * </ul>
  * 授予或撤销进度本身用原版的 {@code /advancement}, 本命令不重复实现。
@@ -193,7 +195,7 @@ public final class AchievementCommands {
 
     private static int pendingOf(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         CommandSourceStack source = context.getSource();
-        Collection<GameProfile> targets = GameProfileArgument.getGameProfiles(context, "targets");
+        Collection<GameProfile> targets = TitleCommandTargets.resolve(context, "targets");
         for (GameProfile target : targets) {
             List<AchievementReward> pending = AchievementServices.rewards().pending(target.getId());
             source.sendSuccess(() -> Component.translatable(PREFIX + "pending.header", target.getName(),
@@ -225,7 +227,7 @@ public final class AchievementCommands {
 
     private static int pointsOf(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         CommandSourceStack source = context.getSource();
-        Collection<GameProfile> targets = GameProfileArgument.getGameProfiles(context, "targets");
+        Collection<GameProfile> targets = TitleCommandTargets.resolve(context, "targets");
         for (GameProfile target : targets) {
             PointBalance points = AchievementServices.rewards().points(target.getId());
             source.sendSuccess(() -> Component.translatable(PREFIX + "points.show", target.getName(),
@@ -236,7 +238,7 @@ public final class AchievementCommands {
 
     private static int addPoints(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         CommandSourceStack source = context.getSource();
-        Collection<GameProfile> targets = GameProfileArgument.getGameProfiles(context, "targets");
+        Collection<GameProfile> targets = TitleCommandTargets.resolve(context, "targets");
         int amount = IntegerArgumentType.getInteger(context, "amount");
         for (GameProfile target : targets) {
             PointBalance after = AchievementRewardService.addPoints(target.getId(), amount, source.getTextName());
@@ -248,7 +250,7 @@ public final class AchievementCommands {
 
     private static int removePoints(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         CommandSourceStack source = context.getSource();
-        Collection<GameProfile> targets = GameProfileArgument.getGameProfiles(context, "targets");
+        Collection<GameProfile> targets = TitleCommandTargets.resolve(context, "targets");
         int amount = IntegerArgumentType.getInteger(context, "amount");
         int changed = 0;
         for (GameProfile target : targets) {

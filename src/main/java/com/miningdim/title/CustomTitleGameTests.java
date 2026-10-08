@@ -19,6 +19,7 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.util.ReferenceCountUtil;
 import net.minecraft.commands.CommandSource;
 import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.core.UUIDUtil;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
@@ -30,6 +31,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.GsonHelper;
+import net.minecraft.world.level.storage.LevelResource;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 import org.jetbrains.annotations.Nullable;
@@ -39,6 +41,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -50,6 +53,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -87,10 +91,12 @@ import java.util.stream.Collectors;
  *   <li>佩戴与提交修改时自己先做到期检查, 不等巡检;</li>
  *   <li>登录时卸下写库失败留下的失效专属称号由巡检重试;</li>
  *   <li>玩家命令不渲染他人的专属称号、不暴露对方有没有记录, 也不向被锁定的玩家点名执行锁定的管理员;</li>
- *   <li>自助提交关闭 (默认口径): 玩家提交被拒且不落库、预览照常并附可复制参数, 资格发放、未设置、custom info
+ *   <li>自助提交关闭 (默认口径): 玩家提交被拒且不落库、预览照常并附可复制参数, 资格发放、未设置、清空、custom info
  *       的提示都指向"预览后找管理员"而不是 custom set; 管理员代设置后玩家可佩戴, 对没有资格的玩家代设置时提醒
  *       补发资格;</li>
- *   <li>默认违禁词从宽: 不收 OP、GM 这类短词, Shop 之类的正常写法不误伤。</li>
+ *   <li>默认违禁词从宽: 不收 OP、GM 这类短词, Shop 之类的正常写法不误伤;</li>
+ *   <li>管理子命令按玩家名指定目标: 在线玩家不分大小写解析到本人; 不在线且存档里没有玩家数据文件的名字被拒且不落库
+ *       (不再编出一个没人用的离线 UUID); 进过服的离线玩家按原样大小写解析, 大小写不一致同样被拒。</li>
  * </ol>
  */
 @GameTestHolder(MiningConstants.MODID)
@@ -886,8 +892,8 @@ public final class CustomTitleGameTests {
             player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper,
                     new GameProfile(UUID.randomUUID(), "title-cmd-mock"));
             UUID uuid = player.getUUID();
-            // GameTest 服务端没有用户缓存 (getProfileCache() 为 null), 原版 GameProfileArgument 按裸名字解析会 NPE;
-            // 这里用选择器指向在线的 mock 玩家, 走的仍是同一个参数类型与同一条命令执行路径。
+            // 这里用选择器指向在线的 mock 玩家: 选择器这一支仍交给原版 GameProfileArgument, 走的是同一个参数类型与
+            // 同一条命令执行路径。按玩家名指定目标的解析规则另见用例 21 ~ 23。
             String name = "@a[name=" + player.getGameProfile().getName() + "]";
             ResourceLocation customId = CustomTitle.idOf(uuid);
             CommandDispatcher<CommandSourceStack> dispatcher = server.getCommands().getDispatcher();
@@ -1030,7 +1036,8 @@ public final class CustomTitleGameTests {
         for (String key : List.of("title.miningdim.custom.desc", "title.miningdim.custom.invalid.header",
                 "title.miningdim.sponsor.lapsed", "title.miningdim.sponsor.lapsed_unequipped",
                 "title.miningdim.sponsor.granted_permanent_notice", "title.miningdim.sponsor.granted_until_notice",
-                "title.miningdim.custom.admin_set_notice", "title.miningdim.custom.reset_notice")) {
+                "title.miningdim.custom.admin_set_notice", "title.miningdim.custom.reset_notice",
+                "title.miningdim.custom.reset_notice_staff", "title.miningdim.command.unknown_player")) {
             helper.assertTrue(zhKeys.contains(key), "服务端提示缺文案: " + key);
         }
         helper.succeed();
@@ -1353,7 +1360,143 @@ public final class CustomTitleGameTests {
             if (!warnedKeys.contains("title.miningdim.command.custom.admin.not_sponsor_warning")) {
                 problems.add("对没有有效资格的玩家代设置应提醒补发资格, 实为 " + warnedKeys);
             }
+
+            // 清空后的提示同样不能说"可以立即重新设置": 自助提交关着, 玩家自己设置不了。
+            systemChatKeys(channel);
+            CustomAdminResult reset = service.resetCustomTitle(uuid, "op");
+            List<String> resetKeys = systemChatKeys(channel);
+            if (reset != CustomAdminResult.DONE
+                    || !resetKeys.equals(List.of("title.miningdim.custom.reset_notice_staff"))) {
+                problems.add("清空的提示应让玩家预览后找管理员, 不能指向会被拒的 custom set, 实为 " + reset + " " + resetKeys);
+            }
             helper.assertTrue(problems.isEmpty(), "自助提交关闭口径不对: " + problems);
+        } finally {
+            if (player != null) {
+                server.getPlayerList().remove(player);
+            }
+            restoreFacade(previous);
+            MiningDb.close(connection);
+            TempStoreDb.deleteQuietly(dir);
+        }
+        helper.succeed();
+    }
+
+    // ---- 21. 管理子命令按玩家名指定目标: 在线玩家不分大小写 ----
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void adminTargetByNameFindsTheOnlinePlayerWhateverTheCase(GameTestHelper helper) {
+        Path dir = TempStoreDb.createTempDir();
+        Connection connection = TempStoreDb.openUnified(dir.resolve("titles.db"));
+        MinecraftServer server = helper.getLevel().getServer();
+        ITitleService previous = currentFacade();
+        ServerPlayer player = null;
+        try {
+            TitleService service = newService(helper, connection, new AtomicLong(T0));
+            TitleServices.registerTitleService(service);
+            // UUID 随机取: 它与按这个名字 (无论哪种大小写) 派生的离线 UUID 都不同, 记录落在它名下才说明解析到的是
+            // 在线的本人。
+            player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper,
+                    new GameProfile(UUID.randomUUID(), "TitleTgtOnline"));
+            UUID uuid = player.getUUID();
+            CommandDispatcher<CommandSourceStack> dispatcher = server.getCommands().getDispatcher();
+            CapturingSource adminOut = new CapturingSource();
+            CommandSourceStack asAdmin = server.createCommandSourceStack().withSource(adminOut);
+
+            expectCommand(helper, dispatcher, asAdmin, adminOut, "mtitle sponsor grant titletgtonline 30", 1,
+                    "title.miningdim.command.sponsor.granted_until");
+            String expiresAt = column(connection, "title_sponsor", "expires_at", uuid);
+            helper.assertTrue(countRows(connection, "title_sponsor") == 1
+                            && String.valueOf(T0 + 30 * DAY).equals(expiresAt),
+                    "全小写的名字应解析到在线玩家本人, 30 天资格只落在他的 UUID 上, 他名下的到期时间实为 " + expiresAt);
+            expectCommand(helper, dispatcher, asAdmin, adminOut, "mtitle grant TITLETGTONLINE " + GOLD, 1,
+                    "title.miningdim.command.grant.done");
+            String ownedTitle = column(connection, "title_owned", "title_id", uuid);
+            helper.assertTrue(countRows(connection, "title_owned") == 1 && GOLD.toString().equals(ownedTitle),
+                    "全大写的名字同样解析到本人, 称号只落在他的 UUID 上, 他名下的称号实为 " + ownedTitle);
+        } finally {
+            if (player != null) {
+                server.getPlayerList().remove(player);
+            }
+            restoreFacade(previous);
+            MiningDb.close(connection);
+            TempStoreDb.deleteQuietly(dir);
+        }
+        helper.succeed();
+    }
+
+    // ---- 22. 管理子命令按玩家名指定目标: 没进过服的名字被拒 ----
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void adminTargetByNameRejectsNamesThatNeverJoined(GameTestHelper helper) {
+        Path dir = TempStoreDb.createTempDir();
+        Connection connection = TempStoreDb.openUnified(dir.resolve("titles.db"));
+        MinecraftServer server = helper.getLevel().getServer();
+        ITitleService previous = currentFacade();
+        try {
+            TitleServices.registerTitleService(newService(helper, connection, new AtomicLong(T0)));
+            // 没有任何用例拿这个名字登录过: 不在线, 存档里也没有他的玩家数据文件。
+            String ghost = "TitleTgtGhost";
+            helper.assertTrue(!server.usesAuthentication(), "前置: GameTest 服务端不做正版验证, 走的是离线模式这一支");
+            helper.assertTrue(!Files.exists(playerDataFile(server, UUIDUtil.createOfflinePlayerUUID(ghost))),
+                    "前置: 存档里不应有 " + ghost + " 的玩家数据文件");
+            helper.assertTrue(TitleCommandTargets.offlineModeProfile(server, ghost).isEmpty(),
+                    "没进过服的名字不得解析出档案");
+
+            CommandDispatcher<CommandSourceStack> dispatcher = server.getCommands().getDispatcher();
+            CommandSourceStack asAdmin = server.createCommandSourceStack().withSource(new CapturingSource());
+            for (String command : List.of("mtitle sponsor grant " + ghost + " 30", "mtitle grant " + ghost + " " + GOLD,
+                    "mtitle custom admin set " + ghost + " #FFFFFF false 字")) {
+                String rejection = rejectionKey(dispatcher, asAdmin, command);
+                helper.assertTrue("title.miningdim.command.unknown_player".equals(rejection),
+                        "/" + command + " 应按没进过服的玩家拒绝, 实为 " + rejection);
+            }
+            // 交给用户缓存解析时, 这三条命令会照常回显成功, 把记录写到按小写名字编出来的离线 UUID 上。
+            helper.assertTrue(countRows(connection, "title_sponsor") == 0 && countRows(connection, "title_owned") == 0
+                    && countRows(connection, "title_custom") == 0, "被拒的命令不得给任何 UUID 落库");
+        } finally {
+            restoreFacade(previous);
+            MiningDb.close(connection);
+            TempStoreDb.deleteQuietly(dir);
+        }
+        helper.succeed();
+    }
+
+    // ---- 23. 管理子命令按玩家名指定目标: 进过服的离线玩家按原样大小写 ----
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void adminTargetByNameReachesOfflinePlayersByTheirExactName(GameTestHelper helper) {
+        Path dir = TempStoreDb.createTempDir();
+        Connection connection = TempStoreDb.openUnified(dir.resolve("titles.db"));
+        MinecraftServer server = helper.getLevel().getServer();
+        ITitleService previous = currentFacade();
+        ServerPlayer player = null;
+        try {
+            TitleServices.registerTitleService(newService(helper, connection, new AtomicLong(T0)));
+            // 不做正版验证的服务器按名字的原样大小写给玩家派生 UUID。让他进一次服再下线: 原版在下线时写出玩家数据文件。
+            String name = "TitleTgtOffline";
+            UUID uuid = UUIDUtil.createOfflinePlayerUUID(name);
+            player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper, new GameProfile(uuid, name));
+            server.getPlayerList().remove(player);
+            player = null;
+            helper.assertTrue(Files.isRegularFile(playerDataFile(server, uuid)),
+                    "前置: 下线后存档里应有 " + name + " 的玩家数据文件");
+            helper.assertTrue(server.getPlayerList().getPlayerByName(name) == null, "前置: " + name + " 已经不在线");
+
+            GameProfile resolved = TitleCommandTargets.offlineModeProfile(server, name).orElse(null);
+            helper.assertTrue(resolved != null && uuid.equals(resolved.getId()) && name.equals(resolved.getName()),
+                    "进过服的离线玩家应按原样大小写解析到他自己的 UUID, 实为 " + resolved);
+            helper.assertTrue(TitleCommandTargets.offlineModeProfile(server, name.toLowerCase(Locale.ROOT)).isEmpty(),
+                    "大小写与进服时不一致对应的是另一个离线 UUID, 不得解析 (更不能按小写名字编一个出来)");
+
+            CommandDispatcher<CommandSourceStack> dispatcher = server.getCommands().getDispatcher();
+            CapturingSource adminOut = new CapturingSource();
+            CommandSourceStack asAdmin = server.createCommandSourceStack().withSource(adminOut);
+            expectCommand(helper, dispatcher, asAdmin, adminOut, "mtitle sponsor grant " + name + " 30", 1,
+                    "title.miningdim.command.sponsor.granted_until");
+            String expiresAt = column(connection, "title_sponsor", "expires_at", uuid);
+            helper.assertTrue(countRows(connection, "title_sponsor") == 1
+                            && String.valueOf(T0 + 30 * DAY).equals(expiresAt),
+                    "命令应把 30 天资格发到这名离线玩家自己的 UUID 上, 他名下的到期时间实为 " + expiresAt);
         } finally {
             if (player != null) {
                 server.getPlayerList().remove(player);
@@ -1463,6 +1606,27 @@ public final class CustomTitleGameTests {
         } catch (CommandSyntaxException rejected) {
             return null;
         }
+    }
+
+    /**
+     * 执行一条预期在执行期被拒的命令 (不带斜杠), 返回拒绝消息的翻译键; 命令没有抛 CommandSyntaxException, 或消息
+     * 不是翻译文本时返回 null。
+     */
+    @Nullable
+    private static String rejectionKey(CommandDispatcher<CommandSourceStack> dispatcher, CommandSourceStack source,
+                                       String command) {
+        try {
+            dispatcher.execute(command, source);
+            return null;
+        } catch (CommandSyntaxException rejected) {
+            return rejected.getRawMessage() instanceof Component message
+                    && message.getContents() instanceof TranslatableContents translatable ? translatable.getKey() : null;
+        }
+    }
+
+    /** 存档里某个 UUID 的玩家数据文件 (原版在玩家下线时写出)。 */
+    private static Path playerDataFile(MinecraftServer server, UUID player) {
+        return server.getWorldPath(LevelResource.PLAYER_DATA_DIR).resolve(player + ".dat");
     }
 
     /**

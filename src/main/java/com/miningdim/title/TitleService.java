@@ -527,7 +527,9 @@ public final class TitleService implements ITitleService {
             if (unequipped) {
                 refreshDisplay(onlinePlayer);
             }
-            onlinePlayer.sendSystemMessage(Component.translatable("title.miningdim.custom.reset_notice"));
+            // 与 grantSponsor 同口径: 自助提交关闭时 (默认) 玩家不能自己重新设置, 提示改为"预览后发给管理员"。
+            String suffix = customRules.get().selfServiceEnabled() ? "" : "_staff";
+            onlinePlayer.sendSystemMessage(Component.translatable("title.miningdim.custom.reset_notice" + suffix));
         }
         return CustomAdminResult.DONE;
     }

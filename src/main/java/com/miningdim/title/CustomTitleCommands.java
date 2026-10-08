@@ -35,7 +35,8 @@ import java.util.UUID;
  *       {@code sponsor grant <玩家> [天数] | revoke | info <玩家> | list}。</li>
  * </ul>
  * {@code <颜色> <粗体> <文字>} 收在一个贪婪字符串参数里, 由 {@link CustomTitleDraft#parse} 拆分 (理由见该方法)。
- * 玩家参数用 GameProfile, 离线玩家同样可以处置。变更的审计日志由服务层统一写 (miningdim/title/custom)。
+ * 玩家参数用 GameProfile, 目标由 {@link TitleCommandTargets} 解析, 进过服的离线玩家同样可以处置。变更的审计日志由
+ * 服务层统一写 (miningdim/title/custom)。
  */
 final class CustomTitleCommands {
 
@@ -181,7 +182,7 @@ final class CustomTitleCommands {
 
     private static int adminSet(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         CommandSourceStack source = context.getSource();
-        Collection<GameProfile> targets = GameProfileArgument.getGameProfiles(context, "targets");
+        Collection<GameProfile> targets = TitleCommandTargets.resolve(context, "targets");
         ITitleService titles = TitleCommands.serviceOrFail(source);
         if (titles == null) {
             return 0;
@@ -214,7 +215,7 @@ final class CustomTitleCommands {
     private static int adminAction(CommandContext<CommandSourceStack> context, AdminAction action)
             throws CommandSyntaxException {
         CommandSourceStack source = context.getSource();
-        Collection<GameProfile> targets = GameProfileArgument.getGameProfiles(context, "targets");
+        Collection<GameProfile> targets = TitleCommandTargets.resolve(context, "targets");
         ITitleService titles = TitleCommands.serviceOrFail(source);
         if (titles == null) {
             return 0;
@@ -242,7 +243,7 @@ final class CustomTitleCommands {
     private static int sponsorGrant(CommandContext<CommandSourceStack> context, @Nullable Integer days)
             throws CommandSyntaxException {
         CommandSourceStack source = context.getSource();
-        Collection<GameProfile> targets = GameProfileArgument.getGameProfiles(context, "targets");
+        Collection<GameProfile> targets = TitleCommandTargets.resolve(context, "targets");
         ITitleService titles = TitleCommands.serviceOrFail(source);
         if (titles == null) {
             return 0;
@@ -266,7 +267,7 @@ final class CustomTitleCommands {
 
     private static int sponsorRevoke(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         CommandSourceStack source = context.getSource();
-        Collection<GameProfile> targets = GameProfileArgument.getGameProfiles(context, "targets");
+        Collection<GameProfile> targets = TitleCommandTargets.resolve(context, "targets");
         ITitleService titles = TitleCommands.serviceOrFail(source);
         if (titles == null) {
             return 0;
@@ -286,7 +287,7 @@ final class CustomTitleCommands {
 
     private static int sponsorInfo(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         CommandSourceStack source = context.getSource();
-        Collection<GameProfile> targets = GameProfileArgument.getGameProfiles(context, "targets");
+        Collection<GameProfile> targets = TitleCommandTargets.resolve(context, "targets");
         ITitleService titles = TitleCommands.serviceOrFail(source);
         if (titles == null) {
             return 0;

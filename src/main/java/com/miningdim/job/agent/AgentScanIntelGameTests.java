@@ -299,39 +299,43 @@ public final class AgentScanIntelGameTests {
         AgentIntegrationBootstrap.bindSeam();
         ServerPlayer first = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         ServerPlayer second = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        discardStrayChampions(first);
         Map<AffixDef, AffixQuality> affixes = new EnumMap<>(AffixDef.class);
         affixes.put(AffixDef.BURNING, AffixQuality.COMMON);
         LivingEntity champion = spawnChampion(helper, first, 2.0D, 4, affixes);
         LivingEntity summon = spawnChampion(helper, first, 3.0D, 2, affixes);
-        MiningChampions.get(summon).orElseThrow().markSummonedByAffix();
-        helper.assertTrue(!AgentBountySavedData.get(helper.getLevel().getServer().overworld())
-                .isActiveAgent(first.getUUID()), "前提校验: 新号未入职 (发现经验不受入职门约束)");
+        // 断言失败也要回收: 这两只不动、不落、不死, 留下就随 run/world 存盘, 以后每一轮都被当成新目标计进总额。
+        try {
+            MiningChampions.get(summon).orElseThrow().markSummonedByAffix();
+            helper.assertTrue(!AgentBountySavedData.get(helper.getLevel().getServer().overworld())
+                    .isActiveAgent(first.getUUID()), "前提校验: 新号未入职 (发现经验不受入职门约束)");
 
-        long xpBefore = agentXp(first);
-        JsonObject scan = handle(helper, SCAN_ACTION, first);
-        helper.assertTrue(scan.get("discoveryXp").getAsLong() == 4L * AgentDiscoveryXp.XP_PER_STAR
-                        && scan.get("discoveryCount").getAsInt() == 1,
-                "首次扫到 4★ 精英给 4 x 8 = 32 经验, 召唤物不计, 实得 xp=" + scan.get("discoveryXp")
-                        + " count=" + scan.get("discoveryCount"));
-        helper.assertTrue(agentXp(first) - xpBefore == 32L,
-                "经验真的入了特勤职业账 (未入职也照发, F016), 实得增量 " + (agentXp(first) - xpBefore));
-        helper.assertTrue(AgentDiscoveryXp.hasDiscovered(champion, first.getUUID()), "发现记录写在精英自己身上");
-        helper.assertTrue(!AgentDiscoveryXp.hasDiscovered(summon, first.getUUID()),
-                "支援召唤物既不给经验也不登记 (与击杀结算同一道经济闸)");
+            long xpBefore = agentXp(first);
+            JsonObject scan = handle(helper, SCAN_ACTION, first);
+            helper.assertTrue(scan.get("discoveryXp").getAsLong() == 4L * AgentDiscoveryXp.XP_PER_STAR
+                            && scan.get("discoveryCount").getAsInt() == 1,
+                    "首次扫到 4★ 精英给 4 x 8 = 32 经验, 召唤物不计, 实得 xp=" + scan.get("discoveryXp")
+                            + " count=" + scan.get("discoveryCount"));
+            helper.assertTrue(agentXp(first) - xpBefore == 32L,
+                    "经验真的入了特勤职业账 (未入职也照发, F016), 实得增量 " + (agentXp(first) - xpBefore));
+            helper.assertTrue(AgentDiscoveryXp.hasDiscovered(champion, first.getUUID()), "发现记录写在精英自己身上");
+            helper.assertTrue(!AgentDiscoveryXp.hasDiscovered(summon, first.getUUID()),
+                    "支援召唤物既不给经验也不登记 (与击杀结算同一道经济闸)");
 
-        // 同一玩家再扫同一只: 不再给。
-        AgentWebUiActions.rewindPulseForTest(first.getUUID(), 20L * 60L);
-        JsonObject again = handle(helper, SCAN_ACTION, first);
-        helper.assertTrue(again.get("discoveryXp").getAsLong() == 0L && again.get("discoveryCount").getAsInt() == 0,
-                "同一玩家对同一只精英只算一次首次发现, 实得 " + again.get("discoveryXp"));
+            // 同一玩家再扫同一只: 不再给。
+            AgentWebUiActions.rewindPulseForTest(first.getUUID(), 20L * 60L);
+            JsonObject again = handle(helper, SCAN_ACTION, first);
+            helper.assertTrue(again.get("discoveryXp").getAsLong() == 0L && again.get("discoveryCount").getAsInt() == 0,
+                    "同一玩家对同一只精英只算一次首次发现, 实得 " + again.get("discoveryXp"));
 
-        // 另一名玩家扫同一只: 他也是第一次找到, 照给。
-        JsonObject other = handle(helper, SCAN_ACTION, second);
-        helper.assertTrue(other.get("discoveryXp").getAsLong() == 32L,
-                "去重键是 (玩家, 精英), 另一名玩家首次扫到照给 32, 实得 " + other.get("discoveryXp"));
-
-        champion.discard();
-        summon.discard();
+            // 另一名玩家扫同一只: 他也是第一次找到, 照给。
+            JsonObject other = handle(helper, SCAN_ACTION, second);
+            helper.assertTrue(other.get("discoveryXp").getAsLong() == 32L,
+                    "去重键是 (玩家, 精英), 另一名玩家首次扫到照给 32, 实得 " + other.get("discoveryXp"));
+        } finally {
+            champion.discard();
+            summon.discard();
+        }
         helper.succeed();
     }
 
@@ -375,17 +379,37 @@ public final class AgentScanIntelGameTests {
         LivingEntity target = spawnChampion(helper, six, 2.0D, wanted.minStar(), affixes);
         LivingEntity tooLow = spawnChampion(helper, six, -2.0D, 1, affixes);
 
-        JsonArray sixRows = handle(helper, SCAN_ACTION, six).getAsJsonArray("targets");
-        helper.assertTrue(findRow(helper, sixRows, target.getId()).get("bountyTarget").getAsBoolean(),
-                "L6: 达到已接悬赏星级门的目标亮起");
-        helper.assertTrue(!findRow(helper, sixRows, tooLow.getId()).get("bountyTarget").getAsBoolean(),
-                "L6: 星级不够的目标不亮 (是 false 不是 null)");
+        // 不回收就会随 run/world 存盘 (不动、不落、不死), 下一轮被首次发现用例当成新目标一并计入经验总额;
+        // 断言失败时同样要回收。
+        try {
+            JsonArray sixRows = handle(helper, SCAN_ACTION, six).getAsJsonArray("targets");
+            helper.assertTrue(findRow(helper, sixRows, target.getId()).get("bountyTarget").getAsBoolean(),
+                    "L6: 达到已接悬赏星级门的目标亮起");
+            helper.assertTrue(!findRow(helper, sixRows, tooLow.getId()).get("bountyTarget").getAsBoolean(),
+                    "L6: 星级不够的目标不亮 (是 false 不是 null)");
 
-        JsonObject fiveRow = findRow(helper, handle(helper, SCAN_ACTION, five).getAsJsonArray("targets"),
-                target.getId());
-        helper.assertTrue(fiveRow.has("bountyTarget") && fiveRow.get("bountyTarget").isJsonNull(),
-                "L5: 雷达未解锁, 键在、值为 JSON null, 实得 " + fiveRow.get("bountyTarget"));
+            JsonObject fiveRow = findRow(helper, handle(helper, SCAN_ACTION, five).getAsJsonArray("targets"),
+                    target.getId());
+            helper.assertTrue(fiveRow.has("bountyTarget") && fiveRow.get("bountyTarget").isJsonNull(),
+                    "L5: 雷达未解锁, 键在、值为 JSON null, 实得 " + fiveRow.get("bountyTarget"));
+        } finally {
+            target.discard();
+            tooLow.discard();
+        }
         helper.succeed();
+    }
+
+    /**
+     * 清掉扫描球可能覆盖到的遗留盖章精英。run/world 跨轮复用: 以前的轮次或本轮更早的批次只要有一只没回收的精英存进了
+     * 存档, 断言经验总额的用例就会多算。只给独占批次的用例用 —— 批间串行, 此刻没有别的用例在用这些实体。
+     */
+    private static void discardStrayChampions(ServerPlayer near) {
+        // 取最大的定值半径 (L9): L10 在表里是"跨区块"的哨兵 -1, 不是格数。
+        double reach = AgentSkillTable.scanRangeBlocks(AgentSkillTable.MAX_LEVEL - 1);
+        for (LivingEntity stray : near.serverLevel().getEntitiesOfClass(LivingEntity.class,
+                near.getBoundingBox().inflate(reach), MiningChampions::isChampion)) {
+            stray.discard();
+        }
     }
 
     /**

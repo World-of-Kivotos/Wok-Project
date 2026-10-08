@@ -285,7 +285,7 @@ public interface DistrictRepository {
 
     /**
      * 只留某人 keep 条, 其余删掉; 返回删了几行。先删 kind 在 expendableKinds 里的 (最旧的先删), 不够再删别的 (最旧的先删):
-     * 谁都能触发的朋友通知不能挤掉冻结、移出、收回这些要紧的 (设计文档 22.19)。
+     * 谁都能触发的朋友通知不能挤掉冻结、移出、收回这些要紧的 (设计文档 22.19)。expendableKinds 不能为空。
      */
     int deleteOldestNotices(UUID recipient, int keep, Collection<String> expendableKinds);
 

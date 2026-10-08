@@ -1327,9 +1327,12 @@ public final class SqliteDistrictRepository implements DistrictRepository {
     @Override
     public int deleteOldestNotices(UUID recipient, int keep, Collection<String> expendableKinds) {
         List<String> expendable = List.copyOf(expendableKinds);
+        if (expendable.isEmpty()) {
+            // 空集合拼不出合法的优先级项 (ORDER BY 里的整数常量在 SQLite 是结果列序号), 报出来而不是换一种删法。
+            throw new IllegalArgumentException("deleteOldestNotices needs at least one expendable kind");
+        }
         // 留下的: 先按"不是可先删的"排在前, 再按新的在前; 取前 keep 条, 其余删掉。
-        String priority = expendable.isEmpty() ? "0"
-                : "CASE WHEN kind IN (" + placeholders(expendable.size()) + ") THEN 0 ELSE 1 END";
+        String priority = "CASE WHEN kind IN (" + placeholders(expendable.size()) + ") THEN 0 ELSE 1 END";
         return update("trim notices of " + recipient + " to " + keep,
                 "DELETE FROM district_notice WHERE recipient_uuid=? AND id NOT IN (SELECT id FROM district_notice "
                         + "WHERE recipient_uuid=? ORDER BY " + priority + " DESC, id DESC LIMIT ?)",

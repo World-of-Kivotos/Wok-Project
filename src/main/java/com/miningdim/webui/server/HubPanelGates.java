@@ -24,16 +24,12 @@ public final class HubPanelGates {
         GATES.put(panelId, visible);
     }
 
-    /** 这个受门控的面板此刻该不该下发: 没有登记的一律不下发; 门抛异常也按不下发处理。 */
+    /**
+     * 这个受门控的面板此刻该不该下发: 没有登记的一律不下发。门抛的异常不在这里接: 让它冒到派发器的统一兜底去
+     * (那里带堆栈记日志), 不把一个坏掉的门悄悄变成"入口消失"。
+     */
     static boolean visible(String panelId) {
         BooleanSupplier gate = GATES.get(panelId);
-        if (gate == null) {
-            return false;
-        }
-        try {
-            return gate.getAsBoolean();
-        } catch (RuntimeException failure) {
-            return false;
-        }
+        return gate != null && gate.getAsBoolean();
     }
 }

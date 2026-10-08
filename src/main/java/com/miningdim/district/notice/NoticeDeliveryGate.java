@@ -7,11 +7,9 @@ import java.util.function.Consumer;
 /**
  * 什么时候能给玩家看自管区的私人通知 (设计文档 22.12)。
  *
- * <p>本分支的实现是 {@link DefaultNoticeGate} (身份已验证的服务器上上线即发; 离线模式的服务器上一条都不发, 留在队列里)。
- * 登录门分支 (PR #72) 合入之后, 换成一个按
- * {@code com.miningdim.core.auth.PlayerLoginGate} 判定的实现 (22.12 的合并清单): {@code canDeliverNow} =
- * {@code PlayerLoginGate.allows}, {@code install} 登记 {@code PlayerLoginGate.onLoginConfirmed}, {@code onPlayerJoined}
- * 什么都不做。本分支不复制登录门的任何代码。
+ * <p>生产装的是 {@link LoginGateNoticeGate}: 按 {@code com.miningdim.core.auth.PlayerLoginGate} 判定, 登录确认之后才发。
+ * {@link DefaultNoticeGate} (身份已验证的服务器上上线即发; 离线模式的服务器上一条都不发, 留在队列里) 只剩两个用途:
+ * {@code DistrictSystem.register} 装 gate 之前的占位, 以及 GameTest 里核对"不放行"的行为。
  */
 public interface NoticeDeliveryGate {
 

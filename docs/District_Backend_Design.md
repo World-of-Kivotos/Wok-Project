@@ -3946,6 +3946,8 @@ public interface NoticeDeliveryGate {
 6. 照 `MarriageLoginGateGameTests.divorceNoticeAndClaimsWaitForLogin` 补一条用例：在强制的 `NOT_LOGGED_IN` 下派发登录事件，断言什么都没发；再用 `helper.succeedWhen` 等真实 tick 的巡检触发，断言补发了。
 7. 正式服打开 `enabled` 之前，这份清单必须已经做完，并在测试服重跑 23.8 第 12 条（23.10 第 4 条，P35）。
 
+**合并记录（2026-10-07）：** 第 1、2、5、6 条已随两个分支合入 main 的同一批提交做完。`DistrictSystem.register` 现在装的是 `LoginGateNoticeGate`；`DefaultNoticeGate` 只剩装 gate 之前的占位与 GameTest 对照两个用途，上面关于"本分支默认实现"的描述是合并之前的状态。第 6 条补的用例是 `DistrictNoticeGameTests.installedGateHoldsNoticesUntilTheLoginGateConfirms`，独占 batch `district_notices_login_gate`（夹具把测试 context 挂在进程级的 `DistrictServices` 上，跨 tick 等巡检的用例不能与别的用例交错）。第 7 条在测试服上的重跑仍未做。
+
 ### 22.13 界面与文档文案
 
 fixedRules（`PermissionCatalog.FIXED_RULES`，仍是一条，`ruleId` 不变）：

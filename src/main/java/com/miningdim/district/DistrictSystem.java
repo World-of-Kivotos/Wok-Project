@@ -16,8 +16,8 @@ import com.miningdim.district.guard.GuardMixinStatus;
 import com.miningdim.district.guard.GuardSettings;
 import com.miningdim.district.guard.PersonalClaimGuard;
 import com.miningdim.district.guard.create.CreateHookTargets;
-import com.miningdim.district.notice.DefaultNoticeGate;
 import com.miningdim.district.notice.DistrictNotices;
+import com.miningdim.district.notice.LoginGateNoticeGate;
 import com.miningdim.district.notice.NoticeDeliveryGates;
 import com.miningdim.district.service.DistrictContext;
 import com.miningdim.district.service.SeenPlayerBackfill;
@@ -94,9 +94,8 @@ public final class DistrictSystem implements Subsystem {
         forgeBus.register(this);
         // 守卫的 Forge 事件 (22.5、22.6、22.8、22.9): 门面没装 (功能 OFF、GameTest 默认) 时什么都不拦。
         forgeBus.register(GuardEvents.class);
-        // 通知的投递时机 (22.12): 本分支只在验证身份的服务器上上线即发, 离线模式下留在队列里 (fail closed);
-        // 登录门分支合入之后改装按"登录已确认"判定的 gate (见 NoticeDeliveryGate)。
-        NoticeDeliveryGates.install(new DefaultNoticeGate(), DistrictSystem::onLoginConfirmed);
+        // 通知的投递时机 (22.12): 玩家通过登录门之后才发, 没通过之前留在队列里 (见 LoginGateNoticeGate)。
+        NoticeDeliveryGates.install(new LoginGateNoticeGate(), DistrictSystem::onLoginConfirmed);
         DistrictWebUiActions.registerAll();
         HubPanelGates.register("district", DistrictFeature::live);
         LOGGER.info("[miningdim] district subsystem registered (academy rosters, districts, plots, Flan gateway, "
@@ -319,7 +318,7 @@ public final class DistrictSystem implements Subsystem {
                     failure);
         }
         try {
-            // 在首次登录补写 (含通知换键) 之后: 默认 gate 当场调 onLoginConfirmed, 登录门的 gate 等登录确认再调 (22.12)。
+            // 在首次登录补写 (含通知换键) 之后: 登录门的 gate 在这里什么都不做, 等登录确认再调 onLoginConfirmed (22.12)。
             NoticeDeliveryGates.current().onPlayerJoined(player);
         } catch (RuntimeException failure) {
             LOGGER.error("[miningdim] district notice gate failed at login of {}", player.getGameProfile().getName(),

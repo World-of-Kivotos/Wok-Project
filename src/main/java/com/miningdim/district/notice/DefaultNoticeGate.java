@@ -9,7 +9,8 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 /**
- * 本分支的默认投递时机 (设计文档 22.12): <b>身份已验证才发, 否则留在队列里</b> (fail closed)。
+ * 不靠登录门的投递时机 (设计文档 22.12): <b>身份已验证才发, 否则留在队列里</b> (fail closed)。生产已改装
+ * {@link LoginGateNoticeGate}; 这个实现只作装 gate 之前的占位与 GameTest 的对照。
  *
  * <ul>
  *   <li>"身份已验证" 默认 = 服务器开着正版验证 ({@link MinecraftServer#usesAuthentication()}: 单人存档、局域网、正版服),

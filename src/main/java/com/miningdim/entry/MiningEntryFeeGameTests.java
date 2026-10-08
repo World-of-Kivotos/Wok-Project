@@ -18,8 +18,10 @@ import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.economy.SqliteEconomyLedger;
 import com.miningdim.job.JobId;
 import com.miningdim.job.miner.MinerConstants;
+import com.miningdim.network.MiningNetwork;
 import com.miningdim.network.TeleportResultS2C;
 import com.miningdim.testutil.MockGameTestPlayers;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.util.ReferenceCountUtil;
 import net.minecraft.gametest.framework.GameTest;
@@ -66,16 +68,6 @@ public final class MiningEntryFeeGameTests {
     private static final String INSUFFICIENT_ACTIONBAR_KEY =
             "message.miningdim.gate.insufficient_funds_actionbar";
     private static final ResourceLocation MAIN_CHANNEL = new ResourceLocation(MiningConstants.MODID, "main");
-    /**
-     * TeleportResultS2C 在 {@link com.miningdim.network.MiningNetwork#register} 里的注册序号 (SimpleChannel 的
-     * discriminator 就是 registerMessage 的调用次序, 从 0 起)。当前次序: DangerSyncS2C(0) / TeleportResultS2C(1) /
-     * InstanceStatusS2C(2) / JobSyncS2C(3) / C2SWebUiRequest(4) / S2CWebUiResponse(5) / S2CWebUiEvent(6)。
-     *
-     * 这是一处对注册次序的硬耦合: 在 TeleportResultS2C 之前增删任何一个包都会让它错位, 而错位的表现不是报错,
-     * 是 drainFeedbackPackets 一条下行都解不出来、断言以 "observed=[]" 失败 (F087 删掉原本排在 0 位的
-     * SelectZoneC2S 时就撞过一次)。改注册次序时必须同步这个数。
-     */
-    private static final int TELEPORT_RESULT_DISCRIMINATOR = 1;
 
     private MiningEntryFeeGameTests() {
     }
@@ -560,6 +552,7 @@ public final class MiningEntryFeeGameTests {
     }
 
     private static FeedbackPackets drainFeedbackPackets(EmbeddedChannel channel) {
+        int teleportResultDiscriminator = teleportResultDiscriminator();
         List<SystemMessage> systemMessages = new ArrayList<>();
         List<TeleportResultS2C> teleportResults = new ArrayList<>();
         Object outbound;
@@ -575,7 +568,7 @@ public final class MiningEntryFeeGameTests {
                     FriendlyByteBuf copy = new FriendlyByteBuf(payload.getData().copy());
                     try {
                         int discriminator = copy.readVarInt();
-                        if (discriminator == TELEPORT_RESULT_DISCRIMINATOR) {
+                        if (discriminator == teleportResultDiscriminator) {
                             teleportResults.add(TeleportResultS2C.decode(copy));
                         }
                     } finally {
@@ -587,6 +580,24 @@ public final class MiningEntryFeeGameTests {
             }
         }
         return new FeedbackPackets(List.copyOf(systemMessages), List.copyOf(teleportResults));
+    }
+
+    /**
+     * 向真实通道问 TeleportResultS2C 的 discriminator: 编一条探针消息, 取 SimpleChannel 写在包体最前面的那个字节。
+     *
+     * 不写死注册序号: discriminator 就是 {@link MiningNetwork#register} 里 registerMessage 的调用次序, 在
+     * TeleportResultS2C 之前增删任何一个包都会让写死的数错位, 而错位的表现不是报错, 是 drainFeedbackPackets
+     * 一条下行都解不出来、断言以 "observed=[]" 失败 (F087 删掉原本排在 0 位的 SelectZoneC2S 时就撞过一次)。
+     * 探针只写进本地缓冲, 不经过玩家的连接。
+     */
+    private static int teleportResultDiscriminator() {
+        FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
+        try {
+            MiningNetwork.CHANNEL.encodeMessage(new TeleportResultS2C((byte) 0, -1L, -1, ""), buf);
+            return buf.readUnsignedByte();
+        } finally {
+            buf.release();
+        }
     }
 
     private static SystemMessage findMessage(List<SystemMessage> messages, String expectedKey) {

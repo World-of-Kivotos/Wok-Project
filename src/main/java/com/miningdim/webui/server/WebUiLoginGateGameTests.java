@@ -5,9 +5,11 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.core.auth.PlayerLoginGate;
+import com.miningdim.network.MiningNetwork;
 import com.miningdim.network.S2CWebUiEvent;
 import com.miningdim.network.S2CWebUiResponse;
 import com.miningdim.testutil.MockGameTestPlayers;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.util.ReferenceCountUtil;
 import net.minecraft.gametest.framework.GameTest;
@@ -41,17 +43,6 @@ public final class WebUiLoginGateGameTests {
     private static final String BATCH = "webui_login_gate";
 
     private static final ResourceLocation MAIN_CHANNEL = new ResourceLocation(MiningConstants.MODID, "main");
-
-    /**
-     * S2CWebUiResponse 在 MiningNetwork.register 里的注册序号 (SimpleChannel 的 discriminator 就是 registerMessage
-     * 的调用次序): DangerSyncS2C(0) / TeleportResultS2C(1) / InstanceStatusS2C(2) / JobSyncS2C(3) /
-     * C2SWebUiRequest(4) / S2CWebUiResponse(5)。与 MiningEntryFeeGameTests 的同类常量一样是对注册次序的硬耦合,
-     * 错位的症状是一条回执都解不出来。
-     */
-    private static final int WEBUI_RESPONSE_DISCRIMINATOR = 5;
-
-    /** S2CWebUiEvent 紧跟在 S2CWebUiResponse 之后注册 (6), 耦合方式同上。 */
-    private static final int WEBUI_EVENT_DISCRIMINATOR = 6;
 
     /** 每次运行造唯一 action 名, 隔离进程级注册表的跨方法残留。 */
     private static final AtomicInteger NONCE = new AtomicInteger();
@@ -227,6 +218,7 @@ public final class WebUiLoginGateGameTests {
     }
 
     private static List<S2CWebUiResponse> drainResponses(EmbeddedChannel channel) {
+        int responseDiscriminator = discriminatorOf(new S2CWebUiResponse(0L, true, "{}"));
         List<S2CWebUiResponse> responses = new ArrayList<>();
         Object outbound;
         while ((outbound = channel.readOutbound()) != null) {
@@ -235,7 +227,7 @@ public final class WebUiLoginGateGameTests {
                         && MAIN_CHANNEL.equals(payload.getIdentifier())) {
                     FriendlyByteBuf copy = new FriendlyByteBuf(payload.getData().copy());
                     try {
-                        if (copy.readVarInt() == WEBUI_RESPONSE_DISCRIMINATOR) {
+                        if (copy.readVarInt() == responseDiscriminator) {
                             responses.add(S2CWebUiResponse.decode(copy));
                         }
                     } finally {
@@ -251,6 +243,7 @@ public final class WebUiLoginGateGameTests {
 
     /** 取出迄今为止下行的全部 Web UI 事件包的事件名 (回执等其它包一并丢弃)。 */
     private static List<String> drainEventNames(EmbeddedChannel channel) {
+        int eventDiscriminator = discriminatorOf(new S2CWebUiEvent("", "{}"));
         List<String> names = new ArrayList<>();
         Object outbound;
         while ((outbound = channel.readOutbound()) != null) {
@@ -259,7 +252,7 @@ public final class WebUiLoginGateGameTests {
                         && MAIN_CHANNEL.equals(payload.getIdentifier())) {
                     FriendlyByteBuf copy = new FriendlyByteBuf(payload.getData().copy());
                     try {
-                        if (copy.readVarInt() == WEBUI_EVENT_DISCRIMINATOR) {
+                        if (copy.readVarInt() == eventDiscriminator) {
                             names.add(S2CWebUiEvent.decode(copy).eventName());
                         }
                     } finally {
@@ -271,6 +264,23 @@ public final class WebUiLoginGateGameTests {
             }
         }
         return names;
+    }
+
+    /**
+     * 向真实通道问一个包的 discriminator: 编一条探针消息, 取 SimpleChannel 写在包体最前面的那个字节。
+     *
+     * 不写死注册序号: discriminator 就是 {@link MiningNetwork#register} 里 registerMessage 的调用次序, 在目标包
+     * 之前增删任何一个包都会让写死的数错位, 而错位的症状不是报错, 是一条回执、一个事件都解不出来
+     * (MiningEntryFeeGameTests 在 F087 删 SelectZoneC2S 时撞过一次)。探针只写进本地缓冲, 不经过玩家的连接。
+     */
+    private static int discriminatorOf(Object probe) {
+        FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
+        try {
+            MiningNetwork.CHANNEL.encodeMessage(probe, buf);
+            return buf.readUnsignedByte();
+        } finally {
+            buf.release();
+        }
     }
 
     private static EmbeddedChannel channelOf(ServerPlayer player) {

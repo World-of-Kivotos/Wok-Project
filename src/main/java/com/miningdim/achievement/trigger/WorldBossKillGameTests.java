@@ -110,7 +110,8 @@ public final class WorldBossKillGameTests {
                             op.createCommandSourceStack().withPermission(2).withSuppressedOutput(),
                             "mchampion summon minecraft:zombie 10 regen_tissue"),
                     "前提: 普通召唤应成功");
-            List<Mob> found = level.getEntitiesOfClass(Mob.class, AABB.ofSize(at, 8.0D, 4.0D, 8.0D),
+            // 取样盒只罩 summon 的落点 (玩家正前方 2 格, 朝向 0 即 +Z): 罩一大片会数进别处残留的精英。
+            List<Mob> found = level.getEntitiesOfClass(Mob.class, AABB.ofSize(at.add(0.0D, 0.0D, 2.0D), 2.0D, 2.0D, 2.0D),
                     MiningChampions::isChampion);
             spawned.addAll(found);
             helper.assertTrue(found.size() == 1, "前提: 应恰好召唤出一只精英, 实为 " + found.size());

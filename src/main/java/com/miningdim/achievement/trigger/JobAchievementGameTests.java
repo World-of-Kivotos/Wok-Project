@@ -654,9 +654,10 @@ public final class JobAchievementGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void agentSealSeamFiresOnlyOnSuccess(GameTestHelper helper) {
         ServerPlayer agent = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        // helper.spawn 出来的生物是常驻的 (setPersistenceRequired): 不回收就带着 AI 四处游荡并随 run/world 存进下一轮。
+        Zombie champion = helper.spawn(EntityType.ZOMBIE, new BlockPos(1, 2, 1));
         try {
             setLevel(agent, JobId.AGENT, 5);
-            Zombie champion = helper.spawn(EntityType.ZOMBIE, new BlockPos(1, 2, 1));
             Map<AffixDef, AffixQuality> affixes = new EnumMap<>(AffixDef.class);
             affixes.put(AffixDef.BURNING, AffixQuality.COMMON);
             ChampionPromoter.applyChampion(champion, 5, affixes);
@@ -687,6 +688,7 @@ public final class JobAchievementGameTests {
             AgentSealHandler.Result again = AgentSealHandler.requestSeal(agent, champion, "BURNING");
             helper.assertTrue(!again.ok() && seen.size() == 1, "被拒的封印申请不广播");
         } finally {
+            champion.discard();
             removePlayer(helper, agent);
         }
         helper.succeed();

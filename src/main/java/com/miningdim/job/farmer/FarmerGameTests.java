@@ -7,6 +7,7 @@ import com.miningdim.economy.EconomyConstants;
 import com.miningdim.economy.EconomyService;
 import com.miningdim.economy.EconomyServices;
 import com.miningdim.economy.EconomyLedger;
+import com.miningdim.economy.IEconomyService;
 import com.miningdim.economy.SqliteEconomyLedger;
 import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.job.JobId;
@@ -762,6 +763,7 @@ public final class FarmerGameTests {
     public static void sellGrantsCreditsAndDecrementsInventory(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
+        IEconomyService prev = currentEconomy();
         EconomyLedger ledger = registerFreshEconomy();
         // 精通门前置: 卖家须达农夫 SELL_MIN_MASTERY_LEVEL(2)。等级写玩家真实 capability, 不换 JobServices 门面替身 ——
         // 替身只挡得住"读定位器"这一条路径, 生产侧一旦像收获那样改读 FarmerExperience.level 就会绕开它, 用例
@@ -804,7 +806,7 @@ public final class FarmerGameTests {
                     "wallet credit balance reflects the granted 100 via the economy locator");
             helper.succeed();
         } finally {
-            EconomyServices.reset();
+            restoreEconomy(prev);
         }
     }
 
@@ -812,6 +814,7 @@ public final class FarmerGameTests {
     public static void sellWhenEconomyUnregisteredIsOffline(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
+        IEconomyService prev = currentEconomy();
         EconomyServices.reset(); // 确保未注册 (定位器空 -> sell 应判 offline, 不扣不发)。
         try {
             player.getInventory().add(new ItemStack(FarmerItems.FARMER_WHEAT.get(), 10));
@@ -828,7 +831,7 @@ public final class FarmerGameTests {
             helper.assertTrue(kept == 10, "offline sale keeps all 10 wheat in inventory, got " + kept);
             helper.succeed();
         } finally {
-            EconomyServices.reset();
+            restoreEconomy(prev);
         }
     }
 
@@ -840,6 +843,7 @@ public final class FarmerGameTests {
         // 证明它读的是共享 (player,key) 累计计数器而非农夫私有上限, 且系数是主闸的 0.6 几何衰减 (非逐矿 0.97)。
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
+        IEconomyService prev = currentEconomy();
         EconomyLedger ledger = registerFreshEconomy();
         // 精通门前置: 直接把等级写进玩家真实 capability 让卖家过农夫售卖门 (本测聚焦 faucet 共享, 非门控)。
         setFarmerLevel(player, FarmerConstants.SELL_MIN_MASTERY_LEVEL);
@@ -888,7 +892,7 @@ public final class FarmerGameTests {
                             + ledger.balance(player.getUUID(), Currency.CREDIT));
             helper.succeed();
         } finally {
-            EconomyServices.reset();
+            restoreEconomy(prev);
         }
     }
 
@@ -901,6 +905,7 @@ public final class FarmerGameTests {
     public static void sellBelowMasteryLevelIsRejected(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
+        IEconomyService prev = currentEconomy();
         EconomyLedger ledger = registerFreshEconomy();
         // 白板农夫 (从没升过级) 应被精通门 (>=2) 拒绝。等级显式写进真实 capability 而不是靠 mock 玩家默认恰好
         // 是 L1 —— 默认值只是巧合, 一旦默认值变了这条用例会静默失去它要测的那个输入。
@@ -935,7 +940,7 @@ public final class FarmerGameTests {
             helper.assertTrue(ok.soldCount() == 50, "L2 seller sells all 50 wheat once mastery is met");
             helper.succeed();
         } finally {
-            EconomyServices.reset();
+            restoreEconomy(prev);
         }
     }
 
@@ -1106,7 +1111,8 @@ public final class FarmerGameTests {
 
     /**
      * 新建一套内存经济门面 (账本 + AbuseGuard + 惰性 PlayerAbuseState 解析器) 注册进 {@link EconomyServices} 定位器,
-     * 供卖菜端到端测试经定位器真发币。返回账本以便断言余额。调用方 finally 务必 {@link EconomyServices#reset()}。
+     * 供卖菜端到端测试经定位器真发币。返回账本以便断言余额。调用方先用 {@link #currentEconomy()} 记下原门面,
+     * finally 里 {@link #restoreEconomy} 放回。
      */
     private static EconomyLedger registerFreshEconomy() {
         EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
@@ -1115,6 +1121,19 @@ public final class FarmerGameTests {
         EconomyServices.reset();
         EconomyServices.registerEconomyService(new EconomyService(ledger, new AbuseGuard(), resolver));
         return ledger;
+    }
+
+    /** 当前门面 (未注册返回 null), 用例结束后必须原样放回 —— 定位器是进程级静态, 留个空的会串到后面的批次。 */
+    private static IEconomyService currentEconomy() {
+        return EconomyServices.isRegistered() ? EconomyServices.economyService() : null;
+    }
+
+    private static void restoreEconomy(IEconomyService prev) {
+        if (prev != null) {
+            EconomyServices.registerEconomyService(prev);
+        } else {
+            EconomyServices.reset();
+        }
     }
 
     private static Block requireFarmersDelightBlock(String path) {

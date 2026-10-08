@@ -410,6 +410,40 @@ public final class PlayerLoginGateGameTests {
     }
 
     /**
+     * 登录态无从判定 (UNAVAILABLE) 时: 原版命令照常 (一次 AccessHub 故障不能锁死全服), 本 mod 的命令与平板、菜单一样
+     * 关门并说明原因 —— 这时谁都能顶着别人的名字进服, 花钱的命令花的是被冒名者的钱。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void unavailableVerdictBlocksThisModsCommandsButNotVanilla(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        EmbeddedChannel channel = (EmbeddedChannel) player.connection.connection.channel();
+        CommandSourceStack source = player.createCommandSourceStack();
+        CommandDispatcher<CommandSourceStack> commands = helper.getLevel().getServer().getCommands().getDispatcher();
+        drainChatKeys(channel);
+
+        try (PlayerLoginGate.ForcedVerdict ignored =
+                     PlayerLoginGate.forceVerdictForTest(player.getUUID(), PlayerLoginGate.Verdict.UNAVAILABLE)) {
+            CommandEvent modCommand = new CommandEvent(commands.parse("marriage buyring", source));
+            MinecraftForge.EVENT_BUS.post(modCommand);
+            helper.assertTrue(modCommand.isCanceled(),
+                    "UNAVAILABLE: a command of this mod that spends credits must be cancelled");
+            List<String> keys = drainChatKeys(channel);
+            helper.assertTrue(keys.equals(List.of("message.miningdim.login_gate.unavailable")),
+                    "the player must be told the login check is unavailable, got " + keys);
+
+            CommandEvent vanilla = new CommandEvent(commands.parse("list", source));
+            MinecraftForge.EVENT_BUS.post(vanilla);
+            helper.assertTrue(!vanilla.isCanceled(),
+                    "UNAVAILABLE must not block vanilla commands (an AccessHub outage would stop the whole server)");
+        }
+
+        CommandEvent afterwards = new CommandEvent(commands.parse("marriage buyring", source));
+        MinecraftForge.EVENT_BUS.post(afterwards);
+        helper.assertTrue(!afterwards.isCanceled(), "once the verdict allows again the mod's commands must work");
+        helper.succeed();
+    }
+
+    /**
      * 扔物品: 走原版 Q 键的真实路径 (ServerPlayer.drop -> ForgeHooks.onPlayerTossEvent)。Forge 取消扔出时不放回
      * 物品, 所以只取消不够 —— 登录门取消之后必须把物品放回背包, 避免物品丢失。
      */

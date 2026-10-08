@@ -3,6 +3,7 @@ package com.miningdim.core.auth;
 import com.miningdim.core.Subsystem;
 import com.mojang.brigadier.ParseResults;
 import com.mojang.brigadier.context.ParsedCommandNode;
+import com.mojang.brigadier.tree.CommandNode;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -34,6 +35,7 @@ import net.minecraftforge.eventbus.api.IEventBus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
@@ -65,7 +67,7 @@ import java.util.function.Function;
  * 对 NOT_LOGGED_IN 而言原版行为不变: AccessHub 本来就会取消这些事件, 这里只是取消得更早; AccessHub 的监听器
  * 未生效时 (比如它启动途中出错), 这一层同样有效。
  * UNAVAILABLE 不在这里拦: 登录态无从判定时全员都是 UNAVAILABLE, 连原版交互一起拦, 一次 AccessHub 故障就会让整个
- * 服务器没法玩 —— 本 mod 自己的功能 (平板、键位包、菜单、戒指) 仍各自在入口处对 UNAVAILABLE 关门。
+ * 服务器没法玩 —— 本 mod 自己的功能 (平板、键位包、菜单、戒指、命令) 仍各自在入口处对 UNAVAILABLE 关门。
  *
  * 取消的事件与 AccessHub 0.5.3 的 PlayerAuthListener 逐条对齐, 只取其中属于"玩家的主动意图"的部分:
  * 右键物品/方块、左键方块、实体交互 (两种)、攻击实体、破坏/放置方块、扔出/捡起物品、装桶、
@@ -201,6 +203,12 @@ public final class LoginGateSubsystem implements Subsystem {
      * 物品就没了, 所以这里取消之后自己放回背包; 背包放不下的那部分仍会随取消一起丢失。
      */
     static void onItemToss(ItemTossEvent event) {
+        // 断线清理不是玩家的意图: 原版在玩家离线之后才把合成格与光标上的物品掉在脚下 (Player.remove, 此时背包已经
+        // 存过盘), 而登录态在 PlayerLoggedOutEvent 里就被清了, 刚才还登录着的正常玩家这时也判成未登录。在这里拦下
+        // 并"放回背包", 放回的是一个不会再存盘的背包, 物品就没了。
+        if (event.getPlayer() instanceof ServerPlayer leaving && leaving.hasDisconnected()) {
+            return;
+        }
         if (!mustLogInFirst(event.getPlayer())) {
             return;
         }
@@ -240,15 +248,51 @@ public final class LoginGateSubsystem implements Subsystem {
             }
             return;
         }
-        if (PlayerLoginGate.check(player) == PlayerLoginGate.Verdict.NOT_LOGGED_IN) {
+        PlayerLoginGate.Verdict verdict = PlayerLoginGate.check(player);
+        if (verdict == PlayerLoginGate.Verdict.NOT_LOGGED_IN) {
             event.setCanceled(true);
             player.sendSystemMessage(Component.translatable(COMMAND_BLOCKED_KEY));
+        } else if (verdict == PlayerLoginGate.Verdict.UNAVAILABLE && isModCommand(parse)) {
+            // 登录态无从判定时原版命令照常 (见类注释), 但本 mod 的命令与平板、菜单一样关门: 不做正版验证的服务器上
+            // 这时谁都能顶着别人的名字进来, /tarot pack buy、/marriage buyring 花的是被冒名者账本里的钱,
+            // OP 名字还能 /economy grant。
+            event.setCanceled(true);
+            player.sendSystemMessage(PlayerLoginGate.rejectionMessage(PlayerLoginGate.Verdict.UNAVAILABLE));
         }
     }
 
     private static String rootLiteral(ParseResults<CommandSourceStack> parse) {
         List<ParsedCommandNode<CommandSourceStack>> nodes = parse.getContext().getNodes();
         return nodes.isEmpty() ? null : nodes.get(0).getNode().getName();
+    }
+
+    /**
+     * 这条命令是不是本 mod 注册的: 看它的根节点之下有没有哪个执行体出自本 mod 的包 (与菜单同一个判据)。
+     * 按包认而不是手抄一份命令根名单: 名单会在新增命令时漏掉, 而漏掉的后果是那条命令在登录校验失灵时照常可用。
+     */
+    static boolean isModCommand(ParseResults<CommandSourceStack> parse) {
+        List<ParsedCommandNode<CommandSourceStack>> nodes = parse.getContext().getNodes();
+        return !nodes.isEmpty() && hasModExecutor(nodes.get(0).getNode(), new HashSet<>());
+    }
+
+    private static boolean hasModExecutor(CommandNode<CommandSourceStack> node,
+                                          Set<CommandNode<CommandSourceStack>> visited) {
+        // 别名用 redirect 指回原节点, 重定向可以成环: 走过的不再走。
+        if (!visited.add(node)) {
+            return false;
+        }
+        if (node.getCommand() != null && node.getCommand().getClass().getName().startsWith(MOD_PACKAGE_PREFIX)) {
+            return true;
+        }
+        if (node.getRedirect() != null && hasModExecutor(node.getRedirect(), visited)) {
+            return true;
+        }
+        for (CommandNode<CommandSourceStack> child : node.getChildren()) {
+            if (hasModExecutor(child, visited)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ============================================================

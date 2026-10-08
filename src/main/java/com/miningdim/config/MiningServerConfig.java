@@ -350,6 +350,8 @@ public final class MiningServerConfig {
                         "REQUIRED = like AUTO, but a dedicated server without AccessHub also rejects everything. Use",
                         "           this on the production server so a missing AccessHub fails closed instead of",
                         "           silently turning the login check off.",
+                        "\"Rejects everything\" covers this mod's own entry points (tablet, key packets, menus, the",
+                        "marriage ring and every command registered by this mod); vanilla gameplay keeps working.",
                         "OFF      = never check. Emergency switch only (e.g. an AccessHub update broke the binding);",
                         "           while OFF, this mod does not check anyone's login state.")
                 .defineEnum("loginGate", LoginGateMode.AUTO);

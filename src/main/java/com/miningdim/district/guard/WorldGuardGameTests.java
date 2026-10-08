@@ -318,6 +318,7 @@ public final class WorldGuardGameTests {
                 Blocks.SAND.defaultBlockState());
         sand.setDeltaMovement(0.5, 0.2, 0.0);
         AABB area = new AABB(helper.absolutePos(new BlockPos(-2, 0, -2)), helper.absolutePos(new BlockPos(18, 8, 18)));
+        discardStaleSandDrops(helper, area);
         helper.succeedWhen(() -> {
             helper.assertTrue(helper.getLevel().getEntitiesOfClass(FallingBlockEntity.class, area).isEmpty(),
                     "下落的方块已经不在了");
@@ -334,6 +335,15 @@ public final class WorldGuardGameTests {
     }
 
     /**
+     * 开跑前清掉取样盒里的沙子掉落物。run/world 跨轮复用, 同一条用例每轮落在同一组坐标上: 上一轮掉的沙子还躺在原地,
+     * "恰好掉出一个"会被它顶成两个。取样盒比结构每边只多 2 格, 结构之间隔 5 格以上, 探不到相邻用例。
+     */
+    private static void discardStaleSandDrops(GameTestHelper helper, AABB area) {
+        helper.getLevel().getEntitiesOfClass(ItemEntity.class, area, item -> item.getItem().is(Items.SAND))
+                .forEach(ItemEntity::discard);
+    }
+
+    /**
      * 地面上的沙子带着很大的横向速度 (相当于活塞把它推过边界、TNT 大炮打到边界那一格): 同一个 tick 里先越过 A/B 边界、
      * 再落地。判定在 move 之后, 所以照样掉成物品, B 里没有沙子方块 (22.19; 原来在 tick 的 HEAD 判定时会落成方块)。
      */
@@ -346,6 +356,7 @@ public final class WorldGuardGameTests {
                 Blocks.SAND.defaultBlockState());
         sand.setDeltaMovement(2.0, 0.0, 0.0);
         AABB area = new AABB(helper.absolutePos(new BlockPos(-2, 0, -2)), helper.absolutePos(new BlockPos(18, 8, 18)));
+        discardStaleSandDrops(helper, area);
         helper.succeedWhen(() -> {
             helper.assertTrue(helper.getLevel().getEntitiesOfClass(FallingBlockEntity.class, area).isEmpty(),
                     "下落的方块已经不在了");

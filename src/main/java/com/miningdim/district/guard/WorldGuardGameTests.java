@@ -335,6 +335,36 @@ public final class WorldGuardGameTests {
     }
 
     /**
+     * disableDrop() 过的下落方块 (原版的可疑沙子就是这样下落的) 横移进 B: 照样消失、B 里没有方块, 但不掉物品 ——
+     * 原版落地时对它只碎不掉, 守卫不能凭空多给一个。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = TEMPLATE, batch = BATCH)
+    public static void fallingBlockWithDropDisabledCrossingIntoAnotherZoneLeavesNoItem(GameTestHelper helper) {
+        floor(helper);
+        GuardTestZones.put(helper, "fallingSandNoDrop", 0, 0, 15, 15, new int[]{0, 0, 7, 15},
+                new int[]{8, 0, 15, 15});
+        FallingBlockEntity sand = FallingBlockEntity.fall(helper.getLevel(), helper.absolutePos(new BlockPos(4, 5, 8)),
+                Blocks.SAND.defaultBlockState());
+        sand.setDeltaMovement(0.5, 0.2, 0.0);
+        sand.disableDrop();
+        AABB area = new AABB(helper.absolutePos(new BlockPos(-2, 0, -2)), helper.absolutePos(new BlockPos(18, 8, 18)));
+        discardStaleSandDrops(helper, area);
+        helper.succeedWhen(() -> {
+            helper.assertTrue(helper.getLevel().getEntitiesOfClass(FallingBlockEntity.class, area).isEmpty(),
+                    "下落的方块已经不在了");
+            for (int x = 8; x <= 15; x++) {
+                for (int y = Y; y <= 6; y++) {
+                    helper.assertTrue(!helper.getBlockState(new BlockPos(x, y, 8)).is(Blocks.SAND),
+                            "B 里没有沙子方块");
+                }
+            }
+            List<ItemEntity> drops = helper.getLevel().getEntitiesOfClass(ItemEntity.class, area,
+                    item -> item.getItem().is(Items.SAND));
+            helper.assertTrue(drops.isEmpty(), "不掉物品, 实为 " + drops.size());
+        });
+    }
+
+    /**
      * 开跑前清掉取样盒里的沙子掉落物。run/world 跨轮复用, 同一条用例每轮落在同一组坐标上: 上一轮掉的沙子还躺在原地,
      * "恰好掉出一个"会被它顶成两个。取样盒比结构每边只多 2 格, 结构之间隔 5 格以上, 探不到相邻用例。
      */

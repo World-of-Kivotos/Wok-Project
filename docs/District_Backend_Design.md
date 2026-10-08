@@ -3716,7 +3716,7 @@ com.miningdim.district
 - 只在服务端（复核改，22.19）：
   - `tick` 的 HEAD 只记起点：两个 `@Unique` 字段记下实体第一次被看到时所在的 X、Z。存坐标，不存区域号：区域号在索引重建后会变。起点随实体存盘（`addAdditionalSaveData` / `readAdditionalSaveData` 的 TAIL，键 `MiningdimDistrictFallStart`，`int[]{x, z}`），区块卸下再加载不会把起点换成当时的位置。
   - 判定挂在 `tick` 里 INVOKE `move(MoverType, Vec3)`（`m_6478_`）之后（`shift = AFTER`，可取消）：原版在同一个 tick 里先移动、再按移动之后的位置落地，在 HEAD 判定会漏掉"这一 tick 才越过边界并落地"的（TNT 大炮打到边界那一格、活塞把地上的沙子推过边界）。按"单向"口径，移动之后所在列属于别的区域时：`dropItem`（公开字段 `f_31943_`）为真且 `doEntityDrops` 开着，就按 `getBlockState().getBlock()` 掉一个物品；然后 `discard()` 并取消。
-  - 这就是原版"放不下就掉成物品"那一支，碰不到 Bakeries 的注入点。移动之后的可取消注入多出一个 `CallbackInfo` 局部变量，它在原有 StackMap 帧处被 Mixin 的局部捕获分析丢掉（`Locals.getLocalsAt` 按原类的帧截断），不影响 Architectury 在 `Fallable.onLand` 处的 `CAPTURE_FAILHARD`；阶段 4 照样看开服日志（22.16 第 1 条）。
+  - 这就是原版"放不下就掉成物品"那一支，碰不到 Bakeries 的注入点。前提也与原版那一支相同：`cancelDrop` 为真的下落方块（`disableDrop()` 过的，原版是可疑的沙子与沙砾）只消失、不掉物品（合并复核改，2026-10-07；原来漏了这个前提，可疑的沙子被横着推过边界会掉出生存里拿不到的物品形态）。移动之后的可取消注入多出一个 `CallbackInfo` 局部变量，它在原有 StackMap 帧处被 Mixin 的局部捕获分析丢掉（`Locals.getLocalsAt` 按原类的帧截断），不影响 Architectury 在 `Fallable.onLand` 处的 `CAPTURE_FAILHARD`；阶段 4 照样看开服日志（22.16 第 1 条）。
 - 区是全高方柱，正常下落不会跨区域；只有被横着打出去的（TNT 大炮、活塞）才受影响。
 
 #### 海绵：`SpongeBlock.removeWaterBreadthFirstSearch`
@@ -3947,6 +3947,11 @@ public interface NoticeDeliveryGate {
 7. 正式服打开 `enabled` 之前，这份清单必须已经做完，并在测试服重跑 23.8 第 12 条（23.10 第 4 条，P35）。
 
 **合并记录（2026-10-07）：** 第 1、2、5、6 条已随两个分支合入 main 的同一批提交做完。`DistrictSystem.register` 现在装的是 `LoginGateNoticeGate`；`DefaultNoticeGate` 只剩装 gate 之前的占位与 GameTest 对照两个用途，上面关于"本分支默认实现"的描述是合并之前的状态。第 6 条补的用例是 `DistrictNoticeGameTests.installedGateHoldsNoticesUntilTheLoginGateConfirms`，独占 batch `district_notices_login_gate`（夹具把测试 context 挂在进程级的 `DistrictServices` 上，跨 tick 等巡检的用例不能与别的用例交错）。第 7 条在测试服上的重跑仍未做。
+
+合并时一并做的三处改动，与上文的原始记录不同，以这里为准：
+- **首次登录补写挪到了登录确认之后。** `DistrictSystem.onPlayerLoggedIn` 不再调 `firstLogin().onLogin(...)`，改由 `onLoginConfirmed` 先补写、再补发通知。不做正版验证的服务器上，任何人都能用名单里某个名字的另一种大小写连进来（离线 UUID 按名字原样大小写算，是另一个 UUID），没通过 `/login` 就走到进服事件；在那里补写，待生效的名单行、区务长与朋友行会被换键到一个无人能登录的 UUID 上，见过的玩家表也会把按名字的解析带偏。单人、局域网、没装 AccessHub 的服务器上登录门进服当场确认，时机与原来相同。
+- **按名字解析只认已通过登录门的在线玩家。** `ServerPlayerDirectory.forServer` 的在线查找多了一道 `PlayerLoginGate.allows`，原因同上。
+- **删掉了开服检查与合并哨兵。** `NoticeDeliveryGates.checkWiring` / `loginGatePresent` / `LOGIN_GATE_CLASS` 与用例 `loginGateSeamIsWiredWhenPresent` 在装上 `LoginGateNoticeGate` 之后只剩对自家类的反射探测和走不到的分支；"生产装的是哪个 gate"由上面那条新用例开头的断言核对。
 
 ### 22.13 界面与文档文案
 

@@ -1,6 +1,6 @@
 # 文档索引
 
-WOK 主 mod（`modid=miningdim`）的全部设计文档入口。截至 2026-09-26，`docs/` 下现役 52 份、归档 12 份。
+WOK 主 mod（`modid=miningdim`）的全部设计文档入口。截至 2026-10-07，`docs/` 下现役 54 份、归档 12 份。
 
 本索引是 2026-09-20 全量文档审查的产物。审查前 `docs/` 没有任何索引，78 份文档里 34 份没有被任何其它
 文档引用过，冻结的审查快照与现役规格平铺在同一层目录——这些是这次建索引要解决的问题。
@@ -75,8 +75,10 @@ WOK 主 mod（`modid=miningdim`）的全部设计文档入口。截至 2026-09-2
 | WebUI · 前端接线清单 | [WebUI_Frontend_Wiring_Checklist](WebUI_Frontend_Wiring_Checklist.md) | `webui/src` |
 | WebUI · 接线范围裁定 | [WebUI_Wiring_Execution_Scope](WebUI_Wiring_Execution_Scope.md) | 同上 |
 | 婚姻社交 | [Marriage_System_DesignSpec](Marriage_System_DesignSpec.md) | `marriage` |
-| 成就 · 原版进度 + 成就点商店 | [Achievement_System_DesignSpec](Achievement_System_DesignSpec.md)（2026-09-26 起草，未实现） | `achievement` |
-| 称号 | [Title_System_DesignSpec](Title_System_DesignSpec.md)（2026-09-26 起草，未实现） | `title` `client/title` |
+| 成就 · 原版进度 + 成就点商店 | [Achievement_System_DesignSpec](Achievement_System_DesignSpec.md)（P1、P2 已实现；成就点商店只有框架，商品待上架） | `achievement` |
+| 称号 | [Title_System_DesignSpec](Title_System_DesignSpec.md)（P1 与赞助专属称号已实现） | `title` `client/title` |
+| 自管区 · 后端设计与实现记录 | [District_Backend_Design](District_Backend_Design.md)（已实现；生产开关默认关闭，第二十三章的实机核对未做完） | `district` `webui/src/pages/district` |
+| 自管区 · Flan 对接说明 | [District_Flan_Integration_Notes](District_Flan_Integration_Notes.md) — 对照 Flan 1.20.1-1.11.16 的调用对照表与不变式 | `district/flan` |
 | 实体堆叠 | [Minecraft实体堆叠_需求规格说明书](Minecraft实体堆叠_需求规格说明书.md) | `stacking` |
 | 全局脑图 | [design_mindmap](design_mindmap.md) — 各系统的一页纸概览，细节以各自主规格为准 | 全部 |
 

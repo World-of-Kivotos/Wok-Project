@@ -31,6 +31,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { WebUiCallError, isMockActive } from '../lib/bridge'
+import { LOGIN_CHECK_UNAVAILABLE, NOT_LOGGED_IN } from '../lib/login-gate'
 import type {
   CaseCatalogSkin,
   CaseOpenResult,
@@ -170,7 +171,13 @@ function FailurePanel({ failure }: { failure: FailureView }): ReactElement {
         {failure.code === null ? null : (
           <p className="text-muted-foreground text-xs">{`错误代码 ${failure.code}`}</p>
         )}
-        {failure.retrySameOpeningId ? (
+        {/*
+          登录门的两种拒绝也带 retrySameOpeningId (保住同一个 openingId 是对的), 但请求根本没到开箱的处理器,
+          一分钱没扣; 遮罩撤掉后这块横幅还留在页上, 不能让玩家以为被扣了钱。
+        */}
+        {failure.retrySameOpeningId &&
+        failure.code !== NOT_LOGGED_IN &&
+        failure.code !== LOGIN_CHECK_UNAVAILABLE ? (
           <p className="text-warning text-xs">这次的费用已经扣了, 直接点重试即可, 不会再扣一次</p>
         ) : null}
       </Surface>

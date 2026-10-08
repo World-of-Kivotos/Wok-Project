@@ -7,6 +7,7 @@ import com.miningdim.champion.WorldBoss;
 import com.miningdim.champion.reward.ContributionTracker;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.core.MobInstanceTag;
+import com.miningdim.testutil.EntityBaseline;
 import com.miningdim.testutil.MockGameTestPlayers;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
@@ -106,13 +107,15 @@ public final class WorldBossKillGameTests {
         try {
             Vec3 at = spot(helper, 1, 2, 1);
             op.moveTo(at.x, at.y, at.z, 0.0F, 0.0F);
+            // 取样盒只罩 summon 的落点 (玩家正前方 2 格, 朝向 0 即 +Z): 罩一大片会数进别处残留的精英。落点在结构外、
+            // 开跑前的清场扫不到的那一行, 别的批留下的游走精英仍可能正站在盒里, 所以命令之前先记基线, 之后只认新出现的。
+            EntityBaseline<Mob> beforeSummon = EntityBaseline.capture(level, Mob.class,
+                    AABB.ofSize(at.add(0.0D, 0.0D, 2.0D), 2.0D, 2.0D, 2.0D));
             helper.assertTrue(run(server.getCommands().getDispatcher(),
                             op.createCommandSourceStack().withPermission(2).withSuppressedOutput(),
                             "mchampion summon minecraft:zombie 10 regen_tissue"),
                     "前提: 普通召唤应成功");
-            // 取样盒只罩 summon 的落点 (玩家正前方 2 格, 朝向 0 即 +Z): 罩一大片会数进别处残留的精英。
-            List<Mob> found = level.getEntitiesOfClass(Mob.class, AABB.ofSize(at.add(0.0D, 0.0D, 2.0D), 2.0D, 2.0D, 2.0D),
-                    MiningChampions::isChampion);
+            List<Mob> found = beforeSummon.fresh(MiningChampions::isChampion);
             spawned.addAll(found);
             helper.assertTrue(found.size() == 1, "前提: 应恰好召唤出一只精英, 实为 " + found.size());
             Mob plain = found.get(0);

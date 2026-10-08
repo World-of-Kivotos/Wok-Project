@@ -8,6 +8,7 @@ import com.miningdim.core.InstanceState;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.core.MiningServices;
 import com.miningdim.core.RegionBox;
+import com.miningdim.testutil.EntityBaseline;
 import com.miningdim.testutil.MockGameTestPlayers;
 import com.mojang.authlib.GameProfile;
 import com.mojang.brigadier.CommandDispatcher;
@@ -136,11 +137,12 @@ public final class WorldBossGameTests {
                     "玩家召唤的应是 10 星、恰带指定两条词条的常驻世界 BOSS, 实为 star=" + playerData.star() + " "
                             + playerData.affixes().keySet());
 
+            // 取样盒只罩 summon 的落点 (玩家正前方 2 格, 朝向 0 即 +Z): 罩一大片会数进别处残留的精英。落点在结构外、
+            // 已经是下一行格子的范围, 别的批留下的游走精英仍可能正站在盒里, 所以命令之前先记基线, 之后只认新出现的。
+            EntityBaseline<Mob> beforeSummon = EntityBaseline.capture(level, Mob.class,
+                    AABB.ofSize(playerSpot.add(0.0D, 0.0D, 2.0D), 2.0D, 2.0D, 2.0D));
             helper.assertTrue(run(dispatcher, asOp, "mchampion summon minecraft:zombie 10") == 1, "前提: 普通召唤应成功");
-            // 取样盒只罩 summon 的落点 (玩家正前方 2 格, 朝向 0 即 +Z): 罩一大片会数进别处残留的精英。
-            List<Mob> plain = level.getEntitiesOfClass(Mob.class,
-                    AABB.ofSize(playerSpot.add(0.0D, 0.0D, 2.0D), 2.0D, 2.0D, 2.0D),
-                    mob -> MiningChampions.isChampion(mob) && !WorldBoss.isWorldBoss(mob));
+            List<Mob> plain = beforeSummon.fresh(mob -> MiningChampions.isChampion(mob) && !WorldBoss.isWorldBoss(mob));
             spawned.addAll(plain);
             helper.assertTrue(plain.size() == 1 && !plain.get(0).isPersistenceRequired(),
                     "普通 summon 的精英不带世界 BOSS 标记也不常驻, 实为 " + plain.size() + " 只");
@@ -206,10 +208,12 @@ public final class WorldBossGameTests {
             }
 
             here.moveTo(bossSpot.x + 4.0D, bossSpot.y, bossSpot.z, 0.0F, 0.0F);
+            // 这个盒子盖到 +X 方向的邻格: 命令之前先记基线, 待清理表只收本次召出来的, 不把别的用例的精英一起删掉。
+            EntityBaseline<Mob> beforeSummon = EntityBaseline.capture(level, Mob.class,
+                    AABB.ofSize(here.position(), 8.0D, 4.0D, 8.0D));
             helper.assertTrue(run(dispatcher, here.createCommandSourceStack().withPermission(2).withSuppressedOutput(),
                     "mchampion summon minecraft:zombie 9") == 1, "前提: 普通召唤应成功");
-            spawned.addAll(level.getEntitiesOfClass(Mob.class, AABB.ofSize(here.position(), 8.0D, 4.0D, 8.0D),
-                    mob -> MiningChampions.isChampion(mob) && !WorldBoss.isWorldBoss(mob)));
+            spawned.addAll(beforeSummon.fresh(mob -> MiningChampions.isChampion(mob) && !WorldBoss.isWorldBoss(mob)));
             helper.assertTrue(drain(here).lines(WorldBossBroadcast.SPAWNED_KEY).isEmpty()
                             && drain(away).lines(WorldBossBroadcast.SPAWNED_KEY).isEmpty(),
                     "普通 summon 的精英不发世界 BOSS 公告");

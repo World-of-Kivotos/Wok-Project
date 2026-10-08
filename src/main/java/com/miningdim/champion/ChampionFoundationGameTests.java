@@ -3,6 +3,7 @@ package com.miningdim.champion;
 import com.miningdim.champion.aggregate.PlayerControlAggregator;
 import com.miningdim.champion.aggregate.PlayerDotAccumulator;
 import com.miningdim.champion.aggregate.RetaliationAggregator;
+import com.miningdim.champion.integration.ChampionPromoter;
 import com.miningdim.core.Difficulty;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.job.engineer.testutil.FixedDoubleRandom;
@@ -327,6 +328,9 @@ public final class ChampionFoundationGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void spawnSeamStateMachine(GameTestHelper helper) {
+        // ChampionSystem 只在 mod 构造期绑一次真实升格实现, 进程内没有第二次绑定的时机: 这里解绑后不放回,
+        // 排在本批之后的所有用例里压力刷出的怪都不再升格。ChampionPromoter 无状态, 重建一个等价于原实例。
+        boolean wasBound = ChampionSpawnSeam.isBound();
         try {
             ChampionSpawnSeam.unbind(); // 清任何前序静态污染。
             helper.assertTrue(!ChampionSpawnSeam.isBound(), "seam unbound before any bind");
@@ -372,6 +376,9 @@ public final class ChampionFoundationGameTests {
             helper.assertTrue(seenDifficulty[0] == null, "unbound promote short-circuits, promoter not invoked");
         } finally {
             ChampionSpawnSeam.unbind();
+            if (wasBound) {
+                ChampionSpawnSeam.bind(new ChampionPromoter());
+            }
         }
         helper.succeed();
     }

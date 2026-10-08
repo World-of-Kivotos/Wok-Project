@@ -37,10 +37,14 @@ public final class KnockbackSafetyGuardGameTests {
         // 岩浆源: FluidState 属 FluidTags.LAVA -> hazard; 流体面不 sturdy 且 hazard 优先 -> 非落脚。
         ServerLevel level = helper.getLevel();
         helper.setBlock(CELL_REL, Blocks.LAVA);
-        BlockPos abs = helper.absolutePos(CELL_REL);
-        SafeLandingRules.ColumnProbe probe = KnockbackSafetyGuard.probeOf(level);
-        helper.assertTrue(probe.isHazard(abs.getX(), abs.getY(), abs.getZ()), "岩浆源 isHazard = true");
-        helper.assertTrue(!probe.isFooting(abs.getX(), abs.getY(), abs.getZ()), "岩浆源 isFooting = false");
+        try {
+            BlockPos abs = helper.absolutePos(CELL_REL);
+            SafeLandingRules.ColumnProbe probe = KnockbackSafetyGuard.probeOf(level);
+            helper.assertTrue(probe.isHazard(abs.getX(), abs.getY(), abs.getZ()), "岩浆源 isHazard = true");
+            helper.assertTrue(!probe.isFooting(abs.getX(), abs.getY(), abs.getZ()), "岩浆源 isFooting = false");
+        } finally {
+            clearCell(helper);
+        }
         helper.succeed();
     }
 
@@ -50,11 +54,15 @@ public final class KnockbackSafetyGuardGameTests {
         // 断言 isFooting = false 专钉 probeOf 里"且非 hazard"这条 (删该判断此断言必挂)。
         ServerLevel level = helper.getLevel();
         helper.setBlock(CELL_REL, Blocks.MAGMA_BLOCK);
-        BlockPos abs = helper.absolutePos(CELL_REL);
-        SafeLandingRules.ColumnProbe probe = KnockbackSafetyGuard.probeOf(level);
-        helper.assertTrue(probe.isHazard(abs.getX(), abs.getY(), abs.getZ()), "岩浆块 isHazard = true");
-        helper.assertTrue(!probe.isFooting(abs.getX(), abs.getY(), abs.getZ()),
-                "岩浆块虽 sturdy 也非落脚 (hazard 优先)");
+        try {
+            BlockPos abs = helper.absolutePos(CELL_REL);
+            SafeLandingRules.ColumnProbe probe = KnockbackSafetyGuard.probeOf(level);
+            helper.assertTrue(probe.isHazard(abs.getX(), abs.getY(), abs.getZ()), "岩浆块 isHazard = true");
+            helper.assertTrue(!probe.isFooting(abs.getX(), abs.getY(), abs.getZ()),
+                    "岩浆块虽 sturdy 也非落脚 (hazard 优先)");
+        } finally {
+            clearCell(helper);
+        }
         helper.succeed();
     }
 
@@ -63,10 +71,14 @@ public final class KnockbackSafetyGuardGameTests {
         // 火: is(Blocks.FIRE) 与 is(BlockTags.FIRE) 双命中 hazard; 火非固体 -> 非落脚。
         ServerLevel level = helper.getLevel();
         helper.setBlock(CELL_REL, Blocks.FIRE);
-        BlockPos abs = helper.absolutePos(CELL_REL);
-        SafeLandingRules.ColumnProbe probe = KnockbackSafetyGuard.probeOf(level);
-        helper.assertTrue(probe.isHazard(abs.getX(), abs.getY(), abs.getZ()), "火 isHazard = true");
-        helper.assertTrue(!probe.isFooting(abs.getX(), abs.getY(), abs.getZ()), "火 isFooting = false");
+        try {
+            BlockPos abs = helper.absolutePos(CELL_REL);
+            SafeLandingRules.ColumnProbe probe = KnockbackSafetyGuard.probeOf(level);
+            helper.assertTrue(probe.isHazard(abs.getX(), abs.getY(), abs.getZ()), "火 isHazard = true");
+            helper.assertTrue(!probe.isFooting(abs.getX(), abs.getY(), abs.getZ()), "火 isFooting = false");
+        } finally {
+            clearCell(helper);
+        }
         helper.succeed();
     }
 
@@ -111,5 +123,13 @@ public final class KnockbackSafetyGuardGameTests {
         helper.assertTrue(probe.minY() == level.getMinBuildHeight(),
                 "probe.minY 委托 level.getMinBuildHeight = " + level.getMinBuildHeight());
         helper.succeed();
+    }
+
+    /**
+     * 把探针单格还原成空气。熔岩源留着会按流体 tick 外流到左右邻格的地面层 (同排格距只有 5 格), 烧掉别的用例的
+     * 掉落物与生物; 岩浆块与火留着会伤到走进本格的生物。本轮内没有谁会重清这一格, 断言失败也得清, 所以放 finally。
+     */
+    private static void clearCell(GameTestHelper helper) {
+        helper.setBlock(CELL_REL, Blocks.AIR);
     }
 }

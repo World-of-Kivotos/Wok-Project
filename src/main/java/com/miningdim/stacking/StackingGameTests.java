@@ -787,17 +787,26 @@ public final class StackingGameTests {
         BlockPos origin = new BlockPos(1, 2, 1);
 
         Cow champion = helper.spawn(EntityType.COW, origin);
-        MiningChampions.get(champion).orElseThrow().promote(3, java.util.Map.of(), 100.0D);
-        helper.assertTrue(MiningChampions.isChampion(champion), "cow was promoted to a 3-star champion");
-        helper.assertFalse(StackMerge.canStack(champion),
-                "champion cow is excluded from stacking despite EntityType.COW being whitelisted "
-                        + "(F037 defense-in-depth gate); removing the champion check would let it pass canStack");
+        Cow plain = null;
+        try {
+            MiningChampions.get(champion).orElseThrow().promote(3, java.util.Map.of(), 100.0D);
+            helper.assertTrue(MiningChampions.isChampion(champion), "cow was promoted to a 3-star champion");
+            helper.assertFalse(StackMerge.canStack(champion),
+                    "champion cow is excluded from stacking despite EntityType.COW being whitelisted "
+                            + "(F037 defense-in-depth gate); removing the champion check would let it pass canStack");
 
-        Cow plain = helper.spawn(EntityType.COW, origin);
-        int discarded = StackMerge.mergeCandidates(List.of(champion, plain));
-        helper.assertTrue(discarded == 0,
-                "champion cow and plain cow never merge (zero discards), got discarded=" + discarded);
-        helper.assertTrue(champion.isAlive() && plain.isAlive(), "both cows remain alive after merge attempt");
+            plain = helper.spawn(EntityType.COW, origin);
+            int discarded = StackMerge.mergeCandidates(List.of(champion, plain));
+            helper.assertTrue(discarded == 0,
+                    "champion cow and plain cow never merge (zero discards), got discarded=" + discarded);
+            helper.assertTrue(champion.isAlive() && plain.isAlive(), "both cows remain alive after merge attempt");
+        } finally {
+            // 精英牛常驻、带 AI, 冠军数据随实体存盘: 留着会走出本格, 被别的用例按"是精英"取样时数进去。
+            champion.discard();
+            if (plain != null) {
+                plain.discard();
+            }
+        }
         helper.succeed();
     }
 

@@ -142,19 +142,25 @@ public final class ChampionSizeScaleGameTests {
     public static void eyeHeightScalesProportionallyWithBox(GameTestHelper helper) {
         net.minecraft.world.entity.monster.Zombie zombie =
                 helper.spawn(net.minecraft.world.entity.EntityType.ZOMBIE, new net.minecraft.core.BlockPos(0, 1, 0));
-        float baseHeight = zombie.getBbHeight();
-        float baseEye = zombie.getEyeHeight();
+        try {
+            float baseHeight = zombie.getBbHeight();
+            float baseEye = zombie.getEyeHeight();
 
-        java.util.Map<AffixDef, AffixQuality> affixes = new java.util.EnumMap<>(AffixDef.class);
-        affixes.put(AffixDef.GIGANTISM, AffixQuality.UNCOMMON);
-        com.miningdim.champion.integration.ChampionPromoter.applyChampion(zombie, 3, affixes);
+            java.util.Map<AffixDef, AffixQuality> affixes = new java.util.EnumMap<>(AffixDef.class);
+            affixes.put(AffixDef.GIGANTISM, AffixQuality.UNCOMMON);
+            com.miningdim.champion.integration.ChampionPromoter.applyChampion(zombie, 3, affixes);
 
-        float heightRatio = zombie.getBbHeight() / baseHeight;
-        float eyeRatio = zombie.getEyeHeight() / baseEye;
-        // 生成期守卫可降档, 但 COMMON 1.25 兜底恒 >1 (巨大化真的变大了才谈得上等比)。
-        helper.assertTrue(heightRatio > 1.01F, "gigantism must actually enlarge the box, ratio=" + heightRatio);
-        helper.assertTrue(Math.abs(heightRatio - eyeRatio) < 1e-3F,
-                "eye height must scale proportionally with box height: box=" + heightRatio + " eye=" + eyeRatio);
+            float heightRatio = zombie.getBbHeight() / baseHeight;
+            float eyeRatio = zombie.getEyeHeight() / baseEye;
+            // 生成期守卫可降档, 但 COMMON 1.25 兜底恒 >1 (巨大化真的变大了才谈得上等比)。
+            helper.assertTrue(heightRatio > 1.01F, "gigantism must actually enlarge the box, ratio=" + heightRatio);
+            helper.assertTrue(Math.abs(heightRatio - eyeRatio) < 1e-3F,
+                    "eye height must scale proportionally with box height: box=" + heightRatio + " eye=" + eyeRatio);
+        } finally {
+            // 盖章后的精英僵尸常驻且带 AI, 留着会走出本格并写进存档, 被别处按"是精英"取样的用例数进去。
+            com.miningdim.champion.bloodpool.BloodPoolRegistry.remove(zombie.getUUID());
+            zombie.discard();
+        }
         helper.succeed();
     }
 

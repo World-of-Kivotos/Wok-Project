@@ -3,6 +3,7 @@ package com.miningdim.job.agent.integration;
 import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.AffixQuality;
 import com.miningdim.champion.MiningChampionData;
+import com.miningdim.job.agent.SealRegistry;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
@@ -27,7 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 恢复宽限期 -> 快照被丢弃, 词条蒸发。两种情况下精英都保留原星级与按初始星级计的奖励池, 等于永久削弱却照付全价。
  *
  * 本类仍保留一张进程内 {@link #TRACKED} 索引 (championUUID -> 封印时维度 + 索引保留截止 tick), 只为让
- * {@link AgentSealHandler#processExpiredSeals} 每 tick 知道去哪个维度找哪些精英、在封印到期的那一 tick 精确恢复。索引
+ * {@link AgentSealHandler#processExpiredSeals} 每 tick 知道去哪个维度找哪些精英、在每条封印到期的那一 tick 精确恢复。索引
  * 丢了 (服务端重启 / 过了宽限期) 不再等于词条丢了: 精英下次入世或 tick 时由 {@link AgentSealHandler#reconcilePersistedSeal}
  * 按 capability 对账恢复。
  *
@@ -57,7 +58,7 @@ final class AgentSealExecutor {
      * 的 ensureSprintModifier/ensureOverdriveModifier, {@code ChampionSelfRepairHandler} 的 rootAndDisarm)。
      * champ.removeAffix 只清 capability, 不摘这条常驻修饰 —— 若不额外处理, 封印会变成纯观感 (面板回 OK、词条真
      * 被摘, 但精英移速一格未变; F024 复核发现, 三个独立复核者均确认)。词条恢复无需对称补挂: 一旦
-     * {@link #restoreAffixes} 把词条放回 capability, 前述两个 handler 各自的每 tick 扫描 (1s 周期) 会据
+     * {@link #restoreExpiredAffixes} 把词条放回 capability, 前述两个 handler 各自的每 tick 扫描 (1s 周期) 会据
      * capability 现状自动重新挂上对应 modifier。
      *
      * 已知边界 (B09, 与本类另一处已登记限制 —— {@link #sealAffix} 类注释里 "不触 mob.refreshDimensions()" ——
@@ -134,34 +135,53 @@ final class AgentSealExecutor {
     }
 
     /**
-     * 全部封印到期后增量恢复某精英被封词条 (到期 tick 或入世/tick 对账判该精英已无活跃封印时调用)。从 capability
-     * 取走被封词条登记 ({@link MiningChampionData#takeSealedAffixes}, 取走即清), 合并回当前词条表, 经
-     * {@link MiningChampionData#replaceAffixes} 只换词条表; 同时删掉 tick 索引。取走即清保证多条恢复路径谁先到谁恢复,
-     * 后到者空转, 不会重复合并。
+     * 逐词条增量恢复 (到期 tick 与入世/tick 对账共用): 把 capability 登记里、封印账本上已不在窗口内的那几条放回词条表,
+     * 仍在窗口内的留在登记里等自己到期。"是否仍在窗口内"问 {@link SealRegistry#isAffixSealed}, 与占槽
+     * ({@link SealRegistry#applySeal} 只数活跃条目) 和扫描面板的 sealed 标注同一口径 —— 槽一释放, 那条词条就回到精英
+     * 身上。旧版要等该精英的全部封印都到期才整份放回: 先封 4 秒的机制词条、再压一条 11 秒的被动词条, 机制词条就被
+     * 多压到被动那条到期; 两名干员交替封印则始终有一条活跃, 封过的词条整场不回来, 被摘词条数远超槽容量 (违反六章
+     * "机制类仅短暂封印"与九章"每精英 1 槽, 8★+ 2 槽")。
+     *
+     * 以 capability 登记为准、账本只用来问"这条还压着吗", 不拿 {@link SealRegistry#drainExpired} 的返回值当恢复清单:
+     * 账本的到期条目会被 applySeal / activeSeals / isAffixSealed 任何一次调用顺手清掉 (不经过恢复方), 精英到期那一 tick
+     * 不在场 (区块隐藏 / 卸载) 时取出来也无处可放 —— 两种情况下按 drain 清单恢复都会漏条。
+     *
+     * 逐条经 {@link MiningChampionData#takeSealedAffix} 取走即清, 多条恢复路径谁先到谁恢复, 后到者空转, 不会重复合并;
+     * 合并后经 {@link MiningChampionData#replaceAffixes} 只换词条表。登记取空才删 tick 索引, 还有词条压着就继续在册。
      *
      * 【严禁改回 promote】{@link MiningChampionData#promote} 是重新盖章: 会把 summonedByAffix 与 worldBoss 两个身份
      * 标记复位成 false、把当前血量回满。拿它做恢复, 被封印过的支援召唤物会变成可反复召唤的发奖冠军 (spec 红线 8-a),
      * 被封印过的世界 BOSS 会丢掉世界 BOSS 身份 (击倒公告、成就击杀过滤与 NBT 标记从此失效; 封印窗口远短于一场世界
      * BOSS 战, 第一次封印到期即触发)。
      *
-     * @param target 目标精英实体
-     * @param champ  非 null 的 {@link MiningChampionData}
-     * @return 是否执行了恢复 (true = capability 有被封词条并已放回; false = 无登记, 空操作)
+     * @param target  目标精英实体
+     * @param champ   非 null 的 {@link MiningChampionData}
+     * @param nowTick 当前 gameTime (判各条封印是否仍在窗口内)
+     * @return 是否至少放回了一条 (false = 无登记, 或登记的词条全都还在窗口内)
      */
-    static boolean restoreAffixes(LivingEntity target, MiningChampionData champ) {
-        TRACKED.remove(target.getUUID());
-        Map<AffixDef, AffixQuality> removed = champ.takeSealedAffixes();
-        if (removed.isEmpty()) {
-            return false; // 无登记 (未被封印过 / 已由另一条路径恢复过): 无可恢复。
-        }
+    static boolean restoreExpiredAffixes(LivingEntity target, MiningChampionData champ, long nowTick) {
+        UUID championId = target.getUUID();
         // 不用 EnumMap(Map) 拷贝构造: champ.affixes() 是 Collections.unmodifiableMap 包装 (非 EnumMap 实例),
-        // 该构造器对非 EnumMap 来源要求"至少一条映射才能推断键类型", 全部词条已被封印剥空时 (仅剩这一份待
-        // 恢复的登记) 会抛 IllegalArgumentException("Specified map is empty")。改用 class 构造 + putAll 规避。
+        // 该构造器对非 EnumMap 来源要求"至少一条映射才能推断键类型", 全部词条已被封印剥空时 (仅剩待恢复的登记)
+        // 会抛 IllegalArgumentException("Specified map is empty")。改用 class 构造 + putAll 规避。
         EnumMap<AffixDef, AffixQuality> merged = new EnumMap<>(AffixDef.class);
         merged.putAll(champ.affixes());
-        merged.putAll(removed);
-        champ.replaceAffixes(merged); // 见上方警告: 只换词条表, 身份标记与当前血量原样保留。
-        return true;
+        boolean restored = false;
+        // 先拷出键再逐条取: 取走会改登记本身。
+        for (AffixDef def : List.copyOf(champ.sealedAffixes().keySet())) {
+            if (SealRegistry.isAffixSealed(championId, AgentAffixClassifier.affixId(def), nowTick)) {
+                continue; // 仍在封印窗口内: 留在登记里, 等它自己到期。
+            }
+            merged.put(def, champ.takeSealedAffix(def));
+            restored = true;
+        }
+        if (!champ.hasSealedAffixes()) {
+            TRACKED.remove(championId);
+        }
+        if (restored) {
+            champ.replaceAffixes(merged); // 见上方警告: 只换词条表, 身份标记与当前血量原样保留。
+        }
+        return restored;
     }
 
     /** 某精英是否在 tick 索引中 (在册的由到期 tick 精确恢复, tick 兜底对账不插手)。 */

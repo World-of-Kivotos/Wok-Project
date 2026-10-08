@@ -227,16 +227,16 @@ public final class MiningChampionData {
     }
 
     /**
-     * 取走全部待恢复的被封词条并清空登记 (恢复方据此把它们增量合并回词条表)。取走即清, 同一份登记只能被恢复一次 ——
-     * 到期 tick、入世对账等多条恢复路径谁先到谁恢复, 后到者拿到空表空转, 不会重复合并。
+     * 取走一条待恢复的被封词条并把它从登记里删掉 (恢复方据此把它增量合并回词条表)。按条取而不是整份取: 各条封印的
+     * 窗口各自到期 (8★+ 两个封印槽先后封两条, 机制类窗口又远短于被动类), 到期的那条要先放回, 仍在窗口内的得继续留在
+     * 登记里。取走即清, 同一条登记只能被恢复一次 —— 到期 tick、入世对账等多条恢复路径谁先到谁恢复, 后到者拿到 null
+     * 空转, 不会重复合并。
      *
-     * @return 被封词条→原品质的独立拷贝 (无登记返空表; 调用方可自由修改, 不影响本类)
+     * @param def 待恢复的词条
+     * @return 该词条被摘下时的品质; 未登记 (没被封印 / 已由另一条路径恢复过) 返 null
      */
-    public Map<AffixDef, AffixQuality> takeSealedAffixes() {
-        EnumMap<AffixDef, AffixQuality> taken = new EnumMap<>(AffixDef.class);
-        taken.putAll(sealedAffixes);
-        sealedAffixes.clear();
-        return taken;
+    public AffixQuality takeSealedAffix(AffixDef def) {
+        return sealedAffixes.remove(def);
     }
 
     /**

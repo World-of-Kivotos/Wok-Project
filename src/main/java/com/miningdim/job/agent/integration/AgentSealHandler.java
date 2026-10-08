@@ -23,7 +23,6 @@ import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -32,10 +31,11 @@ import java.util.UUID;
  *  (2) 槽位 + 不叠加裁决 ({@link SealRegistry#applySeal}): 每精英固定槽容量, 多干员同怪不叠加 (互斥/先到先得);
  *  (3) 真改执行 ({@link AgentSealExecutor}): 增量移除目标词条 + 被封词条写穿精英 capability 供到期恢复。
  *
- * 恢复有三条入口, 共用同一份 capability 恢复源 (取走即清, 谁先到谁恢复):
- *  - {@link #processExpiredSeals} (服务端 tick): 在册精英封印到期的那一 tick 精确恢复 (常规路径);
+ * 恢复有三条入口, 共用同一份 capability 恢复源与同一条逐词条口径 ({@link AgentSealExecutor#restoreExpiredAffixes}:
+ * 登记里有、账本上已不在窗口内的那几条放回, 仍在窗口内的留着; 取走即清, 谁先到谁恢复):
+ *  - {@link #processExpiredSeals} (服务端 tick): 在册精英每条封印到期的那一 tick 精确恢复 (常规路径);
  *  - {@link #onEntityJoinLevel} (实体入世): 服务端重启后载入 / 区块卸载后重载 / 跨维度的新实例, 带着被封词条回来时
- *    对账 —— 窗口已过即恢复, 窗口未过重新登记索引;
+ *    对账 —— 窗口已过的那几条即刻恢复, 还有窗口未过的就重新登记索引;
  *  - {@link #onLivingTick} (每秒兜底): 索引已失效、又不会重新入世的隐藏区块路径。
  *
  * 探测源已改自研 {@link MiningChampions#get}, 不再触任何 top.theillusivec4.champions.*。
@@ -152,11 +152,13 @@ public final class AgentSealHandler {
     }
 
     /**
-     * 到期恢复 tick (F077 修法): 对在册精英, 检查 {@link SealRegistry} 活跃封印, 全到期则按 capability 登记增量恢复。
+     * 到期恢复 tick (F077 修法): 对在册精英逐词条恢复 —— 哪条封印的窗口结束了, 哪条词条本 tick 就放回, 不等同一只精英
+     * 身上别的封印 ({@link AgentSealExecutor#restoreExpiredAffixes}; 登记取空时索引随之删除)。
      * 按封印当刻 (或最近一次带封印入世时) 记下的维度 ({@link AgentSealExecutor#dimensionOf}) 定位实体, 不写死矿洞
      * 维度 (旧版只查矿洞维度导致精英跨维度/在其它维度被封时词条被永久剥夺)。实体暂时找不到 (区块卸载 / 区块隐藏 /
      * 跨维度) 时保留索引重试, 过了 {@link #RESTORE_GRACE_TICKS} 宽限期只删索引 —— 被封词条仍在 capability 里, 由
-     * {@link #onEntityJoinLevel} / {@link #onLivingTick} 在它回来时恢复, 不再像旧版那样连同恢复源一起丢弃。
+     * {@link #onEntityJoinLevel} / {@link #onLivingTick} 在它回来时恢复, 不再像旧版那样连同恢复源一起丢弃。索引的
+     * 保留截止 tick 恒晚于该精英最晚一条封印的到期 tick (到期 + 宽限期), 故删索引时不会还有封印压在窗口内。
      *
      * @param server 当前服务端实例
      */
@@ -174,14 +176,11 @@ public final class AgentSealHandler {
                 continue; // 维度未加载: 下 tick 再来。
             }
             long nowTick = level.getGameTime();
-            if (!SealRegistry.activeSeals(championId, nowTick).isEmpty()) {
-                continue; // 仍有未到期封印: 不恢复。
-            }
             Entity entity = level.getEntity(championId);
             if (entity instanceof LivingEntity living && living.isAlive()) {
                 MiningChampionData champ = MiningChampions.get(living).orElse(null);
                 if (champ != null && champ.isChampion()) {
-                    AgentSealExecutor.restoreAffixes(living, champ);
+                    AgentSealExecutor.restoreExpiredAffixes(living, champ, nowTick);
                     continue;
                 }
             }
@@ -193,15 +192,17 @@ public final class AgentSealHandler {
     }
 
     /**
-     * 按精英 capability 里持久化的被封词条对账 (索引失效后的恢复入口; 入世与 tick 兜底共用)。三种结果:
+     * 按精英 capability 里持久化的被封词条对账 (索引失效后的恢复入口; 入世与 tick 兜底共用)。逐词条裁决, 一只精英
+     * 身上的几条登记可以各走各的:
      *  - 无被封词条登记: 空操作 (绝大多数实体走这里);
-     *  - {@link SealRegistry} 仍有该精英的活跃封印 (窗口内区块重载 / 跨维度): 不提前恢复, 只按当前所在维度重新登记
-     *    tick 索引, 交回 {@link #processExpiredSeals} 按原窗口到期精确恢复 —— 封印时长不因重载缩短或延长;
-     *  - 无活跃封印 (窗口已过而索引已删 / 服务端重启后内存账本已空): 立即增量恢复。重启后 SealRegistry 与封印 CD
-     *    账本本就一起清空 (既有行为, 本修复不改), 此时恢复只会让封印比原窗口更短, 偏向精英一侧, 不产生削弱漏洞。
+     *  - 登记的词条在 {@link SealRegistry} 里仍有活跃封印 (窗口内区块重载 / 跨维度): 这条不提前恢复, 按当前所在维度
+     *    重新登记 tick 索引, 交回 {@link #processExpiredSeals} 按原窗口到期精确恢复 —— 封印时长不因重载缩短或延长;
+     *  - 登记的词条已无活跃封印 (卸载期间窗口已过 / 索引已删 / 服务端重启后内存账本已空): 这条立即增量恢复。重启后
+     *    SealRegistry 与封印 CD 账本本就一起清空 (既有行为, 本修复不改), 此时恢复只会让封印比原窗口更短, 偏向精英
+     *    一侧, 不产生削弱漏洞。
      *
      * @param living 带冠军 capability 的实体 (非冠军 / 非 Mob 空操作)
-     * @return 是否执行了恢复
+     * @return 是否至少恢复了一条
      */
     static boolean reconcilePersistedSeal(LivingEntity living) {
         MiningChampionData champ = MiningChampions.get(living).orElse(null);
@@ -209,16 +210,17 @@ public final class AgentSealHandler {
             return false;
         }
         UUID championId = living.getUUID();
-        List<SealRegistry.ActiveSeal> active = SealRegistry.activeSeals(championId, living.level().getGameTime());
-        if (active.isEmpty()) {
-            return AgentSealExecutor.restoreAffixes(living, champ);
+        long nowTick = living.level().getGameTime();
+        boolean restored = AgentSealExecutor.restoreExpiredAffixes(living, champ, nowTick);
+        if (champ.hasSealedAffixes()) {
+            // 登记里剩下的都还压在窗口内: 索引保留到其中最晚到期那条之后。
+            long latestExpiry = 0L;
+            for (SealRegistry.ActiveSeal seal : SealRegistry.activeSeals(championId, nowTick)) {
+                latestExpiry = Math.max(latestExpiry, seal.expiryTick());
+            }
+            AgentSealExecutor.track(championId, living.level().dimension(), latestExpiry + RESTORE_GRACE_TICKS);
         }
-        long latestExpiry = 0L;
-        for (SealRegistry.ActiveSeal seal : active) {
-            latestExpiry = Math.max(latestExpiry, seal.expiryTick());
-        }
-        AgentSealExecutor.track(championId, living.level().dimension(), latestExpiry + RESTORE_GRACE_TICKS);
-        return false;
+        return restored;
     }
 
     /** 到期恢复 tick 入口: 只做 phase==END 判断后转调 {@link #processExpiredSeals} (供 GameTest 直接驱动)。 */

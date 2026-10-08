@@ -229,43 +229,54 @@ public final class MinerGameTests {
         ItemStack wood = new ItemStack(Items.WOODEN_PICKAXE);
         ItemStack shovel = new ItemStack(Items.NETHERITE_SHOVEL);
 
-        // 基础方块: 任意镐 (含木镐) 可连锁 (旧白名单成员照旧放行)。
-        assertChainableAt(helper, level, new BlockPos(0, 1, 0), Blocks.STONE, wood, true, "stone chainable with a wooden pickaxe");
-        assertChainableAt(helper, level, new BlockPos(2, 1, 0), Blocks.DEEPSLATE, wood, true, "deepslate chainable with a wooden pickaxe");
-        assertChainableAt(helper, level, new BlockPos(4, 1, 0), Blocks.COAL_ORE, wood, true, "coal ore chainable with a wooden pickaxe");
-        assertChainableAt(helper, level, new BlockPos(6, 1, 0), Blocks.IRON_ORE, netherite, true, "iron ore chainable with a proper pickaxe");
-        assertChainableAt(helper, level, new BlockPos(8, 1, 0), Blocks.DEEPSLATE_COPPER_ORE, netherite, true, "deepslate copper chainable");
+        // 探针全部复用本格内同一个坐标 (放一格判一格, 互不依赖), 基岩另占紧邻一格以免与熔炉的 BlockEntity 判定搅在一起。
+        // 不能铺开摆: 测试网格同排相距只有 5 格、换排 7 格, 摆到 x>=4 或 z>=4 就出了本格清场范围、压进右邻与下一排用例的地盘
+        // (右邻若在原点放煤矿做连锁 plan, 紧贴它的同种矿会被 plan 多收一格)。
+        BlockPos probe = new BlockPos(0, 1, 0);
+        BlockPos bedrockProbe = new BlockPos(1, 1, 0);
+        try {
+            // 基础方块: 任意镐 (含木镐) 可连锁 (旧白名单成员照旧放行)。
+            assertChainableAt(helper, level, probe, Blocks.STONE, wood, true, "stone chainable with a wooden pickaxe");
+            assertChainableAt(helper, level, probe, Blocks.DEEPSLATE, wood, true, "deepslate chainable with a wooden pickaxe");
+            assertChainableAt(helper, level, probe, Blocks.COAL_ORE, wood, true, "coal ore chainable with a wooden pickaxe");
+            assertChainableAt(helper, level, probe, Blocks.IRON_ORE, netherite, true, "iron ore chainable with a proper pickaxe");
+            assertChainableAt(helper, level, probe, Blocks.DEEPSLATE_COPPER_ORE, netherite, true, "deepslate copper chainable");
 
-        // (a) 高价矿用正确档位镐可连锁 (旧硬排除废除, 用户 2026-07-12 裁决): 深层金 / 钻 / 绿宝石。
-        assertChainableAt(helper, level, new BlockPos(0, 1, 2), Blocks.DEEPSLATE_DIAMOND_ORE, netherite, true, "deep diamond chainable with a netherite pickaxe (hard-exclude abolished)");
-        assertChainableAt(helper, level, new BlockPos(2, 1, 2), Blocks.DEEPSLATE_GOLD_ORE, netherite, true, "deep gold chainable with a netherite pickaxe");
-        assertChainableAt(helper, level, new BlockPos(4, 1, 2), Blocks.DEEPSLATE_EMERALD_ORE, netherite, true, "deep emerald chainable with a netherite pickaxe");
+            // (a) 高价矿用正确档位镐可连锁 (旧硬排除废除, 用户 2026-07-12 裁决): 深层金 / 钻 / 绿宝石。
+            assertChainableAt(helper, level, probe, Blocks.DEEPSLATE_DIAMOND_ORE, netherite, true, "deep diamond chainable with a netherite pickaxe (hard-exclude abolished)");
+            assertChainableAt(helper, level, probe, Blocks.DEEPSLATE_GOLD_ORE, netherite, true, "deep gold chainable with a netherite pickaxe");
+            assertChainableAt(helper, level, probe, Blocks.DEEPSLATE_EMERALD_ORE, netherite, true, "deep emerald chainable with a netherite pickaxe");
 
-        // (b) 木镐对钻石不启动链: isCorrectToolForDrops=false (档位不足无掉落, 不该连锁)。
-        assertChainableAt(helper, level, new BlockPos(6, 1, 2), Blocks.DIAMOND_ORE, wood, false, "diamond NOT chainable with a wooden pickaxe (wrong tier, no drops)");
+            // (b) 木镐对钻石不启动链: isCorrectToolForDrops=false (档位不足无掉落, 不该连锁)。
+            assertChainableAt(helper, level, probe, Blocks.DIAMOND_ORE, wood, false, "diamond NOT chainable with a wooden pickaxe (wrong tier, no drops)");
 
-        // 手持非镐 (铲): 对镐类方块 isCorrectToolForDrops 天然 false -> 整链不启动。
-        assertChainableAt(helper, level, new BlockPos(8, 1, 2), Blocks.STONE, shovel, false, "stone NOT chainable with a shovel (non-pickaxe tool)");
+            // 手持非镐 (铲): 对镐类方块 isCorrectToolForDrops 天然 false -> 整链不启动。
+            assertChainableAt(helper, level, probe, Blocks.STONE, shovel, false, "stone NOT chainable with a shovel (non-pickaxe tool)");
 
-        // (c) 带 BlockEntity 的位置被跳过: furnace 镐可采 + 档位足够 (前三条全过), 唯 BlockEntity 一条不过 -> 排除 (防吞容器内容物)。
-        BlockPos furnaceAbs = helper.absolutePos(new BlockPos(0, 1, 4));
-        net.minecraft.world.level.block.state.BlockState furnace = Blocks.FURNACE.defaultBlockState();
-        level.setBlock(furnaceAbs, furnace, Block.UPDATE_ALL);
-        net.minecraft.world.level.block.state.BlockState placedFurnace = level.getBlockState(furnaceAbs);
-        helper.assertTrue(placedFurnace.is(BlockTags.MINEABLE_WITH_PICKAXE), "furnace IS pickaxe-mineable (chainable tag condition passes)");
-        helper.assertTrue(netherite.isCorrectToolForDrops(placedFurnace), "netherite pickaxe correctly tools furnace (chainable tool condition passes)");
-        helper.assertTrue(level.getBlockEntity(furnaceAbs) != null, "furnace is placed with a BlockEntity present");
-        helper.assertFalse(ChainMiningEngine.chainable(level, furnaceAbs, placedFurnace, netherite),
-                "furnace NOT chainable despite tag+tool passing: the BlockEntity guard alone excludes it (protects container contents)");
+            // (c) 带 BlockEntity 的位置被跳过: furnace 镐可采 + 档位足够 (前三条全过), 唯 BlockEntity 一条不过 -> 排除 (防吞容器内容物)。
+            BlockPos furnaceAbs = helper.absolutePos(probe);
+            net.minecraft.world.level.block.state.BlockState furnace = Blocks.FURNACE.defaultBlockState();
+            level.setBlock(furnaceAbs, furnace, Block.UPDATE_ALL);
+            net.minecraft.world.level.block.state.BlockState placedFurnace = level.getBlockState(furnaceAbs);
+            helper.assertTrue(placedFurnace.is(BlockTags.MINEABLE_WITH_PICKAXE), "furnace IS pickaxe-mineable (chainable tag condition passes)");
+            helper.assertTrue(netherite.isCorrectToolForDrops(placedFurnace), "netherite pickaxe correctly tools furnace (chainable tool condition passes)");
+            helper.assertTrue(level.getBlockEntity(furnaceAbs) != null, "furnace is placed with a BlockEntity present");
+            helper.assertFalse(ChainMiningEngine.chainable(level, furnaceAbs, placedFurnace, netherite),
+                    "furnace NOT chainable despite tag+tool passing: the BlockEntity guard alone excludes it (protects container contents)");
 
-        // (d) 基岩不可连: 硬度 -1 不可破坏 (可破坏条件不过)。
-        BlockPos bedrockAbs = helper.absolutePos(new BlockPos(2, 1, 4));
-        net.minecraft.world.level.block.state.BlockState bedrock = Blocks.BEDROCK.defaultBlockState();
-        level.setBlock(bedrockAbs, bedrock, Block.UPDATE_ALL);
-        net.minecraft.world.level.block.state.BlockState placedBedrock = level.getBlockState(bedrockAbs);
-        helper.assertTrue(placedBedrock.getDestroySpeed(level, bedrockAbs) < 0.0F, "bedrock is unbreakable (destroySpeed -1)");
-        helper.assertFalse(ChainMiningEngine.chainable(level, bedrockAbs, placedBedrock, netherite),
-                "bedrock NOT chainable (unbreakable block, destroySpeed < 0)");
+            // (d) 基岩不可连: 硬度 -1 不可破坏 (可破坏条件不过)。
+            BlockPos bedrockAbs = helper.absolutePos(bedrockProbe);
+            net.minecraft.world.level.block.state.BlockState bedrock = Blocks.BEDROCK.defaultBlockState();
+            level.setBlock(bedrockAbs, bedrock, Block.UPDATE_ALL);
+            net.minecraft.world.level.block.state.BlockState placedBedrock = level.getBlockState(bedrockAbs);
+            helper.assertTrue(placedBedrock.getDestroySpeed(level, bedrockAbs) < 0.0F, "bedrock is unbreakable (destroySpeed -1)");
+            helper.assertFalse(ChainMiningEngine.chainable(level, bedrockAbs, placedBedrock, netherite),
+                    "bedrock NOT chainable (unbreakable block, destroySpeed < 0)");
+        } finally {
+            // 一轮之内格子不复用, 留下的探针方块 (含熔炉的 BlockEntity) 没人清, 断言失败的路径上也要收走。
+            level.setBlock(helper.absolutePos(probe), Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+            level.setBlock(helper.absolutePos(bedrockProbe), Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+        }
 
         helper.succeed();
     }
@@ -985,27 +996,33 @@ public final class MinerGameTests {
         level.setBlock(a, coal, Block.UPDATE_ALL);
         level.setBlock(b, coal, Block.UPDATE_ALL);
         level.setBlock(trap, coal, Block.UPDATE_ALL);
-        reg.put(trap, StaticTrapKind.TNT_VEIN); // 未揭示。
+        // 种类取崩塌矿道而非 TNT 矿脉: execute 触发后的落地效果挂在 TrapSystem 的进程级延迟队列上, 测试侧撤不掉。
+        // TNT 会在本用例结束 30 tick 后于本格真炸一次 (炸坑、炸出掉落物, 波及那时还在跑的邻格用例); 崩塌只找触发点
+        // 头顶 5 格内的实心方块, 本格清场后上方全是空气, 到点即空操作。连锁引擎对陷阱种类无分支, 下面的断言与种类无关。
+        reg.put(trap, StaticTrapKind.COLLAPSING_TUNNEL); // 未揭示。
+        try {
+            // plan: 三个候选 (a,b 直邻 + trap 第二层; 未揭示 trap 按普通矿石计入), origin 不入。
+            List<BlockPos> planned = ChainMiningEngine.plan(player, level, origin, 16);
+            helper.assertTrue(planned.size() == 3,
+                    "plan yields the 3 connected coal candidates incl. the disguised trap, got " + planned.size());
+            helper.assertTrue(planned.contains(a) && planned.contains(b) && planned.contains(trap),
+                    "plan contains a, b and the (unrevealed) trap position");
+            helper.assertFalse(planned.contains(origin), "plan excludes the origin block");
 
-        // plan: 三个候选 (a,b 直邻 + trap 第二层; 未揭示 trap 按普通矿石计入), origin 不入。
-        List<BlockPos> planned = ChainMiningEngine.plan(player, level, origin, 16);
-        helper.assertTrue(planned.size() == 3,
-                "plan yields the 3 connected coal candidates incl. the disguised trap, got " + planned.size());
-        helper.assertTrue(planned.contains(a) && planned.contains(b) && planned.contains(trap),
-                "plan contains a, b and the (unrevealed) trap position");
-        helper.assertFalse(planned.contains(origin), "plan excludes the origin block");
-
-        // execute 消费同一 plan: 破坏普通 a/b (产出), 触发 trap (无产出, 移除条目), 返回 broken=2。
-        List<BlockPos> produced = new ArrayList<>();
-        ChainMiningEngine engine = new ChainMiningEngine();
-        int broken = engine.execute(player, level, planned, (pos, block, drops) -> produced.add(pos));
-        helper.assertTrue(broken == 2, "execute breaks exactly the 2 non-trap candidates, broken=" + broken);
-        helper.assertTrue(produced.size() == 2 && produced.contains(a) && produced.contains(b),
-                "produced set == plan candidates minus the trap position (a, b)");
-        helper.assertFalse(produced.contains(trap), "detonated trap produces nothing (excluded from output settlement)");
-        helper.assertTrue(reg.get(trap) == null, "unrevealed trap in the plan is triggered by execute -> entry removed");
-
-        reg.remove(trap); // 幂等清理共享 SavedData (触发已移除, 此处防御性)。
+            // execute 消费同一 plan: 破坏普通 a/b (产出), 触发 trap (无产出, 移除条目), 返回 broken=2。
+            List<BlockPos> produced = new ArrayList<>();
+            ChainMiningEngine engine = new ChainMiningEngine();
+            int broken = engine.execute(player, level, planned, (pos, block, drops) -> produced.add(pos));
+            helper.assertTrue(broken == 2, "execute breaks exactly the 2 non-trap candidates, broken=" + broken);
+            helper.assertTrue(produced.size() == 2 && produced.contains(a) && produced.contains(b),
+                    "produced set == plan candidates minus the trap position (a, b)");
+            helper.assertFalse(produced.contains(trap), "detonated trap produces nothing (excluded from output settlement)");
+            helper.assertTrue(reg.get(trap) == null, "unrevealed trap in the plan is triggered by execute -> entry removed");
+        } finally {
+            // TrapRegistry 是落盘的 SavedData: 断言失败的路径上条目还在, 不清会随 run/world 进下一轮变成幽灵陷阱。
+            // 成功路径上触发已移除, remove 幂等。
+            reg.remove(trap);
+        }
         helper.succeed();
     }
 
@@ -1040,21 +1057,24 @@ public final class MinerGameTests {
 
         // 世界 A (mid 是未揭示陷阱): plan 必须与世界 B 逐位完全相同 (list.equals), 否则预览泄漏 mid 是陷阱。
         reg.put(mid, StaticTrapKind.TNT_VEIN); // 未揭示 (未 markRevealed)。
-        List<BlockPos> planUnrevealedTrap = ChainMiningEngine.plan(player, level, origin, 16);
-        helper.assertTrue(planUnrevealedTrap.equals(planNormal),
-                "UNREVEALED trap plan is identical to the normal-ore plan (no free trap detector): "
-                        + planUnrevealedTrap + " vs " + planNormal);
+        try {
+            List<BlockPos> planUnrevealedTrap = ChainMiningEngine.plan(player, level, origin, 16);
+            helper.assertTrue(planUnrevealedTrap.equals(planNormal),
+                    "UNREVEALED trap plan is identical to the normal-ore plan (no free trap detector): "
+                            + planUnrevealedTrap + " vs " + planNormal);
 
-        // 世界 C (mid 已揭示): plan 排除 mid, 且 beyond 因只经 mid 连通亦被截断 (玩家已知情报, 允许截断)。
-        reg.markRevealed(player.getUUID(), mid);
-        List<BlockPos> planRevealedTrap = ChainMiningEngine.plan(player, level, origin, 16);
-        helper.assertFalse(planRevealedTrap.contains(mid), "revealed trap is excluded from the plan");
-        helper.assertFalse(planRevealedTrap.contains(beyond), "block reachable only through a revealed trap is also excluded");
-        helper.assertTrue(planRevealedTrap.isEmpty(), "revealed trap acts as a barrier: nothing chains past it here");
-        helper.assertTrue(planRevealedTrap.size() < planUnrevealedTrap.size(),
-                "revealing the trap strictly shrinks the plan (proves unrevealed was treated as normal ore)");
-
-        reg.remove(mid); // 清理共享 SavedData。
+            // 世界 C (mid 已揭示): plan 排除 mid, 且 beyond 因只经 mid 连通亦被截断 (玩家已知情报, 允许截断)。
+            reg.markRevealed(player.getUUID(), mid);
+            List<BlockPos> planRevealedTrap = ChainMiningEngine.plan(player, level, origin, 16);
+            helper.assertFalse(planRevealedTrap.contains(mid), "revealed trap is excluded from the plan");
+            helper.assertFalse(planRevealedTrap.contains(beyond), "block reachable only through a revealed trap is also excluded");
+            helper.assertTrue(planRevealedTrap.isEmpty(), "revealed trap acts as a barrier: nothing chains past it here");
+            helper.assertTrue(planRevealedTrap.size() < planUnrevealedTrap.size(),
+                    "revealing the trap strictly shrinks the plan (proves unrevealed was treated as normal ore)");
+        } finally {
+            // 清理共享 SavedData; 放 finally 是因为它会落盘, 断言失败时留下的条目会随 run/world 进下一轮。
+            reg.remove(mid);
+        }
         helper.succeed();
     }
 

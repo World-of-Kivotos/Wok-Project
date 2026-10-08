@@ -28,6 +28,7 @@ import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -149,38 +150,43 @@ public final class TrapGameTests {
         BlockPos collapse = helper.absolutePos(new BlockPos(2, 1, 0));
         BlockPos tnt = helper.absolutePos(new BlockPos(0, 1, 2));
         BlockPos lava = helper.absolutePos(new BlockPos(2, 1, 2));
-        reg.put(fake, StaticTrapKind.FAKE_ORE);
-        reg.put(collapse, StaticTrapKind.COLLAPSING_TUNNEL);
-        reg.put(tnt, StaticTrapKind.TNT_VEIN);
-        reg.put(lava, StaticTrapKind.LAVA_POCKET);
+        // 半径 8 的探测球会罩到相邻用例的格子, 注册表又是整个存档共用且落盘的: 别的用例漏下的条目不该算进本用例的个数,
+        // 所以扫描结果只认自己登记的这四个坐标。
+        Set<BlockPos> own = Set.of(fake, collapse, tnt, lava);
+        try {
+            reg.put(fake, StaticTrapKind.FAKE_ORE);
+            reg.put(collapse, StaticTrapKind.COLLAPSING_TUNNEL);
+            reg.put(tnt, StaticTrapKind.TNT_VEIN);
+            reg.put(lava, StaticTrapKind.LAVA_POCKET);
 
-        // L5-7 (lethalAllowed=false): 只下发 2 非致死, 且只揭示这 2 个 (致死被过滤的不揭示)。
-        UUID low = UUID.randomUUID();
-        List<BlockPos> nonLethal = TrapScanService.scanWorld(level, center, 8, false, low);
-        helper.assertTrue(nonLethal.size() == 2, "L5-7 scan returns only 2 non-lethal, got " + nonLethal.size());
-        helper.assertTrue(reg.isRevealed(low, fake) && reg.isRevealed(low, collapse),
-                "L5-7 reveals the 2 returned non-lethal traps");
-        helper.assertFalse(reg.isRevealed(low, tnt) || reg.isRevealed(low, lava),
-                "L5-7 does NOT reveal lethal traps hidden by the filter");
+            // L5-7 (lethalAllowed=false): 只下发 2 非致死, 且只揭示这 2 个 (致死被过滤的不揭示)。
+            UUID low = UUID.randomUUID();
+            List<BlockPos> nonLethal = ownOnly(TrapScanService.scanWorld(level, center, 8, false, low), own);
+            helper.assertTrue(nonLethal.size() == 2, "L5-7 scan returns only 2 non-lethal, got " + nonLethal.size());
+            helper.assertTrue(reg.isRevealed(low, fake) && reg.isRevealed(low, collapse),
+                    "L5-7 reveals the 2 returned non-lethal traps");
+            helper.assertFalse(reg.isRevealed(low, tnt) || reg.isRevealed(low, lava),
+                    "L5-7 does NOT reveal lethal traps hidden by the filter");
 
-        // L8+ (lethalAllowed=true): 4 个全收全揭示。
-        UUID high = UUID.randomUUID();
-        List<BlockPos> all = TrapScanService.scanWorld(level, center, 8, true, high);
-        helper.assertTrue(all.size() == 4, "L8+ scan returns all 4 traps, got " + all.size());
-        helper.assertTrue(reg.isRevealed(high, fake) && reg.isRevealed(high, collapse)
-                        && reg.isRevealed(high, tnt) && reg.isRevealed(high, lava),
-                "L8+ reveals all 4 returned traps");
+            // L8+ (lethalAllowed=true): 4 个全收全揭示。
+            UUID high = UUID.randomUUID();
+            List<BlockPos> all = ownOnly(TrapScanService.scanWorld(level, center, 8, true, high), own);
+            helper.assertTrue(all.size() == 4, "L8+ scan returns all 4 traps, got " + all.size());
+            helper.assertTrue(reg.isRevealed(high, fake) && reg.isRevealed(high, collapse)
+                            && reg.isRevealed(high, tnt) && reg.isRevealed(high, lava),
+                    "L8+ reveals all 4 returned traps");
 
-        // 半径 0 -> 空 (与 scan 上游门控一致), 且不揭示。
-        UUID zero = UUID.randomUUID();
-        helper.assertTrue(TrapScanService.scanWorld(level, center, 0, true, zero).isEmpty(), "radius 0 yields no hits");
-        helper.assertFalse(reg.isRevealed(zero, fake), "radius 0 reveals nothing");
-
-        // 清理本测试写入的注册表条目 (共享 level SavedData)。
-        reg.remove(fake);
-        reg.remove(collapse);
-        reg.remove(tnt);
-        reg.remove(lava);
+            // 半径 0 -> 空 (与 scan 上游门控一致), 且不揭示。
+            UUID zero = UUID.randomUUID();
+            helper.assertTrue(TrapScanService.scanWorld(level, center, 0, true, zero).isEmpty(), "radius 0 yields no hits");
+            helper.assertFalse(reg.isRevealed(zero, fake), "radius 0 reveals nothing");
+        } finally {
+            // 清理本测试写入的注册表条目 (共享 level SavedData); 放在 finally 里, 断言中途失败也不把条目留进存档。
+            reg.remove(fake);
+            reg.remove(collapse);
+            reg.remove(tnt);
+            reg.remove(lava);
+        }
         helper.succeed();
     }
 
@@ -202,20 +208,24 @@ public final class TrapGameTests {
         helper.setBlock(new BlockPos(1, 1, 0), Blocks.COAL_ORE);
         BlockPos origin = helper.absolutePos(new BlockPos(0, 1, 0));
         BlockPos trap = helper.absolutePos(new BlockPos(1, 1, 0));
-        reg.put(trap, StaticTrapKind.FAKE_ORE);
-        reg.markRevealed(player.getUUID(), trap);
+        try {
+            reg.put(trap, StaticTrapKind.FAKE_ORE);
+            reg.markRevealed(player.getUUID(), trap);
 
-        List<BlockPos> produced = new ArrayList<>();
-        int before = TrapSystem.get().pendingDelayedTaskCount();
-        int broken = engine.chainBreak(player, origin, level, 16, (pos, block, drops) -> produced.add(pos));
+            List<BlockPos> produced = new ArrayList<>();
+            int before = TrapSystem.get().pendingDelayedTaskCount();
+            int broken = engine.chainBreak(player, origin, level, 16, (pos, block, drops) -> produced.add(pos));
 
-        helper.assertTrue(broken == 0, "revealed trap is skipped, no chain break counted (broken=" + broken + ")");
-        helper.assertFalse(produced.contains(trap), "revealed trap not in chain output settlement");
-        helper.assertTrue(reg.get(trap) == StaticTrapKind.FAKE_ORE, "revealed trap entry preserved (not triggered)");
-        helper.assertBlockPresent(Blocks.COAL_ORE, new BlockPos(1, 1, 0)); // 方块保留原地。
-        helper.assertTrue(TrapSystem.get().pendingDelayedTaskCount() == before,
-                "revealed trap schedules no reaction-window task");
-        reg.remove(trap);
+            helper.assertTrue(broken == 0, "revealed trap is skipped, no chain break counted (broken=" + broken + ")");
+            helper.assertFalse(produced.contains(trap), "revealed trap not in chain output settlement");
+            helper.assertTrue(reg.get(trap) == StaticTrapKind.FAKE_ORE, "revealed trap entry preserved (not triggered)");
+            helper.assertBlockPresent(Blocks.COAL_ORE, new BlockPos(1, 1, 0)); // 方块保留原地。
+            helper.assertTrue(TrapSystem.get().pendingDelayedTaskCount() == before,
+                    "revealed trap schedules no reaction-window task");
+        } finally {
+            // 注册表是共享的 level SavedData 且会落盘: 断言中途失败也要撤掉这一条, 不把它留进存档。
+            reg.remove(trap);
+        }
         helper.succeed();
     }
 
@@ -232,17 +242,22 @@ public final class TrapGameTests {
         helper.setBlock(new BlockPos(1, 1, 0), Blocks.COAL_ORE);
         BlockPos origin = helper.absolutePos(new BlockPos(0, 1, 0));
         BlockPos trap = helper.absolutePos(new BlockPos(1, 1, 0));
-        reg.put(trap, StaticTrapKind.TNT_VEIN); // 未揭示 (未 markRevealed)。
+        try {
+            reg.put(trap, StaticTrapKind.TNT_VEIN); // 未揭示 (未 markRevealed)。
 
-        List<BlockPos> produced = new ArrayList<>();
-        int before = TrapSystem.get().pendingDelayedTaskCount();
-        int broken = engine.chainBreak(player, origin, level, 16, (pos, block, drops) -> produced.add(pos));
+            List<BlockPos> produced = new ArrayList<>();
+            int before = TrapSystem.get().pendingDelayedTaskCount();
+            int broken = engine.chainBreak(player, origin, level, 16, (pos, block, drops) -> produced.add(pos));
 
-        helper.assertTrue(broken == 0, "triggered trap is not counted as a chain break (broken=" + broken + ")");
-        helper.assertFalse(produced.contains(trap), "triggered trap excluded from chain output settlement");
-        helper.assertTrue(reg.get(trap) == null, "unrevealed trap triggered -> entry removed");
-        helper.assertTrue(TrapSystem.get().pendingDelayedTaskCount() == before + 1,
-                "unrevealed trap trigger schedules one reaction-window task");
+            helper.assertTrue(broken == 0, "triggered trap is not counted as a chain break (broken=" + broken + ")");
+            helper.assertFalse(produced.contains(trap), "triggered trap excluded from chain output settlement");
+            helper.assertTrue(reg.get(trap) == null, "unrevealed trap triggered -> entry removed");
+            helper.assertTrue(TrapSystem.get().pendingDelayedTaskCount() == before + 1,
+                    "unrevealed trap trigger schedules one reaction-window task");
+        } finally {
+            // 这一条本该由被测的连锁引擎触发后移除; 引擎没走到那一步时它会留在共享且落盘的注册表里, 用例自己兜底撤掉。
+            reg.remove(trap);
+        }
         helper.succeed();
     }
 
@@ -309,27 +324,32 @@ public final class TrapGameTests {
         BlockPos rel = new BlockPos(3, 1, 0);
         BlockPos pos = helper.absolutePos(rel);
         BlockState skin = Blocks.DEEPSLATE_IRON_ORE.defaultBlockState(); // 合法伪装矿石 (铁的深板岩变体)。
-
-        BlockState placed = TrapDebugPlacement.place(level, pos, StaticTrapKind.TNT_VEIN, skin);
-        // 目标位方块态 == skin, 且注册表登记为该 kind (世界只存真伪装矿石, 陷阱身份进注册表)。
-        helper.assertTrue(placed == skin, "place returns the applied skin state");
-        helper.assertTrue(level.getBlockState(pos).is(Blocks.DEEPSLATE_IRON_ORE),
-                "target block state set to the skin ore (deepslate iron)");
-        helper.assertTrue(reg.get(pos) == StaticTrapKind.TNT_VEIN, "registry records the trap kind at the placed pos");
-
-        // 非法 skin (非伪装矿石族, 如石头) 被拒: place 抛 IllegalArgumentException, 不写世界不登记。
         BlockPos rel2 = new BlockPos(4, 1, 0);
         BlockPos pos2 = helper.absolutePos(rel2);
-        boolean threw = false;
-        try {
-            TrapDebugPlacement.place(level, pos2, StaticTrapKind.FAKE_ORE, Blocks.STONE.defaultBlockState());
-        } catch (IllegalArgumentException rejected) {
-            threw = true;
-        }
-        helper.assertTrue(threw, "place rejects a non-disguise-ore skin (stone) with IllegalArgumentException");
-        helper.assertTrue(reg.get(pos2) == null, "rejected skin leaves no registry entry at that pos");
 
-        reg.remove(pos); // 清理共享 SavedData。
+        try {
+            BlockState placed = TrapDebugPlacement.place(level, pos, StaticTrapKind.TNT_VEIN, skin);
+            // 目标位方块态 == skin, 且注册表登记为该 kind (世界只存真伪装矿石, 陷阱身份进注册表)。
+            helper.assertTrue(placed == skin, "place returns the applied skin state");
+            helper.assertTrue(level.getBlockState(pos).is(Blocks.DEEPSLATE_IRON_ORE),
+                    "target block state set to the skin ore (deepslate iron)");
+            helper.assertTrue(reg.get(pos) == StaticTrapKind.TNT_VEIN, "registry records the trap kind at the placed pos");
+
+            // 非法 skin (非伪装矿石族, 如石头) 被拒: place 抛 IllegalArgumentException, 不写世界不登记。
+            boolean threw = false;
+            try {
+                TrapDebugPlacement.place(level, pos2, StaticTrapKind.FAKE_ORE, Blocks.STONE.defaultBlockState());
+            } catch (IllegalArgumentException rejected) {
+                threw = true;
+            }
+            helper.assertTrue(threw, "place rejects a non-disguise-ore skin (stone) with IllegalArgumentException");
+            helper.assertTrue(reg.get(pos2) == null, "rejected skin leaves no registry entry at that pos");
+        } finally {
+            // 清理共享 SavedData; 放在 finally 里, 断言中途失败也不把条目留进存档。
+            // 非法 skin 万一没被拒, pos2 也会被登记, 一并撤掉。
+            reg.remove(pos);
+            reg.remove(pos2);
+        }
         helper.succeed();
     }
 
@@ -340,6 +360,17 @@ public final class TrapGameTests {
         List<BlockPos> out = new ArrayList<>(entries.size());
         for (TrapRegistry.Entry e : entries) {
             out.add(e.pos());
+        }
+        return out;
+    }
+
+    /** 从探测结果里只留下本用例自己登记的坐标 (注册表整个存档共用, 球内可能有别的用例留下的条目)。 */
+    private static List<BlockPos> ownOnly(List<BlockPos> hits, Set<BlockPos> own) {
+        List<BlockPos> out = new ArrayList<>(hits.size());
+        for (BlockPos pos : hits) {
+            if (own.contains(pos)) {
+                out.add(pos);
+            }
         }
         return out;
     }

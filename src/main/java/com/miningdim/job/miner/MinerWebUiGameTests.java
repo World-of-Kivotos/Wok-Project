@@ -471,56 +471,68 @@ public final class MinerWebUiGameTests {
          */
         BlockPos cornerIron = center.offset(2, 2, 2);
         BlockPos nearDiamond = center.offset(-1, 0, 0);
-        level.setBlock(nearIron1, Blocks.IRON_ORE.defaultBlockState(), Block.UPDATE_ALL);
-        level.setBlock(nearIron2, Blocks.DEEPSLATE_IRON_ORE.defaultBlockState(), Block.UPDATE_ALL);
-        level.setBlock(farIron, Blocks.IRON_ORE.defaultBlockState(), Block.UPDATE_ALL);
-        level.setBlock(cornerIron, Blocks.IRON_ORE.defaultBlockState(), Block.UPDATE_ALL);
-        level.setBlock(nearDiamond, Blocks.DIAMOND_ORE.defaultBlockState(), Block.UPDATE_ALL);
+        // 半径 3 的球在西侧比框架清场多伸出一格 (清场只到结构西侧第 2 格), 那一格平时靠西邻用例的清场顺带盖住;
+        // 本用例排到网格行首时没有西邻, 上一轮末尾填进去的铁矿会原样留在存档里, 下面"恰好两颗铁"就多数出一颗。
+        // 所以先把球内一切能还原成矿种的方块清成空气; 只动矿块, 不碰别的。
+        clearOresWithinSphere(level, center, radius);
+        try {
+            level.setBlock(nearIron1, Blocks.IRON_ORE.defaultBlockState(), Block.UPDATE_ALL);
+            level.setBlock(nearIron2, Blocks.DEEPSLATE_IRON_ORE.defaultBlockState(), Block.UPDATE_ALL);
+            level.setBlock(farIron, Blocks.IRON_ORE.defaultBlockState(), Block.UPDATE_ALL);
+            level.setBlock(cornerIron, Blocks.IRON_ORE.defaultBlockState(), Block.UPDATE_ALL);
+            level.setBlock(nearDiamond, Blocks.DIAMOND_ORE.defaultBlockState(), Block.UPDATE_ALL);
 
-        Set<OreType> l10 = OreScanService.allowedOres(10);
-        OreScanService.ScanHit hit = OreScanService.scanWorldDetailed(level, center, radius, l10);
+            Set<OreType> l10 = OreScanService.allowedOres(10);
+            OreScanService.ScanHit hit = OreScanService.scanWorldDetailed(level, center, radius, l10);
 
-        helper.assertTrue(hit.ore() == OreType.IRON,
-                "单矿种一次: 球内同时有铁与钻时只回优先序第一位的铁, 实得 " + hit.ore());
-        helper.assertTrue(hit.positions().contains(nearIron1) && hit.positions().contains(nearIron2),
-                "球内两颗铁矿 (含深板岩变体) 都必须命中");
-        helper.assertTrue(!hit.positions().contains(farIron),
-                "半径门: 球外的铁矿 " + farIron + " 绝不许下发");
-        helper.assertTrue(!hit.positions().contains(cornerIron),
-                "半径门是球不是立方体: 对角线上的铁矿 " + cornerIron + " (三轴均在半径内但距离超出) 绝不许下发");
-        helper.assertTrue(!hit.positions().contains(nearDiamond) && hit.positions().size() == 2,
-                "单矿种一次: 同一次结果里不许混进第二个矿种, 实得 " + hit.positions());
+            helper.assertTrue(hit.ore() == OreType.IRON,
+                    "单矿种一次: 球内同时有铁与钻时只回优先序第一位的铁, 实得 " + hit.ore());
+            helper.assertTrue(hit.positions().contains(nearIron1) && hit.positions().contains(nearIron2),
+                    "球内两颗铁矿 (含深板岩变体) 都必须命中");
+            helper.assertTrue(!hit.positions().contains(farIron),
+                    "半径门: 球外的铁矿 " + farIron + " 绝不许下发");
+            helper.assertTrue(!hit.positions().contains(cornerIron),
+                    "半径门是球不是立方体: 对角线上的铁矿 " + cornerIron + " (三轴均在半径内但距离超出) 绝不许下发");
+            helper.assertTrue(!hit.positions().contains(nearDiamond) && hit.positions().size() == 2,
+                    "单矿种一次: 同一次结果里不许混进第二个矿种, 实得 " + hit.positions());
 
-        // 等级门在筛选实现里的落点: L2 的可探集合是空的, 球内有矿也一律空返。
-        OreScanService.ScanHit locked =
-                OreScanService.scanWorldDetailed(level, center, radius, OreScanService.allowedOres(2));
-        helper.assertTrue(locked.ore() == null && locked.positions().isEmpty(),
-                "未解锁 (可探集合为空) 时即便球内有矿也不下发");
-        // L3 里程碑: 铁/煤可探但钻不可探 —— 用只含钻石的球验证它确实被排除在外。
-        OreScanService.ScanHit diamondOnly = OreScanService.scanWorldDetailed(
-                level, nearDiamond, 1, OreScanService.allowedOres(MinerConstants.ORE_SCAN_UNLOCK_LEVEL));
-        helper.assertTrue(diamondOnly.ore() == null,
-                "L3 的可探集合不含钻石, 站在钻石上也探不到");
+            // 等级门在筛选实现里的落点: L2 的可探集合是空的, 球内有矿也一律空返。
+            OreScanService.ScanHit locked =
+                    OreScanService.scanWorldDetailed(level, center, radius, OreScanService.allowedOres(2));
+            helper.assertTrue(locked.ore() == null && locked.positions().isEmpty(),
+                    "未解锁 (可探集合为空) 时即便球内有矿也不下发");
+            // L3 里程碑: 铁/煤可探但钻不可探 —— 用只含钻石的球验证它确实被排除在外。
+            OreScanService.ScanHit diamondOnly = OreScanService.scanWorldDetailed(
+                    level, nearDiamond, 1, OreScanService.allowedOres(MinerConstants.ORE_SCAN_UNLOCK_LEVEL));
+            helper.assertTrue(diamondOnly.ore() == null,
+                    "L3 的可探集合不含钻石, 站在钻石上也探不到");
 
-        // 64 条硬顶: 半径 3 的球内塞满 123 块铁矿, 下发必须恰好截到 64。
-        int filled = 0;
-        for (int dx = -radius; dx <= radius; dx++) {
-            for (int dy = -radius; dy <= radius; dy++) {
-                for (int dz = -radius; dz <= radius; dz++) {
-                    if (dx * dx + dy * dy + dz * dz > radius * radius) {
-                        continue;
+            // 64 条硬顶: 半径 3 的球内塞满 123 块铁矿, 下发必须恰好截到 64。
+            int filled = 0;
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dy = -radius; dy <= radius; dy++) {
+                    for (int dz = -radius; dz <= radius; dz++) {
+                        if (dx * dx + dy * dy + dz * dz > radius * radius) {
+                            continue;
+                        }
+                        level.setBlock(center.offset(dx, dy, dz), Blocks.IRON_ORE.defaultBlockState(),
+                                Block.UPDATE_ALL);
+                        filled++;
                     }
-                    level.setBlock(center.offset(dx, dy, dz), Blocks.IRON_ORE.defaultBlockState(),
-                            Block.UPDATE_ALL);
-                    filled++;
                 }
             }
+            helper.assertTrue(filled > MinerConstants.ORE_SCAN_MAX_RESULTS,
+                    "前置条件: 填进球内的矿数 " + filled + " 必须超过硬顶才测得到截断");
+            List<BlockPos> capped = OreScanService.scanWorld(level, center, radius, EnumSet.of(OreType.IRON));
+            helper.assertTrue(capped.size() == MinerConstants.ORE_SCAN_MAX_RESULTS && capped.size() == 64,
+                    "一次探测最多下发 64 条坐标 (防一次洗出整张矿图), 实得 " + capped.size());
+        } finally {
+            // 断言中途失败也要把放下的矿收走: 球内放的全是矿块, 照开头那样清一遍即可;
+            // 球外两颗样本 (farIron 同样落在框架清场范围之外) 单独撤掉。
+            clearOresWithinSphere(level, center, radius);
+            level.setBlock(farIron, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+            level.setBlock(cornerIron, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
         }
-        helper.assertTrue(filled > MinerConstants.ORE_SCAN_MAX_RESULTS,
-                "前置条件: 填进球内的矿数 " + filled + " 必须超过硬顶才测得到截断");
-        List<BlockPos> capped = OreScanService.scanWorld(level, center, radius, EnumSet.of(OreType.IRON));
-        helper.assertTrue(capped.size() == MinerConstants.ORE_SCAN_MAX_RESULTS && capped.size() == 64,
-                "一次探测最多下发 64 条坐标 (防一次洗出整张矿图), 实得 " + capped.size());
         helper.succeed();
     }
 
@@ -614,6 +626,23 @@ public final class MinerWebUiGameTests {
                 "无命中时两个矿种字段必须仍然在回执里 (契约是 string|null, 缺键会让前端拿到 undefined)");
         helper.assertTrue(result.get("oreItemId").isJsonNull() && result.get("oreDescriptionId").isJsonNull(),
                 "无命中时两个矿种字段必须是 JSON null 而不是空串");
+    }
+
+    /** 把球内一切能还原成矿种的方块清成空气 (球的判据与探测实现、与用例里填球的循环一致); 只动矿块, 不碰别的。 */
+    private static void clearOresWithinSphere(ServerLevel level, BlockPos center, int radius) {
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dy = -radius; dy <= radius; dy++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    if (dx * dx + dy * dy + dz * dz > radius * radius) {
+                        continue;
+                    }
+                    BlockPos pos = center.offset(dx, dy, dz);
+                    if (OreType.fromBlock(level.getBlockState(pos).getBlock()) != null) {
+                        level.setBlock(pos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+                    }
+                }
+            }
+        }
     }
 
     private static void assertPassiveShape(GameTestHelper helper, JsonArray passives) {

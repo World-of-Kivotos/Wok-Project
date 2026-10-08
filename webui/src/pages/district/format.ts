@@ -286,6 +286,37 @@ export function formatArea(area: number): string {
   return `${area.toLocaleString('zh-CN')} 格`
 }
 
+/**
+ * 从列表数出来的个数。列表被服务端截断 (回执里对应的截断标记为真) 时, 数出来的只是下限, 写成"至少 N":
+ * 照常写"N"等于把"只收到 N 项"说成"一共 N 项"。
+ */
+export function countText(count: number, truncated: boolean): string {
+  return truncated ? `至少 ${String(count)}` : String(count)
+}
+
+/**
+ * 地块列表 (district.plots 的 plots) 被截断时"其余的去哪看"那半句, 画地块的几处共用; 前半句各处按自己画的东西写。
+ * 完整清单管理员在游戏里能列出来 (/district plots <自管区代号>, 仅 OP)。
+ */
+export const PLOTS_TRUNCATED_ELSEWHERE = '其余的请联系管理员在游戏里用 /district plots 命令查看'
+
+/**
+ * 记录类列表 (本区操作记录、地块记录, 以及它们的归档与留档) 被截断时的那句提示。记录一律新的在前, 截掉的是最旧的一段。
+ * 不指到 /district 命令去: 没有能翻旧记录的子命令 (/district info 只列最近十条本区记录, 地块记录没有命令可查)。
+ */
+export function logTruncatedText(shown: number): string {
+  return `记录太多，这里只显示了最近的 ${String(shown)} 条，更早的没有显示；要查更早的记录请联系管理员。`
+}
+
+/**
+ * "我是哪几块地的朋友" (district.state 的 friendOf) 被截断时的那句提示。shown 是服务端实际下发的块数, 跨全部自管区。
+ * 要说明白没列出来的不等于不是朋友: 截掉的只是这份清单, 游戏里的朋友身份 (含待生效、已暂停这些状态) 不受影响。
+ * 同样不指到 /district 命令去: 没有按玩家查朋友地块的子命令。
+ */
+export function friendOfTruncatedText(shown: number): string {
+  return `把你加成朋友的地块太多，平板上只列得出前 ${String(shown)} 块（所有自管区合计）；没列出来的那些，你的朋友身份不受影响，想知道是哪几块请问户主或联系管理员。`
+}
+
 /** 范围的长 x 宽 (方块数, 含两端)。自管区范围与地块范围都能传 (前者多一个维度字段)。 */
 export function boundsSize(bounds: PlotArea): string {
   const width = bounds.maxX - bounds.minX + 1

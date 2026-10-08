@@ -31,10 +31,12 @@ import type {
 import { DistrictToastSlot, useDistrictToast } from './DistrictToast'
 import {
   BUY_BLOCK_TEXT,
+  PLOTS_TRUNCATED_ELSEWHERE,
   PLOT_STATUS_LABEL,
   PLOT_STATUS_TONE,
   RECLAIM_LEFTOVER_NOTE,
   boundsSize,
+  countText,
   describeFailure,
   formatArea,
   formatBounds,
@@ -60,6 +62,7 @@ import {
 } from './plotArea'
 import { PlotDetail, PlotLogPanel } from './PlotDetail'
 import { PLOT_LEGEND, PlotMap } from './PlotMap'
+import { TruncatedNotice } from './TruncatedNotice'
 
 /**
  * "本区地块"页签: 俯视平面图 + 选中地块的操作卡 + 地块列表。本区住户、区务长与管理员可见 (abilities.viewPlotList)。
@@ -94,6 +97,13 @@ type BuyOrigin = 'side' | 'list'
 function previewBalanceNote(): string {
   return isMockActive() ? '（预览：演示余额，与页头不同）' : ''
 }
+
+/**
+ * 能买 (market.viewerBlock 为 null) 却没有余额 (market.viewerBalance 为 null): 服务端的经济子系统这会儿没就绪,
+ * 余额取不到, 这时下单也只会被 ECONOMY_OFFLINE 拒掉。照实说读不到并把购买键置灰 —— 当成 0 来画的话,
+ * 玩家看到的是"你有 0 信用点"。
+ */
+const BALANCE_UNREADABLE_TEXT = '余额暂时读不到'
 
 export function DistrictPlotsTab({
   districtId,
@@ -142,7 +152,7 @@ function PlotsView({
   const [busy, setBusy] = useState(false)
   const detailRef = useRef<HTMLDivElement>(null)
 
-  const { plots, myPlotId, market, rules, bounds } = data
+  const { plots, myPlotId, market, rules, bounds, plotsTruncated } = data
   const now = nowMs()
   const adminView = abilities.inspectPlots
   const vacant = plots.filter((plot) => plot.status === 'vacant').length
@@ -151,6 +161,11 @@ function PlotsView({
   const selected = plots.find((plot) => plot.plotId === selectedId) ?? null
   const canBuy = market.viewerBlock === null
   const balance = market.viewerBalance
+  // 地块列表被截断时, 划地块的人要多知道一句: 没下发的那些地块平板拿不到, 图上那里是空白, 下面本地的重叠检查
+  // (areaProblem) 也查不到它们 —— 看着能划, 提交时仍可能被服务端以"与别的地块重叠"拒掉。
+  const truncatedDrawNote = abilities.managePlots
+    ? '没显示的地块在图上是空白，划新地块时会不会和它们重叠，以服务器的校验为准。'
+    : ''
 
   // 调整中的那块地没了 (被别人删了), 编辑器随之作废。
   const editingPlot = editor?.mode === 'resize' ? (plots.find((plot) => plot.plotId === editor.plotId) ?? null) : null
@@ -373,7 +388,9 @@ function PlotsView({
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Tag tone="neutral">
-              {`${String(plots.length)} 块 · ${String(vacant)} 块空置${frozenCount > 0 ? ` · ${String(frozenCount)} 块冻结中` : ''}`}
+              {`${countText(plots.length, plotsTruncated)} 块 · ${countText(vacant, plotsTruncated)} 块空置${
+                frozenCount > 0 ? ` · ${countText(frozenCount, plotsTruncated)} 块冻结中` : ''
+              }`}
             </Tag>
             {abilities.managePlots ? (
               <Button
@@ -397,7 +414,17 @@ function PlotsView({
         title="本区地块"
       >
         <div className="flex flex-col gap-3">
-          <MarketBanner balance={balance} block={market.viewerBlock} vacantCount={vacant} />
+          {plotsTruncated ? (
+            <TruncatedNotice>
+              {`地块太多，平面图和下面的列表只显示了前 ${String(plots.length)} 块；${PLOTS_TRUNCATED_ELSEWHERE}。${truncatedDrawNote}`}
+            </TruncatedNotice>
+          ) : null}
+          <MarketBanner
+            balance={balance}
+            block={market.viewerBlock}
+            plotsTruncated={plotsTruncated}
+            vacantCount={vacant}
+          />
           <DistrictToastSlot onClear={clear} toast={toast} />
           <div className="@container">
             <div className="grid gap-4 @2xl:grid-cols-[minmax(0,1fr)_17rem]">
@@ -451,6 +478,14 @@ function PlotsView({
             <DistrictToastSlot onClear={listToast.clear} toast={listToast.toast} />
           </div>
         )}
+        {/* 列表在平面图下面, 平板上隔着一屏: 图那边的提示在这里看不见, 列表上方再说一次。 */}
+        {plotsTruncated ? (
+          <div className="px-4 pt-3 pb-1">
+            <TruncatedNotice>
+              {`地块太多，列表只显示了前 ${String(plots.length)} 块；${PLOTS_TRUNCATED_ELSEWHERE}。`}
+            </TruncatedNotice>
+          </div>
+        ) : null}
         <DataTable
           columns={columnsFor({
             adminView,
@@ -505,7 +540,9 @@ function PlotsView({
         </div>
       ) : null}
 
-      {data.deletedPlots === null ? null : <DeletedPlotsPanel plots={data.deletedPlots} />}
+      {data.deletedPlots === null ? null : (
+        <DeletedPlotsPanel plots={data.deletedPlots} truncated={data.deletedPlotsTruncated} />
+      )}
 
       <ConfirmDangerDialog
         confirmDisabled={buyTarget === null || buyTarget.price === null || balance === null || balance < buyTarget.price}
@@ -624,18 +661,28 @@ function MarketBanner({
   block,
   balance,
   vacantCount,
+  plotsTruncated,
 }: {
   block: DistrictPlotsResult['market']['viewerBlock']
   balance: number | null
   vacantCount: number
+  /** 地块列表被服务端截断: vacantCount 只数了显示出来的那些, 为 0 不等于本区没有空置地块。 */
+  plotsTruncated: boolean
 }): ReactElement | null {
   if (block === null) {
-    const balanceText = balance === null ? '' : `你现在有 ${formatCredit(balance)}${previewBalanceNote()}。`
+    const balanceText =
+      balance === null
+        ? `${BALANCE_UNREADABLE_TEXT}，现在还买不了，稍后再来看。`
+        : `你现在有 ${formatCredit(balance)}${previewBalanceNote()}。`
+    // 被截掉的是列表末尾, 也就是最新划出的那些 —— 多半正是还没卖出去的空置地块, 不能照常说"没有空置地块"。
+    const noVacantText = plotsTruncated
+      ? '显示出来的地块里没有空置的；地块没有显示全，没显示的里面可能还有，请联系管理员确认。'
+      : '本区现在没有空置地块，等区务长划出新地块后再来买。'
     return (
       <Surface tone="brand">
         <p className="text-foreground text-sm">
           {vacantCount === 0
-            ? `你还没有地块。本区现在没有空置地块，等区务长划出新地块后再来买。${balanceText}`
+            ? `你还没有地块。${noVacantText}${balanceText}`
             : `你还没有地块：在图上或列表里选一块空置的（绿色虚线框），直接买下，先到先得，一人最多一块。${balanceText}`}
         </p>
       </Surface>
@@ -881,20 +928,25 @@ function VacantActions({
   onDelete: () => void
 }): ReactElement {
   const price = plot.price
-  const short = price !== null && balance !== null && balance < price ? price - balance : null
   return (
     <div className="flex flex-col gap-2">
       {canBuy && price !== null ? (
         <div className="flex flex-col gap-1.5">
-          <Button disabled={short !== null} onClick={onBuy} size="sm">
+          <Button disabled={balance === null || balance < price} onClick={onBuy} size="sm">
             <ShoppingCartIcon aria-hidden="true" />
             购买
           </Button>
-          <p className={`text-xs ${short === null ? 'text-muted-foreground' : 'text-destructive'}`}>
-            {short === null
-              ? `${formatArea(plot.area)} × 每格 ${formatCredit(unitPrice)}；你有 ${formatCredit(balance ?? 0)}${previewBalanceNote()}，先到先得。`
-              : `余额不足：你有 ${formatCredit(balance ?? 0)}${previewBalanceNote()}，还差 ${formatCredit(short)}。`}
-          </p>
+          {balance === null ? (
+            <p className="text-destructive text-xs">{`${BALANCE_UNREADABLE_TEXT}，现在还买不了，稍后再来看。`}</p>
+          ) : balance < price ? (
+            <p className="text-destructive text-xs">
+              {`余额不足：你有 ${formatCredit(balance)}${previewBalanceNote()}，还差 ${formatCredit(price - balance)}。`}
+            </p>
+          ) : (
+            <p className="text-muted-foreground text-xs">
+              {`${formatArea(plot.area)} × 每格 ${formatCredit(unitPrice)}；你有 ${formatCredit(balance)}${previewBalanceNote()}，先到先得。`}
+            </p>
+          )}
         </div>
       ) : null}
       {buyBlock !== null && buyBlock !== 'NOT_RESIDENT' ? (
@@ -1170,29 +1222,55 @@ const DELETED_PLOT_COLUMNS: readonly DataTableColumn<DeletedPlot>[] = [
     key: 'log',
     header: '留档记录',
     numeric: true,
-    render: (row) => `${String(row.log.length)} 条`,
+    render: (row) => `${countText(row.log.length, row.logTruncated)} 条`,
   },
 ]
+
+const DELETED_PLOTS_DESCRIPTION =
+  '区务长能删空置地块，但删不掉它以前的记录：每块删掉的地块记录都留档在这里，只有管理员看得到'
 
 /**
  * 删掉的空置地块的墓碑 (lib/types.ts K19): 地块没了, 它自己的地块记录 (含历任户主期间的归档) 留在这里。
  * 服务端只给管理员下发 (其余身份 deletedPlots 为 null, 调用方根本不渲染本组件); 一块都没有时整块不画
  * (同已解绑自管区的归档)。点一行在下面展开那块地删除前的记录。
+ *
+ * truncated = 回执的 deletedPlotsTruncated。墓碑排在地块列表之后装进回执, 地块多到把预算用完时可能一块都装不下:
+ * 那时 plots 是空的而 truncated 为真, 不能照"一块都没有"整块不画 —— 留档明明在, 只是这次没下发。
  */
-function DeletedPlotsPanel({ plots }: { plots: readonly DeletedPlot[] }): ReactElement | null {
+function DeletedPlotsPanel({
+  plots,
+  truncated,
+}: {
+  plots: readonly DeletedPlot[]
+  truncated: boolean
+}): ReactElement | null {
   const [openId, setOpenId] = useState<string | null>(null)
   if (plots.length === 0) {
-    return null
+    // 只有管理员看得到这一块, 所以下面两句提示都不写"请联系管理员"; 留档也没有对应的 /district 子命令, 不往那边指。
+    return truncated ? (
+      <Panel description={DELETED_PLOTS_DESCRIPTION} title="已删除的地块">
+        <TruncatedNotice>
+          本区有已删除地块的留档，但这次一块都没能显示：本区地块太多，回执里装不下了。留档仍保存在服务器上，平板上暂时看不到。
+        </TruncatedNotice>
+      </Panel>
+    ) : null
   }
   const opened = plots.find((plot) => plot.plotId === openId) ?? null
   return (
     <>
       <Panel
-        actions={<Tag tone="neutral">{`${String(plots.length)} 块`}</Tag>}
-        description="区务长能删空置地块，但删不掉它以前的记录：每块删掉的地块记录都留档在这里，只有管理员看得到"
+        actions={<Tag tone="neutral">{`${countText(plots.length, truncated)} 块`}</Tag>}
+        description={DELETED_PLOTS_DESCRIPTION}
         padded={false}
         title="已删除的地块"
       >
+        {truncated ? (
+          <div className="px-4 pt-3 pb-1">
+            <TruncatedNotice>
+              {`已删除的地块太多（或留档记录太长），这里只显示了最近删除的 ${String(plots.length)} 块；其余的留档仍保存在服务器上，平板上暂时看不到。`}
+            </TruncatedNotice>
+          </div>
+        ) : null}
         <DataTable
           columns={DELETED_PLOT_COLUMNS}
           onRowClick={(row) => {
@@ -1206,9 +1284,10 @@ function DeletedPlotsPanel({ plots }: { plots: readonly DeletedPlot[] }): ReactE
       </Panel>
       {opened === null ? null : (
         <PlotLogPanel
-          description={`${opened.code} 删除之前的全部地块记录（含历任户主期间的，留档，只读）`}
+          description={`${opened.code} 删除之前的${opened.logTruncated ? '' : '全部'}地块记录（含历任户主期间的，留档，只读）`}
           log={opened.log}
           title={`留档记录 · ${opened.code}`}
+          truncated={opened.logTruncated}
         />
       )}
     </>
@@ -1264,8 +1343,15 @@ function StatusCell({
   balance: number | null
   onBuy: (plot: PlotSummary) => void
 }): ReactElement {
-  // 与右边操作卡的"购买"同一口径: 钱不够就直接置灰并说差多少, 不先弹一个确认不了的框。
-  const short = plot.price !== null && balance !== null && balance < plot.price ? plot.price - balance : null
+  // 与右边操作卡的"购买"同一口径: 钱不够就直接置灰并说差多少, 余额读不到也置灰并照实说, 不先弹一个确认不了的框。
+  const buyDisabledReason =
+    plot.price === null
+      ? null
+      : balance === null
+        ? BALANCE_UNREADABLE_TEXT
+        : balance < plot.price
+          ? `余额不足，还差 ${formatCredit(plot.price - balance)}`
+          : null
   const second =
     plot.status === 'vacant' && plot.price !== null
       ? formatCredit(plot.price)
@@ -1281,8 +1367,8 @@ function StatusCell({
         {second === null ? null : <span className="text-muted-foreground text-xs">{second}</span>}
       </span>
       {canBuy && plot.status === 'vacant' ? (
-        short !== null ? (
-          <Hint content={`余额不足，还差 ${formatCredit(short)}`}>
+        buyDisabledReason !== null ? (
+          <Hint content={buyDisabledReason}>
             <Button disabled size="xs" variant="outline">
               购买
             </Button>
@@ -1293,6 +1379,11 @@ function StatusCell({
               // 按钮在可点的行里: 不拦的话点购买也会触发行选中, 两件事叠在一起。
               event.stopPropagation()
               onBuy(plot)
+            }}
+            onKeyDown={(event) => {
+              // 键盘同理, 而且更糟: 行自己接 Enter / 空格来选中 (DataTable), 还会取消按键的默认动作 ——
+              // 不拦的话焦点在这个按钮上按 Enter 只选中了行, 购买确认框根本弹不出来。
+              event.stopPropagation()
             }}
             size="xs"
             variant="outline"

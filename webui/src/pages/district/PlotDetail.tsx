@@ -36,6 +36,7 @@ import {
   PLOT_LOG_ACTION_TONE,
   RECLAIM_LEFTOVER_NOTE,
   boundsSize,
+  countText,
   describeFailure,
   dimensionLabel,
   failureCode,
@@ -45,6 +46,7 @@ import {
   formatRelative,
   formatShortDate,
   freezeLeftText,
+  logTruncatedText,
   onOffLabel,
 } from './format'
 import {
@@ -57,6 +59,7 @@ import {
   noticeFor,
   usePermissionCells,
 } from './PermissionRows'
+import { TruncatedNotice } from './TruncatedNotice'
 
 /**
  * 一块地块的详情: 地块信息 / 朋友名单 / 三列权限 (朋友 · 其他住户 · 外人) / 地块记录。
@@ -106,7 +109,7 @@ export function PlotDetail({ districtId, plotId }: { districtId: string; plotId:
       ) : null}
       <PlotFriendsPanel data={data} districtId={districtId} editable={canEdit} />
       <PlotPermissionTable data={data} districtId={districtId} editable={canEdit} />
-      <PlotLogPanel log={data.log} />
+      <PlotLogPanel log={data.log} truncated={data.logTruncated} />
     </div>
   )
 }
@@ -969,20 +972,28 @@ const PLOT_LOG_COLUMNS: readonly DataTableColumn<PlotLogEntry>[] = [
 /** 地块记录表。管理员看已删除地块的墓碑时也用它 (换个标题)。 */
 export function PlotLogPanel({
   log,
+  truncated,
   title = '地块记录',
   description = '谁在什么时候加、移除、恢复了朋友，改了哪一项、改了范围；管理员代改会单独标出来',
 }: {
   log: readonly PlotLogEntry[]
+  /** 回执里这份记录对应的 logTruncated: 服务端只下发了最近的一段。不设默认值, 每个调用方都得把标记接过来。 */
+  truncated: boolean
   title?: string | undefined
   description?: string | undefined
 }): ReactElement {
   return (
     <Panel
-      actions={<Tag tone="neutral">{`${String(log.length)} 条`}</Tag>}
+      actions={<Tag tone="neutral">{`${countText(log.length, truncated)} 条`}</Tag>}
       description={description}
       padded={false}
       title={title}
     >
+      {truncated ? (
+        <div className="px-4 pt-3 pb-1">
+          <TruncatedNotice>{logTruncatedText(log.length)}</TruncatedNotice>
+        </div>
+      ) : null}
       <div className="max-h-80 overflow-y-auto">
         <DataTable columns={PLOT_LOG_COLUMNS} emptyHint="这块地还没有任何记录" rowKey={(row) => row.entryId} rows={log} />
       </div>

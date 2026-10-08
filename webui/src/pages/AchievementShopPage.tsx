@@ -17,6 +17,7 @@ import {
   Toggle,
   formatAmount,
 } from '@/components/kit'
+import { WebUiCallError } from '@/lib/bridge'
 import { callErrorText, customTitleViolationText } from '@/lib/errorText'
 import { useItemDisplayNames, useItemNames } from '@/lib/i18n'
 import { invalidateAll } from '@/lib/refresh'
@@ -87,6 +88,28 @@ const PREVIEW_DEBOUNCE_MS = 400
 
 /** 没有专属称号记录时编辑器的起始草稿。 */
 const DEFAULT_DRAFT: TitleCustomDraftPayload = { text: '', colors: ['#FFD23F'], bold: false }
+
+/**
+ * 这几个拒绝码说的都是"页面上那份列表已经过期": 商品下架了、限购或前置成就的状态变了、奖励在别处领过了、
+ * 称号被收回或下架了。被拒之后不重拉, 那张卡片会一直停在点得动却必然再被拒的样子。
+ * 其余的码 (成就点不足、背包已满、冷却中…) 列表本身没有错, 不必重拉。
+ */
+const STALE_LIST_ERROR_CODES: ReadonlySet<string> = new Set([
+  'GOODS_UNKNOWN',
+  'GOODS_LIMIT_REACHED',
+  'GOODS_REQUIREMENT_UNMET',
+  'REWARD_ALREADY_CLAIMED',
+  'TITLE_NOT_OWNED',
+  'TITLE_UNKNOWN',
+])
+
+function isStaleListRejection(error: unknown): boolean {
+  return (
+    error instanceof WebUiCallError &&
+    error.business !== null &&
+    STALE_LIST_ERROR_CODES.has(error.business.errorCode)
+  )
+}
 
 function toError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value))
@@ -957,7 +980,10 @@ export function AchievementShopPage(): ReactElement {
   // 预览里的名字就是游戏里别人看到的那个名字; 还没取到时先占一个明确的占位, 不编一个名字出来。
   const playerName = profile.status === 'ready' ? profile.data.playerName : '...'
 
-  /** 写操作的统一收口: 成功后全量作废 (余额、待领取、限购、持有称号都可能变), 失败显示稳定码对应的中文。 */
+  /**
+   * 写操作的统一收口: 成功后全量作废 (余额、待领取、限购、持有称号都可能变), 失败显示稳定码对应的中文;
+   * 失败原因是列表过期的 (见 STALE_LIST_ERROR_CODES) 同样作废, 让列表跟上服务端。
+   */
   async function runAction(key: string, action: () => Promise<ActionFeedback>): Promise<void> {
     setPendingKey(key)
     setFeedback(null)
@@ -967,6 +993,9 @@ export function AchievementShopPage(): ReactElement {
       setFeedback(result)
     } catch (error: unknown) {
       setFeedback({ tone: 'danger', message: callErrorText(toError(error)) })
+      if (isStaleListRejection(error)) {
+        invalidateAll()
+      }
     } finally {
       setPendingKey(null)
     }

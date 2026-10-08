@@ -156,6 +156,8 @@ export function createInitialWorld(): MockWorld {
     jobs: { progress: seedJobProgress() },
     shops: seedShops(),
     // 自管区种子单独成文件 (district-seed.ts): 体量比本文件其余部分加起来还大, 且只服务一个页面。
-    district: createDistrictWorld(epoch),
+    // 只在开发构建里造: store 在模块求值期就调本函数, 而 store 又被外壳静态引用 —— 不守这一道, 那几十 KB 虚构数据
+    // 连同种子自检的断言就会跑在生产包的启动路径上, 可生产构建里读它的假后端 (lib/bridge.mock) 根本不存在。
+    district: import.meta.env.DEV ? createDistrictWorld(epoch) : null,
   }
 }

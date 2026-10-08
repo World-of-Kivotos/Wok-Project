@@ -3,7 +3,8 @@ import type { ReactElement } from 'react'
 import { Button, EmptyBlock, Panel, Stat, Surface, Tag } from '@/components/kit'
 import { useMockAction } from '@/mock'
 import type { DistrictSummary, PlotFriendship } from '@/lib/types'
-import { formatArea } from './format'
+import { formatArea, friendOfTruncatedText } from './format'
+import { TruncatedNotice } from './TruncatedNotice'
 
 /**
  * 外人视角: 你还不是任何自管区的住户 + 各学院自管区的公开信息 (有哪些、区务长是谁、划了几块地、外人在公共区域
@@ -16,10 +17,13 @@ import { formatArea } from './format'
 export function PublicDirectory({
   districts,
   friendOf,
+  friendOfCutAt,
 }: {
   districts: readonly DistrictSummary[]
   /** 户主把我加成朋友的地块 (跨全部自管区, 我自己的数据)。朋友可以是任何玩家, 外人也可能是某块地的朋友。 */
   friendOf: readonly PlotFriendship[]
+  /** friendOf 被服务端截断 (district.state 的 friendOfTruncated) 时实际收到的块数; null = 没截断。 */
+  friendOfCutAt: number | null
 }): ReactElement {
   return (
     <div className="flex flex-col gap-4">
@@ -35,6 +39,10 @@ export function PublicDirectory({
       </Panel>
 
       <Panel description="公开信息，所有人都能看；主城 DU 由管理员直接管理，不设自管区" title="各学院自管区">
+        {/* 朋友地块分散画在下面各张卡片里 (FriendPlotsNote), 截断的提示只在卡片上方说一次。 */}
+        {friendOfCutAt === null ? null : (
+          <TruncatedNotice className="mb-3">{friendOfTruncatedText(friendOfCutAt)}</TruncatedNotice>
+        )}
         {districts.length === 0 ? (
           <p className="text-muted-foreground text-sm">服务器上还没有自管区。</p>
         ) : (

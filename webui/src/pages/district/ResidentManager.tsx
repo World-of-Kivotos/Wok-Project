@@ -28,11 +28,13 @@ import {
   RECLAIM_LEFTOVER_NOTE,
   SYNC_STATUS_LABEL,
   SYNC_STATUS_TONE,
+  countText,
   describeFailure,
   failureCode,
   formatRelative,
   formatShortDate,
 } from './format'
+import { TruncatedNotice } from './TruncatedNotice'
 
 /**
  * 住户管理: 住户表 + 搜索/筛选 + 添加 + 移出 (+ 管理员的同步重试)。区务长与管理员共用这一块,
@@ -84,6 +86,11 @@ export interface ResidentManagerProps {
   /** 学院全称 ("千年学院的成员名单")。 */
   academyFullName: string
   residents: readonly DistrictResident[]
+  /**
+   * district.detail 的 residentsTruncated: 名单被服务端截断, residents 只是前面一段。
+   * 这时本组件从名单数出来的人数都只是下限, 搜索和筛选也只找得到这一段里的人。
+   */
+  residentsTruncated: boolean
   abilities: DistrictAbilities
 }
 
@@ -93,6 +100,7 @@ export function ResidentManager({
   academyName,
   academyFullName,
   residents,
+  residentsTruncated,
   abilities,
 }: ResidentManagerProps): ReactElement {
   const { toast, show, clear } = useDistrictToast()
@@ -123,10 +131,10 @@ export function ResidentManager({
     failed: residents.filter((resident) => resident.syncStatus === 'failed').length,
   }
   const filterOptions: readonly DropdownOption<StatusFilter>[] = [
-    { value: 'all', label: `全部状态 (${String(residents.length)})` },
-    { value: 'synced', label: `${SYNC_STATUS_LABEL.synced} (${String(counts.synced)})` },
-    { value: 'pending', label: `${SYNC_STATUS_LABEL.pending} (${String(counts.pending)})` },
-    { value: 'failed', label: `${SYNC_STATUS_LABEL.failed} (${String(counts.failed)})` },
+    { value: 'all', label: `全部状态 (${countText(residents.length, residentsTruncated)})` },
+    { value: 'synced', label: `${SYNC_STATUS_LABEL.synced} (${countText(counts.synced, residentsTruncated)})` },
+    { value: 'pending', label: `${SYNC_STATUS_LABEL.pending} (${countText(counts.pending, residentsTruncated)})` },
+    { value: 'failed', label: `${SYNC_STATUS_LABEL.failed} (${countText(counts.failed, residentsTruncated)})` },
   ]
 
   const term = search.trim().toLowerCase()
@@ -315,7 +323,7 @@ export function ResidentManager({
 
   return (
     <Panel
-      actions={<Tag tone="neutral">{`${String(residents.length)} 人`}</Tag>}
+      actions={<Tag tone="neutral">{`${countText(residents.length, residentsTruncated)} 人`}</Tag>}
       description={`住户名单就是${academyFullName}的成员名单：加进来 = 加入学院，并获得本区居住权`}
       title="住户管理"
     >
@@ -402,6 +410,11 @@ export function ResidentManager({
         <DistrictToastSlot onClear={clear} toast={toast} />
 
         {/* ==================== 名单 ==================== */}
+        {residentsTruncated ? (
+          <TruncatedNotice>
+            {`住户太多，名单只显示了前 ${String(residents.length)} 人，搜索和筛选也只在这些人里找；其余的请联系管理员在游戏里用 /district academy members 命令查看。`}
+          </TruncatedNotice>
+        ) : null}
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
             <SearchIcon
@@ -431,9 +444,9 @@ export function ResidentManager({
           />
           {counts.pending + counts.failed === 0 ? null : (
             <span className="text-muted-foreground text-xs">
-              {counts.pending > 0 ? `${String(counts.pending)} 人待生效` : ''}
+              {counts.pending > 0 ? `${countText(counts.pending, residentsTruncated)} 人待生效` : ''}
               {counts.pending > 0 && counts.failed > 0 ? '，' : ''}
-              {counts.failed > 0 ? `${String(counts.failed)} 人同步失败` : ''}
+              {counts.failed > 0 ? `${countText(counts.failed, residentsTruncated)} 人同步失败` : ''}
             </span>
           )}
         </div>
@@ -441,7 +454,13 @@ export function ResidentManager({
         <div className="max-h-96 overflow-y-auto rounded-lg border">
           <DataTable
             columns={columns}
-            emptyHint={residents.length === 0 ? '本区还没有住户' : '没有符合条件的住户'}
+            emptyHint={
+              residents.length === 0
+                ? '本区还没有住户'
+                : residentsTruncated
+                  ? '显示出来的住户里没有符合条件的'
+                  : '没有符合条件的住户'
+            }
             rowKey={(row) => row.playerName}
             rows={visibleResidents}
           />

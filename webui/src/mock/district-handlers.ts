@@ -54,6 +54,7 @@ import type {
   MockDistrictPlotRecord,
   MockDistrictRecord,
   MockDistrictResidentRecord,
+  MockDistrictWorld,
   MockPlotFriendRecord,
 } from './district-seed'
 import {
@@ -170,25 +171,36 @@ function sameName(left: string, right: string): boolean {
   return left.toLowerCase() === right.toLowerCase()
 }
 
+/**
+ * 自管区假世界。它只在开发构建里构造 (seed.ts 的 createInitialWorld), 而本文件的 handler 也只经 lib/bridge.mock 作答,
+ * 同样只存在于开发构建 —— 所以走到 null 只可能是有人在生产路径上调了假后端: 直接抛, 不现编一份空世界去答。
+ */
+function districtWorldOf(world: MockWorld): MockDistrictWorld {
+  if (world.district === null) {
+    throw new Error('mock 缺陷: 自管区假世界只在开发构建里构造, 生产构建不该走到假后端')
+  }
+  return world.district
+}
+
 function homeDistrictOf(world: MockWorld, playerName: string): MockDistrictRecord | undefined {
-  return world.district.districts.find((district) =>
+  return districtWorldOf(world).districts.find((district) =>
     district.residents.some((resident) => sameName(resident.playerName, playerName)),
   )
 }
 
 /** 解绑了自管区、但成员名单还在的学院 (K7)。一个人仍只能属于一个学院, 加住户时要一并查。 */
 function archivedAcademyOf(world: MockWorld, playerName: string): MockArchivedDistrictRecord | undefined {
-  return world.district.archived.find((archived) =>
+  return districtWorldOf(world).archived.find((archived) =>
     archived.members.some((member) => sameName(member.playerName, playerName)),
   )
 }
 
 function resolveViewer(world: MockWorld): DistrictViewer {
-  const playerName = world.district.previewAs ?? world.player.name
+  const playerName = districtWorldOf(world).previewAs ?? world.player.name
   if (world.player.isOp) {
     return { playerName, role: 'admin' }
   }
-  const wardenOf = world.district.districts.find(
+  const wardenOf = districtWorldOf(world).districts.find(
     (district) => district.wardenName !== null && sameName(district.wardenName, playerName),
   )
   if (wardenOf !== undefined) {
@@ -275,7 +287,7 @@ const ABILITIES_BY_ACCESS: Record<Exclude<DistrictAccess, 'none'>, DistrictAbili
 }
 
 function requireDistrict(action: DistrictActionName, world: MockWorld, districtId: string): MockDistrictRecord {
-  const district = world.district.districts.find((candidate) => candidate.districtId === districtId)
+  const district = districtWorldOf(world).districts.find((candidate) => candidate.districtId === districtId)
   if (district === undefined) {
     throw reject(action, 'DISTRICT_NOT_FOUND', '没有找到这个自管区，它可能刚被管理员解除绑定了')
   }
@@ -383,7 +395,7 @@ function toResident(
   record: MockDistrictResidentRecord,
   forAdmin: boolean,
 ): DistrictResident {
-  const known = world.district.knownPlayers.find((player) => sameName(player.name, record.playerName))
+  const known = districtWorldOf(world).knownPlayers.find((player) => sameName(player.name, record.playerName))
   return {
     playerName: record.playerName,
     joinedAt: record.joinedAt,
@@ -570,8 +582,12 @@ function permissionsView(district: MockDistrictRecord, access: DistrictAccess): 
 /** 地块开关的三列。运行期也拿它核对入参: 类型只管得住编译期, 绕过界面直接调的人什么都能传。 */
 const PLOT_AUDIENCES: readonly PlotAudience[] = ['friend', 'resident', 'outsider']
 
-/** 地块里能开关的分组: 目录去掉区域规则 (区域规则全区统一, 地块里不能改)。 */
-const PLOT_GROUPS: readonly MockDistrictPermissionGroupDef[] = DISTRICT_PERMISSION_CATALOG.filter(
+/**
+ * 地块里能开关的分组: 目录去掉区域规则 (区域规则全区统一, 地块里不能改)。
+ * PURE 标注给打包器看: 本文件经 '@/mock' 被页面静态引用 (districtPreviewIdentity), 模块顶层的语句在生产包里也会留下 ——
+ * 不标的话打包器不敢删这次调用, 整份权限目录就会跟着留在生产包里 (同 district-seed.ts 里 memberItem 上的标注)。
+ */
+const PLOT_GROUPS: readonly MockDistrictPermissionGroupDef[] = /* @__PURE__ */ DISTRICT_PERMISSION_CATALOG.filter(
   (group) => group.scope === 'member',
 )
 
@@ -705,7 +721,7 @@ function toFriend(district: MockDistrictRecord, record: MockPlotFriendRecord): P
 
 /** 某人是哪几块地的朋友 (跨全部自管区, 按种子顺序)。空置与冻结中的地块没有生效的朋友, 不会出现。 */
 function friendshipsOf(world: MockWorld, playerName: string): PlotFriendship[] {
-  return world.district.districts.flatMap((district) =>
+  return districtWorldOf(world).districts.flatMap((district) =>
     district.plots.flatMap((plot): PlotFriendship[] => {
       const ownerName = plot.ownerName
       const record = plot.friends.find((friend) => sameName(friend.playerName, playerName))
@@ -873,7 +889,7 @@ function rulesOf(district: MockDistrictRecord): PlotRules {
 }
 
 function walletOf(world: MockWorld, playerName: string): number {
-  return world.district.wallets.find((wallet) => sameName(wallet.playerName, playerName))?.credit ?? 0
+  return districtWorldOf(world).wallets.find((wallet) => sameName(wallet.playerName, playerName))?.credit ?? 0
 }
 
 /** 查看者现在为什么不能买地 (与 plot.buy 的拒绝同一顺序); null = 能买。 */
@@ -971,7 +987,7 @@ function commitWithLogs(
   drafts: LogDrafts,
 ): CommittedLog {
   const at = nowMs()
-  const firstSeq = getWorld().district.nextLogSeq
+  const firstSeq = districtWorldOf(getWorld()).nextLogSeq
   const districtEntries = drafts.district.map((draft, index) => ({
     ...draft,
     entryId: `log-${String(firstSeq + index)}`,
@@ -987,7 +1003,8 @@ function commitWithLogs(
     }),
   }))
   mutateWorld((world) => {
-    const district = world.district.districts.find((candidate) => candidate.districtId === districtId)
+    const districtWorld = districtWorldOf(world)
+    const district = districtWorld.districts.find((candidate) => candidate.districtId === districtId)
     if (district === undefined) {
       // 调用方都已先 requireDistrict 过, 同一个同步调用里不可能消失; 真走到这里说明本文件自己写错了。
       throw new Error(`mock 缺陷: 写操作记录时找不到自管区 ${districtId}`)
@@ -1001,7 +1018,7 @@ function commitWithLogs(
       }
       plot.log.unshift(...[...batch.entries].reverse())
     }
-    world.district.nextLogSeq = seq
+    districtWorld.nextLogSeq = seq
   })
   return { district: districtEntries, plot: plotBatches.flatMap((batch) => batch.entries) }
 }
@@ -1059,7 +1076,7 @@ function firstEntry<T>(entries: readonly T[]): T {
 
 /** 写完之后重新找回那块地 (mutateWorld 是就地改, 引用不变; 找不到就是本文件自己写错了)。 */
 function plotAfterWrite(districtId: string, plotId: string): { district: MockDistrictRecord; plot: MockDistrictPlotRecord } {
-  const district = getWorld().district.districts.find((candidate) => candidate.districtId === districtId)
+  const district = districtWorldOf(getWorld()).districts.find((candidate) => candidate.districtId === districtId)
   const plot = district?.plots.find((candidate) => candidate.plotId === plotId)
   if (district === undefined || plot === undefined) {
     throw new Error(`mock 缺陷: 写完之后找不到地块 ${plotId}`)
@@ -1086,7 +1103,7 @@ const DISTRICT_HANDLERS: DistrictHandlerMap = {
     return cloneResult({
       viewer,
       residency: residencyOf(world, viewer),
-      districts: world.district.districts.map((district) => summarize(district, viewer.role === 'admin')),
+      districts: districtWorldOf(world).districts.map((district) => summarize(district, viewer.role === 'admin')),
       friendOf: friendshipsOf(world, viewer.playerName),
       friendOfTruncated: false,
     })
@@ -1158,7 +1175,7 @@ const DISTRICT_HANDLERS: DistrictHandlerMap = {
         `${name} 已经是${unbound.academyFullName}的成员（这个学院的自管区已解除绑定，成员名单还在）。一个人只能属于一个学院`,
       )
     }
-    const known = world.district.knownPlayers.find((player) => sameName(player.name, name))
+    const known = districtWorldOf(world).knownPlayers.find((player) => sameName(player.name, name))
     if (known === undefined && !payload.allowNeverJoined) {
       throw reject(action, 'PLAYER_NEVER_JOINED', `没有找到 ${name} 的登录记录`)
     }
@@ -1371,10 +1388,11 @@ const DISTRICT_HANDLERS: DistrictHandlerMap = {
       log: [...district.log],
     }
     mutateWorld((draft) => {
-      draft.district.districts = draft.district.districts.filter(
+      const districtWorld = districtWorldOf(draft)
+      districtWorld.districts = districtWorld.districts.filter(
         (candidate) => candidate.districtId !== district.districtId,
       )
-      draft.district.archived.unshift(archived)
+      districtWorld.archived.unshift(archived)
     })
     return { districtId: district.districtId, keptMembers: archived.members.length, keptPlots: district.plots.length }
   },
@@ -1384,7 +1402,7 @@ const DISTRICT_HANDLERS: DistrictHandlerMap = {
     const world = getWorld()
     requireAdmin(action, resolveViewer(world))
     return cloneResult({
-      districts: world.district.archived.map((archived) => ({
+      districts: districtWorldOf(world).archived.map((archived) => ({
         districtId: archived.districtId,
         displayName: archived.displayName,
         academyName: archived.academyName,
@@ -1694,7 +1712,7 @@ const DISTRICT_HANDLERS: DistrictHandlerMap = {
         `朋友已满 ${String(PLOT_FRIEND_LIMIT)} 人，先移除一位再加`,
       )
     }
-    const known = world.district.knownPlayers.find((player) => sameName(player.name, name))
+    const known = districtWorldOf(world).knownPlayers.find((player) => sameName(player.name, name))
     if (known === undefined && !payload.allowNeverJoined) {
       throw reject(action, 'PLAYER_NEVER_JOINED', `没有找到 ${name} 的登录记录`)
     }
@@ -1960,7 +1978,7 @@ const DISTRICT_HANDLERS: DistrictHandlerMap = {
     }
     const buyer = district.residents.find((resident) => sameName(resident.playerName, viewer.playerName))
     // 余额够才会走到这里, 余额够就一定有余额记录 (没列出的人按 0 算, 过不了上面的检查)。
-    const wallet = world.district.wallets.find((candidate) => sameName(candidate.playerName, viewer.playerName))
+    const wallet = districtWorldOf(world).wallets.find((candidate) => sameName(candidate.playerName, viewer.playerName))
     if (buyer === undefined || wallet === undefined) {
       throw new Error('mock 缺陷: 通过了住户与余额检查却找不到对应记录')
     }
@@ -2169,7 +2187,10 @@ export function resolveDistrictMock(action: DistrictActionName, payload: unknown
  * 放在 mock 这一侧而不是页面里算: 页面不许读 world.player (契约守卫 F013)。真服里这两个字段从不变化。
  */
 export function districtPreviewIdentity(world: MockWorld): string {
-  return `${world.player.isOp ? 'op' : 'player'}|${world.district.previewAs ?? ''}`
+  // 页面在生产构建里也订阅这个签名, 那里没有自管区假世界 (world.district 为 null), 也就没有可切的预览身份:
+  // 与"以本机玩家本人的名义看"同一个签名, 恒不变。这里不能走 districtWorldOf, 那个会抛。
+  const previewAs = world.district === null ? null : world.district.previewAs
+  return `${world.player.isOp ? 'op' : 'player'}|${previewAs ?? ''}`
 }
 
 /**
@@ -2185,7 +2206,9 @@ export function setDistrictPreviewPersona(persona: DistrictPreviewPersona): void
     throw new Error(`未知的预览身份: ${persona}`)
   }
   mutateWorld((draft) => {
+    // 先取假世界再动 OP 位: 取不到会抛, 不能留下"OP 位改了、预览身份没改"的半截状态。
+    const districtWorld = districtWorldOf(draft)
     draft.player.isOp = persona === 'admin'
-    draft.district.previewAs = option.playerName
+    districtWorld.previewAs = option.playerName
   })
 }

@@ -14,6 +14,7 @@
  * 六块连同各自的种子已随对应 handler 一并删除, 它们现在整条走真桥。
  * 之后新增了自管区 district 一块, 形状与种子见 district-seed.ts。自管区 2026-09-29 接线后它仍留在这里: 真服只在
  * 装进游戏时作答, 开发构建里是 lib/bridge.mock 把那 26 条转给 district-handlers.ts, 由这一块回答 (预览身份切换也读它)。
+ * 生产构建里这一块是 null, 种子不构造 (见 MockWorld.district)。
  *
  * 于是"同一份数据两个权威"这个经典 mock 事故在这里不成立: 钱包/背包/挂单的权威恒在 bridge.mock (接线后
  * 是真服), 本文件只存它回来的样子; 唯一的例外是 walletOverlay, 那是刻意留的、有明确销毁条件的叠加层,
@@ -97,8 +98,11 @@ export interface MockWorld {
   walletOverlay: MockWalletOverlay
   jobs: MockJobState
   shops: PlannedShopEntry[]
-  /** 自管区的内存世界 (开发构建的假后端)。只由 district-handlers.ts 读写, 页面一律经 callMock 取回执。 */
-  district: MockDistrictWorld
+  /**
+   * 自管区的内存世界 (开发构建的假后端)。只由 district-handlers.ts 读写, 页面一律经 callMock 取回执。
+   * null = 生产构建: 那里没有假后端, 这份种子不构造 (见 seed.ts 的 createInitialWorld)。
+   */
+  district: MockDistrictWorld | null
 }
 
 let world: MockWorld = createInitialWorld()

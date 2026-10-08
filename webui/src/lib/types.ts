@@ -4668,6 +4668,8 @@ export interface PlotRules {
  *   open: 本区是否开放购买 (K22, 管理员开关, 默认关)。
  *   viewerBlock: 查看者现在为什么不能买; null = 能买 (空置地块旁出"购买"按钮)。服务端按身份算好下发, 前端不自己推。
  *   viewerBalance: 查看者本人当前的信用点余额; 只在 viewerBlock 为 null 时下发 (买地确认框写"买完剩多少"), 其余 null。
+ *     viewerBlock 为 null 而它仍是 null = 服务端经济子系统没就绪, 余额取不到 (这时 K20 会报 ECONOMY_OFFLINE):
+ *     界面照实写"余额暂时读不到"并禁用购买, 不当成 0。
  * 付款去向 (销毁还是进钱仓) 还在定, 与本契约无关: 扣的永远是买家自己的余额。
  */
 export interface PlotMarket {
@@ -4896,8 +4898,9 @@ export interface DistrictSetPlotPricingResult {
  * K22 admin.district.setPurchaseOpen 入参 (仅管理员)。默认关。
  * 拒绝: PERMISSION_DENIED (不是管理员); INVALID_REQUEST (open 不是 boolean: 缺省、null、字符串一律拒绝, 不当成"关")。
  * 与现值相同不算失败: 照常回当前值, logEntry 为 null。
- * 平板请求者的身份由派发器入口的 AccessHub 登录门保证 (另一分支): 那道门上线之前不要在正式服打开,
- * 否则谁都能以别人的名义买地。
+ * 平板请求者的身份由派发器入口的登录门保证 (WebUiServerDispatcher 对没登录的请求一律拒绝, 已随本模块一起合入)。
+ * 正式服把登录门 (服务端配置 security.loginGate) 设为 REQUIRED 之后再打开: 默认的 AUTO 档在没装 AccessHub 时放行,
+ * OFF 档完全不校验, 那两种情况下谁都能以别人的名义买地。
  */
 export interface DistrictSetPurchaseOpenPayload {
   districtId: string

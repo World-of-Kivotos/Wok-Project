@@ -8,11 +8,14 @@ import {
   LOG_ACTION_TONE,
   LOG_ACTOR_LABEL,
   boundsSize,
+  countText,
   formatBounds,
   formatDateTime,
   formatRelative,
+  logTruncatedText,
   onOffLabel,
 } from './format'
+import { TruncatedNotice } from './TruncatedNotice'
 
 /**
  * 操作记录: 谁在什么时候添加 / 移出了谁、改了哪一项公共区域权限、划 / 调 / 删了哪块地、谁买下了哪块地、
@@ -156,15 +159,28 @@ const COLUMNS: readonly DataTableColumn<DistrictLogEntry>[] = [
 
 export function DistrictLogPanel({
   log,
+  truncated,
   title = '操作记录',
   description = '谁在什么时候添加、移出了谁，改了哪一项公共区域权限，划、调、卖、冻结、收回了哪块地；移出必须写原因',
 }: {
   log: readonly DistrictLogEntry[]
+  /** 回执里这份记录对应的 logTruncated: 服务端只下发了最近的一段。不设默认值, 每个调用方都得把标记接过来。 */
+  truncated: boolean
   title?: string | undefined
   description?: string | undefined
 }): ReactElement {
   return (
-    <Panel actions={<Tag tone="neutral">{`${String(log.length)} 条`}</Tag>} description={description} padded={false} title={title}>
+    <Panel
+      actions={<Tag tone="neutral">{`${countText(log.length, truncated)} 条`}</Tag>}
+      description={description}
+      padded={false}
+      title={title}
+    >
+      {truncated ? (
+        <div className="px-4 pt-3 pb-1">
+          <TruncatedNotice>{logTruncatedText(log.length)}</TruncatedNotice>
+        </div>
+      ) : null}
       <div className="max-h-96 overflow-y-auto">
         <DataTable columns={COLUMNS} emptyHint="还没有任何操作" rowKey={(row) => row.entryId} rows={log} />
       </div>

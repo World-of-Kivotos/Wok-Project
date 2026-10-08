@@ -124,9 +124,12 @@ export function DistrictPage(): ReactElement {
     )
   }
 
-  const { viewer, residency, districts, friendOf } = state.data
+  const { viewer, residency, districts, friendOf, friendOfTruncated } = state.data
   const context =
     viewer.role === 'admin' ? `共 ${String(districts.length)} 个自管区` : (residency?.districtName ?? null)
+  // friendOf 被服务端截断时实际收到了几块 (跨全部自管区); null = 没截断。下面两种视角各自按区筛过再画,
+  // 筛完就看不出"一共只收到几块"了, 所以在筛之前数好一起传下去。
+  const friendOfCutAt = friendOfTruncated ? friendOf.length : null
 
   return (
     <section className="flex flex-col gap-4">
@@ -134,7 +137,9 @@ export function DistrictPage(): ReactElement {
       <PreviewRoleSwitcher switching={state.refreshing} viewerName={viewer.playerName} viewerRole={viewer.role} />
       <IdentityBar context={context} playerName={viewer.playerName} role={viewer.role} />
 
-      {viewer.role === 'outsider' ? <PublicDirectory districts={districts} friendOf={friendOf} /> : null}
+      {viewer.role === 'outsider' ? (
+        <PublicDirectory districts={districts} friendOf={friendOf} friendOfCutAt={friendOfCutAt} />
+      ) : null}
       {viewer.role === 'resident' || viewer.role === 'warden' ? (
         residency === null ? (
           // 服务端说你是住户/区务长却不给居住权: 契约自相矛盾, 如实报出来, 不编一张空卡。
@@ -142,6 +147,7 @@ export function DistrictPage(): ReactElement {
         ) : (
           <MemberView
             friendOf={friendOf.filter((friendship) => friendship.districtId === residency.districtId)}
+            friendOfCutAt={friendOfCutAt}
             key={residency.districtId}
             residency={residency}
             stateRefreshing={state.refreshing}
@@ -185,11 +191,14 @@ function DetailFailure({
 function MemberView({
   residency,
   friendOf,
+  friendOfCutAt,
   stateRefreshing,
 }: {
   residency: DistrictResidency
   /** 本区里户主把我加成朋友的地块。 */
   friendOf: readonly PlotFriendship[]
+  /** 朋友地块那份数据被服务端截断时实际收到的块数 (跨全部自管区, 不止本区); null = 没截断。 */
+  friendOfCutAt: number | null
   stateRefreshing: boolean
 }): ReactElement {
   const detail = useMockAction('district.detail', { districtId: residency.districtId })
@@ -219,7 +228,7 @@ function MemberView({
         ? { status: 'loading' }
         : { status: 'ready', data: plots.data }
 
-  const { district, abilities, residents, log } = detail.data
+  const { district, abilities, residents, log, residentsTruncated, logTruncated } = detail.data
   const myPlot = residency.plot
   const overview = (
     <>
@@ -231,6 +240,7 @@ function MemberView({
         <AbilityCard
           abilities={abilities}
           friendOf={friendOf}
+          friendOfCutAt={friendOfCutAt}
           hideAdminOnly={residents !== null}
           myPlot={myPlot}
           permissions={abilityPermissions}
@@ -251,12 +261,20 @@ function MemberView({
     ...(myPlot === null ? [] : [{ id: 'myPlot', label: '我的地块' }]),
     ...(residents === null
       ? []
-      : [{ id: 'residents', label: '住户管理', badge: <TabCount value={residents.length} /> }]),
+      : [
+          {
+            id: 'residents',
+            label: '住户管理',
+            badge: <TabCount atLeast={residentsTruncated} value={residents.length} />,
+          },
+        ]),
     ...(abilities.viewPlotList
       ? [{ id: 'plots', label: '本区地块', badge: <TabCount value={district.plotCount} /> }]
       : []),
     ...(abilities.managePermissions ? [{ id: 'permissions', label: '公共区域权限' }] : []),
-    ...(log === null ? [] : [{ id: 'log', label: '操作记录', badge: <TabCount value={log.length} /> }]),
+    ...(log === null
+      ? []
+      : [{ id: 'log', label: '操作记录', badge: <TabCount atLeast={logTruncated} value={log.length} /> }]),
   ]
 
   // 只有概况一页 (服务端没给任何别的能力): 不需要页签。
@@ -290,6 +308,7 @@ function MemberView({
           districtId={district.districtId}
           districtName={district.displayName}
           residents={residents}
+          residentsTruncated={residentsTruncated}
         />
       ) : null}
       {activeTab === 'plots' ? (
@@ -298,13 +317,17 @@ function MemberView({
       {activeTab === 'permissions' ? (
         <PermissionSettings districtId={district.districtId} districtName={district.displayName} />
       ) : null}
-      {activeTab === 'log' && log !== null ? <DistrictLogPanel log={log} /> : null}
+      {activeTab === 'log' && log !== null ? <DistrictLogPanel log={log} truncated={logTruncated} /> : null}
     </div>
   )
 }
 
-function TabCount({ value }: { value: number }): ReactElement {
-  return <span className="text-muted-foreground text-xs tabular-nums">{value}</span>
+/**
+ * 页签上的个数。atLeast = 这个数是从被服务端截断的列表数出来的, 只是下限: 页签窄, 写成"130+"而不是"至少 130"
+ * (页签里面那张列表的表头和提示写的是全称)。地块那一个读的是服务端另给的总数 (district.plotCount), 不受截断影响, 不传。
+ */
+function TabCount({ value, atLeast = false }: { value: number; atLeast?: boolean | undefined }): ReactElement {
+  return <span className="text-muted-foreground text-xs tabular-nums">{atLeast ? `${String(value)}+` : value}</span>
 }
 
 // ============================================================
@@ -396,7 +419,7 @@ function AdminDistrictDetail({
     return <LoadingBlock label="正在读取自管区详情" />
   }
 
-  const { district, abilities, residents, log } = detail.data
+  const { district, abilities, residents, log, residentsTruncated, logTruncated } = detail.data
   if (residents === null || log === null) {
     // 管理员一定拿得到名单; 拿不到说明回执与身份对不上。state 在途时多半是 OP 视图刚被关掉而本块抢先以新身份
     // 重查回来 (过渡态, 同 DetailFailure); state 落定后仍然如此才如实报出。
@@ -411,7 +434,11 @@ function AdminDistrictDetail({
   const failedCount = residents.filter((resident) => resident.syncStatus === 'failed').length
   const tabs: readonly TabItem[] = [
     { id: 'overview', label: '本区概况' },
-    { id: 'residents', label: '住户管理', badge: <TabCount value={residents.length} /> },
+    {
+      id: 'residents',
+      label: '住户管理',
+      badge: <TabCount atLeast={residentsTruncated} value={residents.length} />,
+    },
     ...(abilities.viewPlotList
       ? [{ id: 'plots', label: '本区地块', badge: <TabCount value={district.plotCount} /> }]
       : []),
@@ -419,9 +446,15 @@ function AdminDistrictDetail({
     {
       id: 'admin',
       label: '管理员操作',
-      badge: failedCount === 0 ? undefined : <span className="text-destructive text-xs tabular-nums">{failedCount}</span>,
+      badge:
+        failedCount === 0 ? undefined : (
+          <span className="text-destructive text-xs tabular-nums">
+            {/* 同 TabCount: 名单被截断时, 数出来的同步失败人数只是下限。 */}
+            {residentsTruncated ? `${String(failedCount)}+` : failedCount}
+          </span>
+        ),
     },
-    { id: 'log', label: '操作记录', badge: <TabCount value={log.length} /> },
+    { id: 'log', label: '操作记录', badge: <TabCount atLeast={logTruncated} value={log.length} /> },
   ]
   const activeTab: AdminTabId = tabs.some((item) => item.id === tab) ? tab : 'overview'
 
@@ -451,6 +484,7 @@ function AdminDistrictDetail({
           districtId={district.districtId}
           districtName={district.displayName}
           residents={residents}
+          residentsTruncated={residentsTruncated}
         />
       ) : null}
       {activeTab === 'plots' ? (
@@ -460,9 +494,15 @@ function AdminDistrictDetail({
         <PermissionSettings districtId={district.districtId} districtName={district.displayName} />
       ) : null}
       {activeTab === 'admin' ? (
-        <AdminActionsPanel abilities={abilities} district={district} onDeleted={onDeleted} residents={residents} />
+        <AdminActionsPanel
+          abilities={abilities}
+          district={district}
+          onDeleted={onDeleted}
+          residents={residents}
+          residentsTruncated={residentsTruncated}
+        />
       ) : null}
-      {activeTab === 'log' ? <DistrictLogPanel log={log} /> : null}
+      {activeTab === 'log' ? <DistrictLogPanel log={log} truncated={logTruncated} /> : null}
     </div>
   )
 }

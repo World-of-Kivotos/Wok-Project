@@ -32,6 +32,7 @@ import { DistrictLogPanel } from './DistrictLogPanel'
 import { DistrictToastSlot, useDistrictToast } from './DistrictToast'
 import {
   boundsSize,
+  countText,
   describeFailure,
   dimensionLabel,
   formatArea,
@@ -39,6 +40,7 @@ import {
   formatDate,
   formatRelative,
 } from './format'
+import { TruncatedNotice } from './TruncatedNotice'
 
 /**
  * 管理员专属的几块: 自管区总览表、已解绑自管区的归档, 以及选中某个自管区后的"管理员操作"
@@ -203,7 +205,7 @@ const ARCHIVE_COLUMNS: readonly DataTableColumn<ArchivedDistrict>[] = [
     key: 'log',
     header: '归档记录',
     numeric: true,
-    render: (row) => `${String(row.log.length)} 条`,
+    render: (row) => `${countText(row.log.length, row.logTruncated)} 条`,
   },
 ]
 
@@ -225,14 +227,24 @@ export function ArchivedDistrictsPanel({ stateRefreshing }: { stateRefreshing: b
     return null
   }
   const opened = query.data.districts.find((district) => district.districtId === openId) ?? null
+  // 回执的 truncated: 已解绑的区超过条数上限或回执体积预算, 只下发了最近解绑的一段。
+  const { truncated } = query.data
   return (
     <>
       <Panel
-        actions={<Tag tone="neutral">{`${String(query.data.districts.length)} 个`}</Tag>}
+        actions={<Tag tone="neutral">{`${countText(query.data.districts.length, truncated)} 个`}</Tag>}
         description="删除自管区只解除与学院的绑定：领地和学院成员名单都在，操作记录归档在这里，只有管理员看得到"
         padded={false}
         title="已解除绑定的自管区"
       >
+        {truncated ? (
+          <div className="px-4 pt-3 pb-1">
+            {/* 只有管理员看得到这一块, 所以不写"请联系管理员"; 归档没有对应的 /district 子命令, 也不往那边指。 */}
+            <TruncatedNotice>
+              {`已解绑的自管区太多（或归档记录太长），这里只显示了最近解绑的 ${String(query.data.districts.length)} 个；其余的归档仍保存在服务器上，平板上暂时看不到。`}
+            </TruncatedNotice>
+          </div>
+        ) : null}
         <DataTable
           columns={ARCHIVE_COLUMNS}
           onRowClick={(row) => {
@@ -249,6 +261,7 @@ export function ArchivedDistrictsPanel({ stateRefreshing }: { stateRefreshing: b
           description={`${opened.displayName}解除绑定之前的操作记录（归档，只读）`}
           log={opened.log}
           title={`归档记录 · ${opened.displayName}`}
+          truncated={opened.logTruncated}
         />
       )}
     </>
@@ -262,6 +275,11 @@ export function ArchivedDistrictsPanel({ stateRefreshing }: { stateRefreshing: b
 export interface AdminActionsPanelProps {
   district: DistrictInfo
   residents: readonly DistrictResident[]
+  /**
+   * district.detail 的 residentsTruncated: residents 只是名单的前面一段。这时区务长候选和同步失败名单都只出自这一段,
+   * "没有同步失败的住户"这类全称的话不能再说。
+   */
+  residentsTruncated: boolean
   abilities: DistrictAbilities
   /** 删除成功后由上层清掉选中项并出回执 (本组件随之卸载, 自己的回执条来不及显示)。 */
   onDeleted: (message: string) => void
@@ -270,6 +288,7 @@ export interface AdminActionsPanelProps {
 export function AdminActionsPanel({
   district,
   residents,
+  residentsTruncated,
   abilities,
   onDeleted,
 }: AdminActionsPanelProps): ReactElement {
@@ -381,6 +400,12 @@ export function AdminActionsPanel({
     <div className="flex flex-col gap-4">
       <DistrictToastSlot onClear={clear} toast={toast} />
 
+      {residentsTruncated ? (
+        <TruncatedNotice>
+          {`住户太多，这一页只拿到了名单的前 ${String(residents.length)} 人：任命区务长的下拉和下面的同步失败名单都只出自这些人。其余的请在游戏里用 /district academy members 命令查看。`}
+        </TruncatedNotice>
+      ) : null}
+
       {/* ==================== 区务长 ==================== */}
       <Panel
         description="由管理员（OP）任命，区务长本身不是 OP：管本区住户、公共区域开关，在本区划地块"
@@ -478,7 +503,11 @@ export function AdminActionsPanel({
         title="Flan 同步"
       >
         {failed.length === 0 ? (
-          <p className="text-foreground text-sm">没有同步失败的住户。</p>
+          <p className="text-foreground text-sm">
+            {residentsTruncated
+              ? `拿到的这 ${String(residents.length)} 人里没有同步失败的；名单没有显示全，其余的人这里看不到。`
+              : '没有同步失败的住户。'}
+          </p>
         ) : (
           <ul className="flex flex-col gap-2">
             {failed.map((resident) => (
@@ -491,7 +520,7 @@ export function AdminActionsPanel({
         )}
         {pendingCount === 0 ? null : (
           <p className="mt-3 text-muted-foreground text-xs">
-            另有 {pendingCount} 人待生效：他们还没进过服务器，首次登录时会自动写入，不需要处理。
+            另有 {countText(pendingCount, residentsTruncated)} 人待生效：他们还没进过服务器，首次登录时会自动写入，不需要处理。
           </p>
         )}
       </Panel>
@@ -646,7 +675,11 @@ function PlotMarketForm({
   const editable = abilities.managePlotMarket
   const dirty = unitPrice !== market.unitPrice || minSide !== rules.minSide || maxSide !== rules.maxSide
   const limitsValid = minSide >= 1 && minSide <= maxSide
-  const vacantCount = data.plots.filter((plot) => plot.status === 'vacant').length
+  // 从地块列表数出来的: 列表被服务端截断 (plotsTruncated) 时只是下限 —— 被截掉的恰好多是最新划出、还空置的那些。
+  const vacantText = countText(
+    data.plots.filter((plot) => plot.status === 'vacant').length,
+    data.plotsTruncated,
+  )
 
   async function savePricing(): Promise<void> {
     setSaving(true)
@@ -675,7 +708,7 @@ function PlotMarketForm({
       onResult(
         open ? 'warning' : 'success',
         open
-          ? `本区已开放购买：没有地块的住户现在可以直接买空置地块（${String(vacantCount)} 块），先到先得。`
+          ? `本区已开放购买：没有地块的住户现在可以直接买空置地块（${vacantText} 块），先到先得。`
           : '本区已暂停购买，住户会看到“本区暂未开放购买”。已经买下的地块不受影响。',
       )
     } catch (error: unknown) {
@@ -697,7 +730,7 @@ function PlotMarketForm({
               disabled={!editable || toggling}
               label={market.open ? '开放购买：开' : '开放购买：关'}
               onChange={(next) => {
-                // 打开要先确认 (身份验证修好之前不该开); 关掉不拦。
+                // 打开要先确认 (正式服的登录门设成 REQUIRED 之后才该开, 见下面那条提示); 关掉不拦。
                 if (next) {
                   setOpenConfirm(true)
                 } else {
@@ -707,9 +740,13 @@ function PlotMarketForm({
             />
             <Tag tone={market.open ? 'warning' : 'neutral'}>{market.open ? '住户现在能直接买' : '住户看到“本区暂未开放购买”'}</Tag>
           </div>
+          {/*
+            登录门已随本模块合入: 服务端派发器入口对没登录的平板请求一律拒绝。但只有 REQUIRED 档在登录插件 (AccessHub)
+            没装上时也关门; 默认的 AUTO 档没装就放行, OFF 档完全不查。买地是扣钱的写操作, 所以把条件写明白, 提示常驻。
+          */}
           <Surface tone="warning">
             <p className="text-foreground text-xs">
-              身份验证修好之前先别开：现在还不能确认平板上的请求就是本人发的，开了等于谁都能以别人的名义买地。默认关。
+              正式服请先把登录门（服务端配置 security.loginGate）设为 REQUIRED，再开放购买：登录门会拒绝没登录的平板请求，买地的人才确定是本人。没设成 REQUIRED 时登录校验可能没在生效，先别开。默认关。
             </p>
           </Surface>
         </div>
@@ -770,7 +807,7 @@ function PlotMarketForm({
       <ConfirmDangerDialog
         confirmLabel="仍然开放"
         loading={toggling}
-        message={`开放后，本区没有地块的住户可以直接买空置地块（现在 ${String(vacantCount)} 块），先到先得，马上扣钱。身份验证修好之前不建议开：现在还不能确认平板上的请求就是本人发的。`}
+        message={`开放后，本区没有地块的住户可以直接买空置地块（现在 ${vacantText} 块），先到先得，马上扣钱。正式服要先把登录门（服务端配置 security.loginGate）设为 REQUIRED 再开：没设成 REQUIRED 时登录校验可能没在生效，不能确认买地的请求是本人发的。`}
         onConfirm={() => {
           void setOpen(true)
         }}

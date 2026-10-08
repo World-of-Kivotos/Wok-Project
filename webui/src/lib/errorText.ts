@@ -91,7 +91,8 @@ const ERROR_CODE_TEXT: Readonly<Record<string, ErrorCodeText>> = {
   },
   ECONOMY_OFFLINE: {
     // 无 params: 这条是环境故障, 玩家做什么都没用, 唯一有用的信息是"东西没少"。
-    text: '经济子系统未就绪, 本次没有扣掉任何物品',
+    // 钱和物品都要说到: 卖菜的人担心的是作物, 买卡包、买戒指、买地的人担心的是信用点, 同一个码两头都会命中。
+    text: '经济子系统未就绪, 本次没有扣款, 也没有扣掉任何物品',
   },
   NOTHING_TO_SELL: {
     // itemId 不进文案: 前端拿它去解物品名要走 client.i18n 一次往返, 而这句话不带名字也说得清。

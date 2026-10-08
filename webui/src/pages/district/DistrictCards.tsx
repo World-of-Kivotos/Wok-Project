@@ -19,16 +19,20 @@ import type {
 } from '@/lib/types'
 import {
   BUY_BLOCK_TEXT,
+  PLOTS_TRUNCATED_ELSEWHERE,
   ROLE_LABEL,
   ROLE_SUMMARY,
   boundsSize,
+  countText,
   dimensionLabel,
   formatArea,
   formatBounds,
   formatDate,
   formatRelative,
+  friendOfTruncatedText,
   onOffLabel,
 } from './format'
+import { TruncatedNotice } from './TruncatedNotice'
 
 /**
  * 自管区页的只读卡片: 身份条 / 我的居住权 / 我能做什么 / 仅管理员 / 本区信息。
@@ -244,6 +248,7 @@ export function AbilityCard({
   plots,
   myPlot,
   friendOf,
+  friendOfCutAt,
   wardenName,
 }: {
   abilities: DistrictAbilities
@@ -255,6 +260,11 @@ export function AbilityCard({
   myPlot: PlotRef | null
   /** 本区里户主把我加成朋友的地块 (来自 district.state, 调用方已按本区筛过)。 */
   friendOf: readonly PlotFriendship[]
+  /**
+   * district.state 的 friendOf 被服务端截断时实际下发的块数 (跨全部自管区, 筛本区之前的数); null = 没截断。
+   * 截断时本区的朋友地块可能没列全, 没列出来的会被下面当成普通的"别的地块"统计。
+   */
+  friendOfCutAt: number | null
   /** 本区区务长; null = 暂无, 那时开关只可能是管理员动的。 */
   wardenName: string | null
 }): ReactElement {
@@ -306,6 +316,7 @@ export function AbilityCard({
           <OtherPlotsAbilities
             effective={effective}
             friendOf={friendOf}
+            friendOfCutAt={friendOfCutAt}
             myPlotId={myPlot?.plotId ?? null}
             plots={plots}
           />
@@ -324,7 +335,10 @@ export function AbilityCard({
           </AbilitySection>
         )}
 
-        {regionItems.length === 0 ? null : <RegionRulesLine fixedRules={data?.fixedRules ?? []} items={regionItems} />}
+        {/* data 为 null 时 regionItems 必为空; 这里并列写出来只为让 fixedRules 直接取契约里必有的那份, 不另编一个空表。 */}
+        {data === null || regionItems.length === 0 ? null : (
+          <RegionRulesLine fixedRules={data.fixedRules} items={regionItems} />
+        )}
       </div>
     </Panel>
   )
@@ -536,16 +550,27 @@ function OtherPlotsAbilities({
   plots,
   myPlotId,
   friendOf,
+  friendOfCutAt,
   effective,
 }: {
   plots: AbilityPlots
   myPlotId: string | null
   friendOf: readonly PlotFriendship[]
+  friendOfCutAt: number | null
   effective: boolean
 }): ReactElement {
   if (plots.status !== 'ready') {
     return <SourceStatus source={plots} what="本区的地块" />
   }
+  // 两份数据各有各的截断标记: 朋友地块那份 (friendOf) 与本区地块那份 (plots)。各自的提示画在各自那几行上方。
+  const plotsTruncated = plots.data.plotsTruncated
+  const friendNotice =
+    friendOfCutAt === null ? null : <TruncatedNotice>{friendOfTruncatedText(friendOfCutAt)}</TruncatedNotice>
+  const plotsNotice = plotsTruncated ? (
+    <TruncatedNotice>
+      {`本区地块太多，下面只按收到的前 ${String(plots.data.plots.length)} 块来列；${PLOTS_TRUNCATED_ELSEWHERE}。`}
+    </TruncatedNotice>
+  ) : null
   // 我是朋友的那几块按朋友那一列算, 不再按"其他住户"算: 单独列在最前, 不混进下面的统计。
   // 暂停了的不按朋友算 —— 我是本区住户, 那块地对我就和别的地块一样按其他住户算 (居住权没生效时按外人算):
   // 照样列在最前说明白, 同时也进下面的统计。
@@ -570,7 +595,7 @@ function OtherPlotsAbilities({
       <ul className="flex flex-col gap-2">
         <MutedLine>
           <span className="font-medium">
-            冻结中的 {frozen.length} 块（{frozen.map((plot) => plot.code).join('、')}）：
+            冻结中的 {countText(frozen.length, plotsTruncated)} 块（{frozen.map((plot) => plot.code).join('、')}）：
           </span>
           原户主已被移出本区，冻结期间除管理员外谁都不能进出和操作。
         </MutedLine>
@@ -580,7 +605,9 @@ function OtherPlotsAbilities({
   if (others.length === 0) {
     return (
       <div className="flex flex-col gap-2">
+        {friendNotice}
         {friendLines}
+        {plotsNotice}
         {frozenLine}
         {friendOf.length === 0 && frozen.length === 0 ? (
           <p className="text-muted-foreground text-sm">本区还没有别人的地块。</p>
@@ -591,7 +618,9 @@ function OtherPlotsAbilities({
   if (!effective) {
     return (
       <div className="flex flex-col gap-2">
+        {friendNotice}
         {friendLines}
+        {plotsNotice}
         {frozenLine}
         <p className="text-muted-foreground text-sm">
           居住权生效前，你在{friendOf.length === 0 ? '' : '其余'}别人的地块里按外人算，能做什么看各户主给外人开了什么。
@@ -605,13 +634,16 @@ function OtherPlotsAbilities({
   const customized = others.filter((plot) => !plot.residentColumnIsDefault)
   const byDefaultHead = (
     <span className="font-medium">
-      按默认的 {byDefault.length} 块{vacantByDefault > 0 ? `（含 ${String(vacantByDefault)} 块空置）` : ''}：
+      按默认的 {countText(byDefault.length, plotsTruncated)} 块
+      {vacantByDefault > 0 ? `（含 ${countText(vacantByDefault, plotsTruncated)} 块空置）` : ''}：
     </span>
   )
 
   return (
     <div className="flex flex-col gap-2">
+      {friendNotice}
       {friendLines}
+      {plotsNotice}
       {frozenLine}
       <p className="text-muted-foreground text-xs">
         各户主自己决定其他住户在自己的地块里能做什么。

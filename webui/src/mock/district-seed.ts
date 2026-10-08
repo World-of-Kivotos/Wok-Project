@@ -148,7 +148,7 @@ export interface MockDistrictRecord {
   /** 地块每一边的格数上下限, 管理员可改。 */
   minSide: number
   maxSide: number
-  /** 是否开放购买。默认关 (身份验证修好之前先别开)。 */
+  /** 是否开放购买。默认关 (真服上要等正式服把登录门 security.loginGate 设为 REQUIRED 之后再开, 见 lib/types.ts K22)。 */
   purchaseOpen: boolean
 }
 
@@ -342,7 +342,14 @@ const PLOT_RESIDENT_DEFAULT_ON: ReadonlySet<string> = new Set([
 ])
 const PLOT_OUTSIDER_DEFAULT_ON: ReadonlySet<string> = new Set(['door', 'button', 'plate', 'pickup'])
 
-/** 住户 / 外人两列的一项 (地块另有朋友 / 其他住户 / 外人三列)。risk 非 null = 高风险项, 开启前要确认。 */
+/**
+ * 住户 / 外人两列的一项 (地块另有朋友 / 其他住户 / 外人三列)。risk 非 null = 高风险项, 开启前要确认。
+ *
+ * 下面那行 NO_SIDE_EFFECTS 是给打包器看的 (regionItem 同): 打包器证明不了这两个函数没有副作用 (这里查了三张 Set 名单,
+ * 那边解构了入参), 不标的话下面目录里每一处调用连同整份条目文案都会留在生产包里并在启动时执行 —— 而生产构建里没有
+ * 任何代码读这份目录 (读它的假后端只在开发构建里)。删掉标注不影响行为, 只是目录又会回到生产包里。
+ */
+/* @__NO_SIDE_EFFECTS__ */
 function memberItem(
   permissionId: string,
   label: string,
@@ -374,6 +381,7 @@ function memberItem(
  * 区域规则 (Flan 全局类) 的一项。默认值一律取 Flan 新领地的默认, "恢复默认"= 回到 Flan 出厂的样子。
  * risk 非 null = 给全区开启前要确认 (整片自管区一键生效, 后果写清楚)。
  */
+/* @__NO_SIDE_EFFECTS__ */
 function regionItem(
   permissionId: string,
   label: string,
@@ -1437,7 +1445,7 @@ export function createDistrictWorld(epoch: number): MockDistrictWorld {
       unitPrice: seed.unitPrice,
       minSide: SEED_MIN_SIDE,
       maxSide: SEED_MAX_SIDE,
-      // 一律默认关: 身份验证修好之前先别开。预览里由管理员在"管理员操作"里打开再试买地。
+      // 一律默认关, 与真服的出厂值一致 (真服开之前要先确认登录门是 REQUIRED 档)。预览里由管理员在"管理员操作"里打开再试买地。
       purchaseOpen: false,
     }
   })

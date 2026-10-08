@@ -11,9 +11,11 @@ import com.miningdim.job.fisher.size.FishMeasurement;
 import com.miningdim.job.fisher.size.FishSizeClass;
 import com.miningdim.job.fisher.size.FishSizeNbt;
 import com.miningdim.store.MiningDb;
+import com.miningdim.testutil.ConfigBaseline;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.NonNullList;
+import net.minecraft.gametest.framework.BeforeBatch;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
@@ -60,6 +62,15 @@ public final class OreFishGameTests {
             OreFishType.DARK_GOLD, 2000L);
 
     private OreFishGameTests() {
+    }
+
+    /**
+     * 跨轮基线归位: 本批次会把钓获权重强制成只出铁矿鱼, 先抹掉上一轮可能残留的强制值 (见 ConfigBaseline)。
+     * 同批的 TideOreFishCompatibilityGameTests 共用这一个 (一个批名只许一个 BeforeBatch)。
+     */
+    @BeforeBatch(batch = "ore_fish")
+    public static void resetConfigBaseline(ServerLevel level) {
+        resetCatchWeightsToDefaults();
     }
 
     @GameTest(template = "empty", batch = "ore_fish")
@@ -128,9 +139,10 @@ public final class OreFishGameTests {
                     event.setCanceled(true);
                 }
             };
-            MinecraftForge.EVENT_BUS.register(canceller);
             BlockPos cancelledPos = new BlockPos(8, 80, 0);
             mining.setBlock(cancelledPos, Blocks.WATER.defaultBlockState(), 3);
+            // 注册紧贴 try: 取消一切钓获的监听器一旦漏在总线上, 之后进程内所有原版钓获都会静默落空。
+            MinecraftForge.EVENT_BUS.register(canceller);
             try {
                 retrieveSuccessfulCatch(miningPlayer, mining, cancelledPos);
             } finally {
@@ -405,12 +417,26 @@ public final class OreFishGameTests {
         return player;
     }
 
+    /** CATCH_WEIGHTS 是包级可见, fish_size 批 (另一个包) 的 BeforeBatch 经这里归位。 */
+    public static void resetCatchWeightsToDefaults() {
+        for (OreFishType type : OreFishType.values()) {
+            ConfigBaseline.resetToDefaults(OreFishingConfig.CATCH_WEIGHTS.get(type));
+        }
+    }
+
     public static Map<OreFishType, Integer> forceIronOnlyCatchWeight() {
         Map<OreFishType, Integer> original = new java.util.EnumMap<>(OreFishType.class);
         for (OreFishType type : OreFishType.values()) {
             original.put(type, OreFishingConfig.CATCH_WEIGHTS.get(type).get());
-            OreFishingConfig.CATCH_WEIGHTS.get(type).set(type == OreFishType.IRON ? 10_000 : 0);
         }
+        // 先归零其余四项再把铁拉满: 每次 set 都同步落盘, 先写铁会让磁盘上出现总和超过 10000 的中间态,
+        // 进程恰好死在那里时下次启动 OreFishingConfig.validate() 直接抛。
+        for (OreFishType type : OreFishType.values()) {
+            if (type != OreFishType.IRON) {
+                OreFishingConfig.CATCH_WEIGHTS.get(type).set(0);
+            }
+        }
+        OreFishingConfig.CATCH_WEIGHTS.get(OreFishType.IRON).set(10_000);
         return original;
     }
 

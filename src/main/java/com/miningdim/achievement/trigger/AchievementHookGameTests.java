@@ -19,6 +19,7 @@ import com.miningdim.core.MobInstanceTag;
 import com.miningdim.core.RegionBox;
 import com.miningdim.entry.IMiningPlayerData;
 import com.miningdim.entry.MiningCapabilities;
+import com.miningdim.testutil.ConfigBaseline;
 import com.miningdim.testutil.MockGameTestPlayers;
 import com.miningdim.trap.StaticTrapKind;
 import com.miningdim.trap.TrapDebugPlacement;
@@ -28,6 +29,7 @@ import net.minecraft.advancements.Advancement;
 import net.minecraft.advancements.CriterionProgress;
 import net.minecraft.advancements.critereon.ContextAwarePredicate;
 import net.minecraft.core.BlockPos;
+import net.minecraft.gametest.framework.BeforeBatch;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.FriendlyByteBuf;
@@ -86,6 +88,14 @@ public final class AchievementHookGameTests {
     private static final int TRIP_BLOCKS = 32;
 
     private AchievementHookGameTests() {
+    }
+
+    /** 跨轮基线归位: 本批次会改下列配置项, 先抹掉上一轮可能残留的探针值 (见 ConfigBaseline)。 */
+    @BeforeBatch(batch = BATCH)
+    public static void resetConfigBaseline(ServerLevel level) {
+        ConfigBaseline.resetToDefaults(
+                AchievementConfig.EXTRACTION_MIN_DWELL_TICKS,
+                MiningServerConfig.PLACE_WHITELIST);
     }
 
     // ---- 有效撤离 (6.3) ----

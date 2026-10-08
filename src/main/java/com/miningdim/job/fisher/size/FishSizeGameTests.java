@@ -9,6 +9,7 @@ import com.miningdim.job.fisher.ore.OreFishingItems;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.NonNullList;
+import net.minecraft.gametest.framework.BeforeBatch;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.resources.ResourceLocation;
@@ -42,6 +43,12 @@ public final class FishSizeGameTests {
     private static final FishSizeProfile DOCUMENTED_COD = new FishSizeProfile(COD, 30.0D, 60.0D, 130.0D, 0.0077D, 3.07D);
 
     private FishSizeGameTests() {
+    }
+
+    /** 跨轮基线归位: 本批次会把矿石鱼钓获权重强制成只出铁矿鱼, 先抹掉上一轮可能残留的强制值 (见 ConfigBaseline)。 */
+    @BeforeBatch(batch = "fish_size")
+    public static void resetConfigBaseline(ServerLevel level) {
+        com.miningdim.job.fisher.ore.OreFishGameTests.resetCatchWeightsToDefaults();
     }
 
     @GameTest(template = "empty", batch = "fish_size")
@@ -235,9 +242,10 @@ public final class FishSizeGameTests {
                     event.setCanceled(true);
                 }
             };
-            MinecraftForge.EVENT_BUS.register(canceller);
             BlockPos cancelled = new BlockPos(68, 80, 0);
             mining.setBlock(cancelled, Blocks.WATER.defaultBlockState(), 3);
+            // 注册紧贴 try: 取消一切钓获的监听器一旦漏在总线上, 之后进程内所有原版钓获都会静默落空。
+            MinecraftForge.EVENT_BUS.register(canceller);
             try {
                 retrieve(player, mining, cancelled);
             } finally {

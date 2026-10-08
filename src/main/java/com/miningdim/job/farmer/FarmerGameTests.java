@@ -763,12 +763,13 @@ public final class FarmerGameTests {
     public static void sellGrantsCreditsAndDecrementsInventory(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
-        IEconomyService prev = currentEconomy();
-        EconomyLedger ledger = registerFreshEconomy();
         // 精通门前置: 卖家须达农夫 SELL_MIN_MASTERY_LEVEL(2)。等级写玩家真实 capability, 不换 JobServices 门面替身 ——
         // 替身只挡得住"读定位器"这一条路径, 生产侧一旦像收获那样改读 FarmerExperience.level 就会绕开它, 用例
         // 退化成恒真 (与下方档位门那条踩的是同一个坑)。真 capability 是两条读法共同的底, 换哪条都测得准。
+        // 写在换入经济门面之前: 它可能抛 (capability 未挂), 夹在换入与 try 之间会让内存门面漏在定位器里。
         setFarmerLevel(player, FarmerConstants.SELL_MIN_MASTERY_LEVEL);
+        IEconomyService prev = currentEconomy();
+        EconomyLedger ledger = registerFreshEconomy();
         try {
             // 给 100 株 mod 小麦 (远低于收购 softCap 2160, 故全价 base=1 -> 毛收 100)。
             int amount = 100;
@@ -843,10 +844,11 @@ public final class FarmerGameTests {
         // 证明它读的是共享 (player,key) 累计计数器而非农夫私有上限, 且系数是主闸的 0.6 几何衰减 (非逐矿 0.97)。
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
+        // 精通门前置: 直接把等级写进玩家真实 capability 让卖家过农夫售卖门 (本测聚焦 faucet 共享, 非门控)。
+        // 写在换入经济门面之前, 换入之后紧跟 try。
+        setFarmerLevel(player, FarmerConstants.SELL_MIN_MASTERY_LEVEL);
         IEconomyService prev = currentEconomy();
         EconomyLedger ledger = registerFreshEconomy();
-        // 精通门前置: 直接把等级写进玩家真实 capability 让卖家过农夫售卖门 (本测聚焦 faucet 共享, 非门控)。
-        setFarmerLevel(player, FarmerConstants.SELL_MIN_MASTERY_LEVEL);
         try {
             long tier = FarmerConstants.DAILY_CREDIT_FAUCET_CAP;            // 60000 (= 全服统一主闸档值)
             String sharedKey = FarmerConstants.WHEAT_SELL_FAUCET_KEY;       // credit_faucet
@@ -905,11 +907,12 @@ public final class FarmerGameTests {
     public static void sellBelowMasteryLevelIsRejected(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();
-        IEconomyService prev = currentEconomy();
-        EconomyLedger ledger = registerFreshEconomy();
         // 白板农夫 (从没升过级) 应被精通门 (>=2) 拒绝。等级显式写进真实 capability 而不是靠 mock 玩家默认恰好
         // 是 L1 —— 默认值只是巧合, 一旦默认值变了这条用例会静默失去它要测的那个输入。
+        // 写在换入经济门面之前, 换入之后紧跟 try。
         setFarmerLevel(player, JobXpCurve.MIN_LEVEL);
+        IEconomyService prev = currentEconomy();
+        EconomyLedger ledger = registerFreshEconomy();
         try {
             player.getInventory().add(new ItemStack(FarmerItems.FARMER_WHEAT.get(), 50));
             long today = FarmerClock.currentUtcDayStamp();
@@ -1118,7 +1121,7 @@ public final class FarmerGameTests {
         EconomyLedger ledger = SqliteEconomyLedger.openInMemory();
         Map<UUID, PlayerAbuseState> states = new HashMap<>();
         Function<UUID, PlayerAbuseState> resolver = id -> states.computeIfAbsent(id, k -> new PlayerAbuseState());
-        EconomyServices.reset();
+        // 直接覆盖注册, 不先 reset: 先清空再构造的话, 构造一抛定位器就留空, 而调用方此时还没进 try。
         EconomyServices.registerEconomyService(new EconomyService(ledger, new AbuseGuard(), resolver));
         return ledger;
     }

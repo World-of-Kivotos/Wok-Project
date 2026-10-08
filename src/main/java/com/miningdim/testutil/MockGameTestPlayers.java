@@ -7,6 +7,7 @@ import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.players.PlayerList;
 
 import java.util.UUID;
 
@@ -61,6 +62,20 @@ public final class MockGameTestPlayers {
      */
     public static ServerPlayer makeMockSurvivalServerPlayerWithChannel(GameTestHelper helper) {
         return makeMockServerPlayerWithChannel(helper, randomProfile(), false);
+    }
+
+    /**
+     * 让 mock 玩家下线 (走真实登出事件链)。
+     *
+     * mock 玩家不会自己下线。留在出生点的那些离测试网格一百多格, 碍不着谁; 但用例一旦把玩家挪进网格
+     * (setPos / teleportTo 到自己的结构旁), 他就会一直站在那里: 被附近带 AI 的生物索敌, 也会被别的用例
+     * 按范围扫玩家时算进去。挪过位置的玩家要在 finally 里交给本方法。已经不在线的玩家再调一次无害。
+     */
+    public static void logout(ServerPlayer player) {
+        PlayerList players = player.server.getPlayerList();
+        if (players.getPlayer(player.getUUID()) == player) {
+            players.remove(player);
+        }
     }
 
     private static GameProfile randomProfile() {

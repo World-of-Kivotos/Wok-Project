@@ -1,0 +1,18 @@
+[
+  { "name": "keys", "js": "__keys()", "value": true },
+  { "name": "errors", "js": "window.__errors", "value": true },
+  { "name": "page-desktop", "js": "__focus(); __anim(0)", "full": true, "wait": 600 },
+  { "name": "sample-iso-idle", "js": "__focus(['_sample']); __state('_sample','idle'); __view('iso','_sample')", "selector": ".card[data-key='_sample'] .view" },
+  { "name": "sample-iso-active-t0", "js": "__state('_sample','active'); __anim(0)", "selector": ".card[data-key='_sample'] .view" },
+  { "name": "sample-iso-active-t6", "js": "__anim(6)", "selector": ".card[data-key='_sample'] .view" },
+  { "name": "sample-front", "js": "__view('front','_sample')", "selector": ".card[data-key='_sample'] .view" },
+  { "name": "sample-top", "js": "__view('top','_sample')", "selector": ".card[data-key='_sample'] .view" },
+  { "name": "sample-side", "js": "__view('side','_sample')", "selector": ".card[data-key='_sample'] .view" },
+  { "name": "sample-card", "js": "__view('iso','_sample')", "selector": ".card[data-key='_sample']" },
+  { "name": "kitchen-active", "js": "__focus(['kitchen']); __state('kitchen','active'); __anim(5)", "selector": "[data-key='kitchen'] .wide" },
+  { "name": "kitchen-front-grass", "js": "__floor('grass'); __view('front','kitchen')", "selector": "[data-key='kitchen'] .wide" },
+  { "name": "refs-active", "js": "__floor('oak'); __focus(['refs']); __state('refs','active'); __anim(5)", "selector": "[data-key='refs'] .refrow" },
+  { "name": "page-dark", "js": "__focus(); __state('*','idle'); __view('iso'); __anim(0)", "media": { "prefers-color-scheme": "dark" }, "full": true, "wait": 600 },
+  { "name": "page-phone", "js": "__render()", "media": { "prefers-color-scheme": "light" }, "width": 400, "height": 860, "dpr": 2, "full": true, "wait": 800 },
+  { "name": "phone-overflow", "js": "document.documentElement.scrollWidth + ' / ' + innerWidth", "value": true }
+]

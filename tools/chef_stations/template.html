@@ -1,0 +1,226 @@
+<title>炸锅造型对照</title>
+<style>
+/* Two page layouts share this file (build.mjs keeps one of the two MODE comment blocks below, drops the other; --kitchen swaps the title):
+   preview: one card per design (live block view + copy), then a wide kitchen strip for scale, then a row of the existing blocks.
+   kitchen: intro + global switch, one kitchen scene per style family, the station sections (3 cards each), the reference row. */
+:root {
+  --bg: #eceeea; --panel: #f8f9f6; --line: #cfd5d0; --fg: #1b2023; --muted: #586367;
+  --stage-top: #dfe5e8; --stage-bottom: #c6cfd3;
+  --accent: #9d5a08; --accent-fg: #fffaf1; --hot: #b8400f; --chip: rgba(255, 255, 255, .78);
+  --f-body: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", system-ui, sans-serif;
+  --f-mono: ui-monospace, "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #15191b; --panel: #1d2225; --line: #343c40; --fg: #e4e8e6; --muted: #9aa5a8;
+  --stage-top: #2b3337; --stage-bottom: #1b2124;
+  --accent: #eea64a; --accent-fg: #1c1306; --hot: #ff8a57; --chip: rgba(20, 24, 26, .78); color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #15191b; --panel: #1d2225; --line: #343c40; --fg: #e4e8e6; --muted: #9aa5a8;
+  --stage-top: #2b3337; --stage-bottom: #1b2124;
+  --accent: #eea64a; --accent-fg: #1c1306; --hot: #ff8a57; --chip: rgba(20, 24, 26, .78); color-scheme: dark }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 15px; line-height: 1.65; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; display: grid; gap: 30px; }
+@media (max-width: 480px) { .wrap { padding-inline: 16px; padding-block: 20px 48px; gap: 24px; } }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+p { margin: 0; }
+a { color: var(--accent); text-underline-offset: 3px; }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+.top { display: grid; gap: 10px; }
+.eyebrow { font-size: 12.5px; letter-spacing: .12em; color: var(--muted); }
+h1 { font-size: clamp(26px, 4.2vw, 36px); line-height: 1.2; font-weight: 700; letter-spacing: .02em; }
+.lede { max-width: 68ch; color: var(--muted); }
+.lede b { color: var(--fg); font-weight: 600; }
+.pick { font-weight: 600; color: var(--fg); }
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin-top: 4px; font-size: 13.5px; color: var(--muted); }
+.toolbar .grp { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.jump { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 14px; }
+
+.seg { display: inline-flex; flex-wrap: wrap; gap: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; border-inline-start: 1px solid var(--line); }
+.seg button:first-child { border-inline-start: 0; }
+button { font: 500 13.5px/1.2 var(--f-body); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px; cursor: pointer; }
+button:hover { color: var(--accent); }
+button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+button[data-state="active"][aria-pressed="true"], button[data-all-state="active"][aria-pressed="true"] { background: var(--hot); color: var(--accent-fg); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; position: relative; z-index: 1; }
+
+.designs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 1fr)); gap: 18px; align-items: start; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; display: grid; min-width: 0; }
+.card-head { display: grid; gap: 2px; padding: 14px 16px 12px; }
+.card-head .tag { font: 600 12px var(--f-mono); letter-spacing: .06em; color: var(--accent); }
+.card-head h2, .card-head h3 { font-size: 19px; line-height: 1.35; }
+.card-head .tagline { color: var(--muted); font-size: 13.5px; }
+
+.view { position: relative; background: linear-gradient(var(--stage-top), var(--stage-bottom)); border-block: 1px solid var(--line); overflow: hidden; }
+.view canvas { position: relative; display: block; width: 100%; max-width: 100%; aspect-ratio: 1 / 1; touch-action: pan-y; cursor: grab; }
+.view canvas:active { cursor: grabbing; }
+.view canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+/* baked picture (build --posters): shows until the live view has drawn once, or stays if the browser has no WebGL */
+.view .poster { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.chip { position: absolute; left: 10px; top: 10px; font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--chip); color: var(--muted); pointer-events: none; }
+.chip[data-on="true"] { color: var(--hot); font-weight: 700; }
+.nogl { position: absolute; left: 10px; right: 10px; bottom: 10px; font-size: 12.5px; padding: 4px 8px; border-radius: 6px; background: var(--chip); color: var(--fg); }
+.labels { position: absolute; inset: 0; pointer-events: none; }
+.labels span { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; font-size: 12px; line-height: 1.3; padding: 2px 7px; border-radius: 4px; background: var(--chip); color: var(--fg); }
+.labels span::after { content: ""; position: absolute; left: 50%; top: 100%; width: 1px; height: var(--lead, 0px); background: var(--muted); opacity: .7; }
+@media (max-width: 480px) { .labels span { font-size: 11px; padding: 1px 5px; } }
+
+.controls { display: flex; flex-wrap: wrap; gap: 8px 10px; padding: 12px 16px 0; }
+.body { display: grid; gap: 10px; padding: 12px 16px 16px; min-width: 0; }
+.desc { max-width: 65ch; }
+.notes { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; font-size: 14px; color: var(--fg); }
+.notes li::marker { color: var(--accent); }
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+.facts dt { white-space: nowrap; }
+.facts dd { margin: 0; font-family: var(--f-mono); font-variant-numeric: tabular-nums; color: var(--fg); min-width: 0; overflow-wrap: anywhere; }
+.empty { padding: 18px; border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); }
+
+/* kitchen page: the implementation notes fold away so a card stays short; cards side by side line up row by row
+   (head / view / buttons / text) even when one tagline wraps to an extra line */
+.station .card .desc { font-size: 14px; }
+@supports (grid-template-rows: subgrid) {
+  .station .designs { align-items: stretch; }
+  .station .card { grid-row: span 4; grid-template-rows: subgrid; row-gap: 0; }
+}
+.more { border-top: 1px solid var(--line); padding-top: 8px; min-width: 0; }
+.more summary { cursor: pointer; width: fit-content; font-size: 13.5px; font-weight: 600; color: var(--accent); padding: 2px 0; }
+.more summary:hover { text-decoration: underline; text-underline-offset: 3px; }
+.more[open] summary { margin-bottom: 8px; }
+.more .notes { font-size: 13.5px; }
+.more .facts { margin-top: 10px; }
+
+.section { display: grid; gap: 12px; }
+.section h2 { font-size: 21px; }
+.section .sub { color: var(--muted); max-width: 68ch; }
+.wide { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; display: grid; min-width: 0; }
+.wide .view canvas { aspect-ratio: 21 / 8; }
+@media (max-width: 720px) { .wide .view canvas { aspect-ratio: 4 / 3; } }
+.wide .controls { padding-bottom: 12px; }
+.legend { padding: 0 16px 14px; font-size: 13.5px; color: var(--muted); }
+.scenes { display: grid; gap: 18px; }
+.scene-head { display: grid; gap: 2px; padding: 12px 16px 10px; }
+.scene-head h3 { font-size: 18px; line-height: 1.35; }
+.scene-head p { color: var(--muted); font-size: 13.5px; }
+.scene .view canvas { aspect-ratio: 5 / 2; }
+@media (max-width: 720px) { .scene .view canvas { aspect-ratio: 8 / 5; } }
+
+.refrow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.ref { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; display: grid; min-width: 0; }
+.card-err { color: var(--hot); font-size: 13px; }
+body[data-focus] .designs { grid-template-columns: repeat(auto-fit, minmax(0, 560px)); }
+.ref .view { border-top: 0; }
+.ref figcaption { padding: 8px 12px 10px; display: grid; gap: 1px; min-width: 0; }
+.ref figcaption b { font-size: 14px; font-weight: 500; }
+.ref figcaption span { font: 12px var(--f-mono); font-variant-numeric: tabular-nums; color: var(--muted); overflow-wrap: anywhere; }
+.ref figcaption .nw { white-space: nowrap; }
+@media (max-width: 480px) { .refrow { gap: 8px; } .ref figcaption { padding: 6px 8px 8px; } .ref figcaption b { font-size: 13px; } }
+
+footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 14px; display: grid; gap: 4px; max-width: 80ch; }
+footer code { font-family: var(--f-mono); font-size: 12px; }
+
+/* screenshot focus mode (window.__focus) */
+body[data-focus] .top, body[data-focus] footer, body[data-focus] .section > h2, body[data-focus] .section > .sub { display: none; }
+body[data-focus] .wrap { padding-block: 16px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap">
+
+<!--MODE preview-->
+<div class="wrap">
+  <header class="top">
+    <p class="eyebrow">厨师重构 · 新烹饪台 · 炸锅</p>
+    <h1>炸锅造型对照</h1>
+    <p class="lede">炸锅的造型方案，先看再定。每个方案都是原版方块模型加 16×16 像素贴图，能直接做进主 MOD；切到“工作中”会换成第二个模型，油面翻泡是动画贴图，油星和蒸汽粒子进游戏另加。拖动画面旋转，滚轮或双指缩放。</p>
+    <div class="toolbar">
+      <div class="grp"><span>动画</span><button type="button" id="t-anim" aria-pressed="true">播放中</button></div>
+      <div class="grp"><span>地面</span><div class="seg" role="group" aria-label="地面"><button type="button" data-floor="oak" aria-pressed="true">橡木地板</button><button type="button" data-floor="grass">草地</button></div></div>
+    </div>
+  </header>
+
+  <section class="designs" aria-label="方案">
+<!--DESIGN_CARDS-->
+  </section>
+
+  <section class="section" data-key="kitchen">
+    <h2>放在厨房里</h2>
+    <p class="sub">每个方案左边摆一台农夫乐事的炉灶加厨锅，看大小和颜色合不合。最右边是随性乐事现在的炸锅，放在炉灶上。“工作中”时炉灶一起点火。</p>
+    <div class="wide">
+      <div class="view"><!--POSTER kitchen--><canvas id="v-kitchen" aria-label="厨房场景三维预览"></canvas><span class="chip">待机</span><div class="labels"></div></div>
+      <div class="controls">
+        <div class="seg" role="group" aria-label="状态"><button type="button" data-state="idle" aria-pressed="true">待机</button><button type="button" data-state="active">工作中</button></div>
+        <div class="seg" role="group" aria-label="视角"><button type="button" data-preset="front">正面</button><button type="button" data-preset="iso" aria-pressed="true">斜视</button><button type="button" data-preset="top">俯视</button><button type="button" data-preset="side">侧面</button></div>
+      </div>
+      <p class="legend" id="kitchen-legend"></p>
+    </div>
+  </section>
+
+  <section class="section" data-key="refs">
+    <h2>参照：现在的方块</h2>
+    <p class="sub">从测试端的模组 jar 里直接取出的模型和贴图，按同样的规则渲染。尺寸是模型实际占的像素（一格 = 16）。</p>
+    <div class="controls" style="padding:0">
+      <div class="seg" role="group" aria-label="状态"><button type="button" data-state="idle" aria-pressed="true">待机</button><button type="button" data-state="active">工作中</button></div>
+      <div class="seg" role="group" aria-label="视角"><button type="button" data-preset="front">正面</button><button type="button" data-preset="iso" aria-pressed="true">斜视</button><button type="button" data-preset="top">俯视</button><button type="button" data-preset="side">侧面</button></div>
+    </div>
+    <div class="refrow">
+<!--REF_CARDS-->
+    </div>
+  </section>
+
+  <footer>
+    <p>渲染规则照搬原版 1.20.1：元素坐标 0–16、单轴旋转（±22.5° / ±45°，含 rescale）、面 UV 与 UV 旋转、#变量贴图、最近邻取样、cutout 丢弃 alpha&lt;0.1。面的明暗按原版：顶 100%、南北 80%、东西 60%、底 50%，不算环境光遮蔽和光照等级。动画贴图按 20 tick/秒播放。</p>
+    <p id="build-info"></p>
+  </footer>
+</div>
+<!--/MODE-->
+<!--MODE kitchen-->
+<div class="wrap">
+  <header class="top">
+    <p class="eyebrow">厨师重构 · 新烹饪台</p>
+    <h1>厨房烹饪台</h1>
+    <p class="lede">要新做三种烹饪台：<b>炸锅</b>、<b>烤炉</b>、<b>备餐台</b>（备餐台也管冷饮）。每种画了 3 个风格：A 农夫乐事田园风、B 商用不锈钢、C 中式。每个台子都有“待机”和“工作中”两个样子，用按钮切换；按住画面拖动可以转着看，滚轮或双指缩放。</p>
+    <p class="pick">可以整套选一个风格，也可以每个台子单独挑。</p>
+    <div class="toolbar">
+      <div class="grp"><span>全部切到</span><div class="seg" role="group" aria-label="全部切换状态"><button type="button" data-all-state="idle" aria-pressed="true">待机</button><button type="button" data-all-state="active" aria-pressed="false">工作中</button></div></div>
+      <div class="grp"><span>动画</span><button type="button" id="t-anim" aria-pressed="true">播放中</button></div>
+      <nav class="jump" aria-label="跳到"><a href="#sec-families">三套厨房</a><!--JUMP_LINKS--><a href="#sec-refs">参照</a></nav>
+    </div>
+  </header>
+
+  <section class="section" data-key="families" id="sec-families">
+    <h2>三套厨房</h2>
+    <p class="sub">同一个风格的炸锅、烤炉、备餐台挨着摆成一排；最左边隔一格放农夫乐事的炉灶和厨锅，用来比大小。</p>
+    <div class="scenes">
+<!--FAMILY_SCENES-->
+    </div>
+  </section>
+
+<!--STATION_SECTIONS-->
+
+  <section class="section" data-key="refs" id="sec-refs">
+    <h2>参照：现在的方块</h2>
+    <p class="sub">从测试端的模组 jar 里直接取出的模型和贴图，按同样的规则渲染。尺寸是模型实际占的像素（一格 = 16）。</p>
+    <div class="controls" style="padding:0">
+      <div class="seg" role="group" aria-label="状态"><button type="button" data-state="idle" aria-pressed="true">待机</button><button type="button" data-state="active">工作中</button></div>
+      <div class="seg" role="group" aria-label="视角"><button type="button" data-preset="front">正面</button><button type="button" data-preset="iso" aria-pressed="true">斜视</button><button type="button" data-preset="top">俯视</button><button type="button" data-preset="side">侧面</button></div>
+    </div>
+    <div class="refrow">
+<!--REF_CARDS-->
+    </div>
+  </section>
+
+  <footer>
+    <p>每个台子都是原版 1.20.1 方块模型加 16×16 像素贴图，定稿后能直接放进主 MOD。画面按游戏规则渲染：面的明暗顶 100%、南北 80%、东西 60%、底 50%，不算环境光遮蔽和光照等级；动画贴图按 20 tick/秒播放；油星、蒸汽、炊烟这些粒子进游戏另加，这里看不到。</p>
+    <p>键盘：Tab 到画面上，方向键转动，+ / − 缩放。</p>
+    <p id="build-info"></p>
+  </footer>
+</div>
+<!--/MODE-->
+
+<!--DATA-->
+<script type="module">
+/*SCRIPT*/
+</script>

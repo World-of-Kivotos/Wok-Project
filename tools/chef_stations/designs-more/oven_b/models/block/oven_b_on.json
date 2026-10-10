@@ -1,0 +1,8 @@
+{
+  "parent": "miningdim:block/oven_b",
+  "textures": {
+    "glass": "miningdim:block/oven_b_glass_on",
+    "dial": "miningdim:block/oven_b_dial_on",
+    "top": "miningdim:block/oven_b_top_on"
+  }
+}

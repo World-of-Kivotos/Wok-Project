@@ -1,0 +1,205 @@
+物品ID	菜名	★	台	性子	翻面	拍数	冷饮	性子依据
+brewinandchewin:fiery_fondue_pot	烈焰奶酪火锅	7	厨锅	稳				菜名含「火锅」
+delightful:baklava	巴克拉瓦	7	烤炉	混	2			其余默认
+brewinandchewin:scarlet_pierogi	绯红波兰饺子	6	厨锅	沉				菜名含「饺子」
+dumplings_delight:dumpling_medley	饺子拼盘	6	备餐台	混		8		其余默认
+brewinandchewin:horror_lasagna	恐怖千层面	6	厨锅	混				其余默认
+brewinandchewin:quiche	乳蛋饼	6	烤炉	混	2			其余默认
+culturaldelights:eggplant_parmesan_block	Eggplant Parmesan(英)	6	厨锅	混				其余默认
+culturaldelights:exotic_roll_medley	热带寿司拼盘	6	备餐台	窜		7		菜名含「寿司」
+dumplings_delight:fungus_boiled_dumpling	下界菌水饺	6	厨锅	沉				菜名含「水饺」
+brewinandchewin:pizza	披萨	6	烤炉	稳	2			菜名含「披萨」
+culturaldelights:spicy_curry	火辣咖喱	6	厨锅	混				其余默认
+culturaldelights:chicken_taco	墨西哥鸡肉卷	6	备餐台	混		7		其余默认
+delightful:deluxe_cheeseburger	豪华芝士汉堡	6	备餐台	混		8		其余默认
+casualness_delight:quiche_lorraine	洛林乳蛋饼	5	烤炉	混	2			其余默认
+casualness_delight:stargazy_pie	仰望星空派	5	烤炉	稳	2			菜名含「派」
+delightful:smore	烤棉花糖饼干	5	烤炉	混	1			其余默认
+delightful:cactus_chili	辣子仙人掌	5	厨锅	混				其余默认
+delightful:cheeseburger	芝士汉堡	5	备餐台	混		7		其余默认
+farmersdelight:honey_glazed_ham_block	蜜汁火腿	5	烤炉	沉	2			菜名含「火腿」
+casualness_delight:sweet_rice	八宝饭	5	厨锅	混				其余默认
+crabbersdelight:clam_bake	蛤蜊大杂烩	5	厨锅	混				其余默认
+delightful:salmonberry_pie	大树莓派	5	烤炉	稳	2			菜名含「派」
+delightful:stuffed_cantaloupe_block	填馅甜瓜	5	厨锅	混				其余默认
+farmersdelight:roast_chicken_block	烤鸡	5	烤炉	沉	2			整只烤肉
+farmersdelight:chocolate_pie	巧克力派	5	烤炉	稳	2			菜名含「派」
+farmersdelight:rice_roll_medley_block	寿司拼盘	5	备餐台	窜		6		菜名含「寿司」
+farmersdelight:stuffed_pumpkin_block	填馅南瓜	5	厨锅	混				其余默认
+moredelight:loaded_hamburger	豪华汉堡	5	备餐台	混		8		其余默认
+casualness_delight:bobo_chicken	钵钵鸡	4	厨锅	混				其余默认
+casualness_delight:plate_of_fried_dumpling	盘装大炸饺	4	炸锅	浮				炸锅默认
+casualness_delight:paper_wrapped_fish	纸包鱼	4	厨锅	窜				菜名含「鱼」
+culturaldelights:beef_burrito	牛肉卷饼	4	备餐台	混		5		其余默认
+delightful:berry_matcha_latte	浆果抹茶拿铁	4	备餐台	浮		6	是	冷饮
+dumplings_delight:rabbit_meat_boiled_dumpling	兔肉水饺	4	厨锅	沉				菜名含「水饺」
+farmersdelight:apple_pie	苹果派	4	烤炉	稳	2			菜名含「派」
+farmersdelight:nether_salad	下界沙拉	4	备餐台	稳		3		菜名含「沙拉」
+oceansdelight:guardian_soup	守卫者浓汤	4	厨锅	稳				菜名含「汤」
+minecraft:cake	蛋糕	4	烤炉	稳	2			菜名含「蛋糕」
+minecraft:pumpkin_pie	南瓜派	4	烤炉	稳	2			菜名含「派」
+brewinandchewin:cheesy_pasta	奶酪意大利面	4	厨锅	混				其余默认
+casualness_delight:spring_roll_medley	春卷拼盘	4	炸锅	浮				炸锅默认
+casualness_delight:donkey_burger	驴肉火烧	4	烤炉	混	1			其余默认
+crabbersdelight:seafood_gumbo	海鲜秋葵浓汤	4	厨锅	稳				菜名含「汤」
+crabbersdelight:crab_cakes	蟹肉饼	4	厨锅	窜				菜名含「蟹」
+culturaldelights:empanada	恩潘纳达炸饺	4	厨锅	混				其余默认
+culturaldelights:hearty_salad	丰盛色拉	4	备餐台	稳		5		菜名含「色拉」
+culturaldelights:midori_roll	绿色寿司卷	4	备餐台	窜		5		菜名含「寿司」
+culturaldelights:eggplant_burger	茄子汉堡	4	备餐台	混		5		其余默认
+delightful:nut_butter_and_jam_sandwich	坚果酱果酱三明治	4	备餐台	混		5		其余默认
+delightful:field_salad	田园沙拉	4	备餐台	稳		6		菜名含「沙拉」
+delightful:crab_rangoon	炸蟹角	4	厨锅	窜				菜名含「蟹」
+dumplings_delight:pork_cabbage_wonton	白菜猪肉馄饨	4	厨锅	沉				菜名含「馄饨」
+dumplings_delight:eggplant_egg_boiled_dumpling	茄子鸡蛋水饺	4	厨锅	沉				菜名含「水饺」
+dumplings_delight:pork_mushroom_wonton	香菇猪肉馄饨	4	厨锅	沉				菜名含「馄饨」
+dumplings_delight:calamari_boiled_dumpling	鱿鱼水饺	4	厨锅	沉				菜名含「水饺」
+dumplings_delight:pork_fennel_boiled_dumpling	猪肉茴香水饺	4	厨锅	沉				菜名含「水饺」
+farmersdelight:hamburger	汉堡包	4	备餐台	混		6		其余默认
+farmersdelight:shepherds_pie_block	牧羊人派	4	烤炉	稳	2			菜名含「派」
+farmersdelight:sweet_berry_cheesecake	甜浆果芝士派	4	烤炉	稳	2			菜名含「派」
+oceansdelight:cabbage_wrapped_elder_guardian	远古守卫者沙拉卷	4	备餐台	稳		5		菜名含「沙拉」
+brewinandchewin:ham_and_cheese_sandwich	火腿奶酪三明治	3	备餐台	混		4		其余默认
+brewinandchewin:vegetable_omelet	蔬菜煎蛋卷	3	厨锅	混				其余默认
+casualness_delight:beef_noodles	河北正宗安徽牛肉板面	3	厨锅	混				其余默认
+casualness_delight:phantom_puff	幻翼泡芙	3	厨锅	混				其余默认
+crabbersdelight:coconut_pudding	Coconut Pudding(英)	3	厨锅	混				其余默认
+crabbersdelight:bisque	法式贝类浓汤	3	厨锅	稳				菜名含「汤」
+crabbersdelight:shrimp_fried_rice	虾炒饭	3	厨锅	窜				菜名含「虾」
+culturaldelights:poached_eggplants	Poached Eggplants(英)	3	厨锅	混				其余默认
+culturaldelights:fish_taco	墨西哥鱼肉卷	3	备餐台	混		5		其余默认
+culturaldelights:pork_wrap	猪肉卷饼	3	备餐台	混		5		其余默认
+delightful:salmonberry_ice_cream	大树莓冰淇淋	3	备餐台	浮		6	是	冷饮
+delightful:salmonberry_milkshake	大树莓奶昔	3	备餐台	浮		6	是	冷饮
+delightful:matcha_ice_cream	抹茶冰淇淋	3	备餐台	浮		6	是	冷饮
+delightful:matcha_milkshake	抹茶奶昔	3	备餐台	浮		6	是	冷饮
+delightful:rock_candy	硬糖棒	3	厨锅	混				其余默认
+dumplings_delight:pork_cabbage_boiled_dumpling	白菜猪肉水饺	3	厨锅	沉				菜名含「水饺」
+dumplings_delight:tomato_egg_boiled_dumpling	番茄鸡蛋水饺	3	厨锅	沉				菜名含「水饺」
+dumplings_delight:beef_tomato_boiled_dumpling	番茄牛肉水饺	3	厨锅	沉				菜名含「水饺」
+dumplings_delight:pufferfish_boiled_dumpling	河豚水饺	3	厨锅	沉				菜名含「水饺」
+dumplings_delight:pork_carrot_wonton	胡萝卜猪肉馄饨	3	厨锅	沉				菜名含「馄饨」
+dumplings_delight:mushroom_boiled_dumpling	蘑菇水饺	3	厨锅	沉				菜名含「水饺」
+dumplings_delight:chicken_mushroom_boiled_dumpling	香菇鸡肉水饺	3	厨锅	沉				菜名含「水饺」
+dumplings_delight:cod_boiled_dumpling	鳕鱼水饺	3	厨锅	沉				菜名含「水饺」
+dumplings_delight:pork_kelp_boiled_dumpling	猪肉海带水饺	3	厨锅	沉				菜名含「水饺」
+dumplings_delight:pork_potato_boiled_dumpling	猪肉土豆水饺	3	厨锅	沉				菜名含「水饺」
+farmersdelight:fried_rice	炒饭	3	厨锅	混				其余默认
+farmersdelight:mutton_wrap	羊肉卷饼	3	备餐台	混		5		其余默认
+farmersdelight:squid_ink_pasta	鱿鱼墨面	3	厨锅	窜				菜名含「鱿鱼」
+oceansdelight:cooked_stuffed_cod	Cooked Stuffed Cod(英)	3	烤炉	混	1			其余默认
+oceansdelight:elder_guardian_roll	远古守卫者寿司	3	备餐台	窜		3		菜名含「寿司」
+brewinandchewin:creamy_onion_soup	奶油洋葱汤	3	厨锅	稳				菜名含「汤」
+casualness_delight:fried_dumpling	大炸饺	3	炸锅	浮				炸锅默认
+casualness_delight:phantom_dumplings	幻翼饺子	3	厨锅	沉				菜名含「饺子」
+casualness_delight:green_tongue	绿舌头雪糕	3	备餐台	浮		6	是	冷饮
+crabbersdelight:clam_chowder	蛤蜊浓汤	3	厨锅	稳				菜名含「汤」
+crabbersdelight:frog_leg_kebob	青蛙腿烤串	3	烤炉	混	3			其余默认
+culturaldelights:rice_ball	饭团	3	备餐台	窜		5		菜名含「饭团」
+culturaldelights:chicken_roll	鸡肉寿司	3	备餐台	窜		5		菜名含「寿司」
+culturaldelights:tropical_roll	热带鱼寿司	3	备餐台	窜		4		菜名含「寿司」
+culturaldelights:calamari_roll	鱿鱼寿司	3	备餐台	窜		4		菜名含「寿司」
+delightful:sinigang	菲律宾酸汤	3	厨锅	稳				菜名含「汤」
+delightful:matcha_latte	抹茶拿铁	3	厨锅	混				其余默认
+delightful:cantaloupe_bread	甜瓜面包	3	烤炉	稳	1			菜名含「面包」
+dumplings_delight:garlic_chive_egg_boiled_dumpling	韭菜鸡蛋水饺	3	厨锅	沉				菜名含「水饺」
+dumplings_delight:dandelion_leaf_boiled_dumpling	蒲公英水饺	3	厨锅	沉				菜名含「水饺」
+farmersdelight:glow_berry_custard	发光浆果蛋奶沙司	3	厨锅	混				其余默认
+farmersdelight:dumplings	饺子	3	厨锅	沉				菜名含「饺子」
+farmersdelight:roasted_mutton_chops	烤羊排	3	烤炉	沉	1			菜名含「排」
+farmersdelight:noodle_soup	面条汤	3	厨锅	稳				菜名含「汤」
+farmersdelight:steak_and_potatoes	牛排配土豆	3	烤炉	沉	1			菜名含「排」
+farmersdelight:pasta_with_meatballs	肉丸意面	3	厨锅	混				其余默认
+farmersdelight:vegetable_noodles	蔬菜面	3	厨锅	混				其余默认
+farmersdelight:pasta_with_mutton_chop	羊排意面	3	厨锅	混				其余默认
+moredelight:hamburger_with_egg	鸡蛋汉堡	3	备餐台	混		4		其余默认
+moredelight:hamburger_with_cheese	奶酪汉堡	3	备餐台	混		4		其余默认
+moredelight:creamy_pasta_with_ham	奶油火腿意面	3	厨锅	混				其余默认
+moredelight:creamy_pasta_with_chicken_cuts	奶油鸡肉意面	3	厨锅	混				其余默认
+minecraft:rabbit_stew	兔肉煲	3	厨锅	稳				菜名含「煲」
+casualness_delight:spring_roll	春卷	2	炸锅	浮				炸锅默认
+casualness_delight:spicy_strips	大辣片	2	厨锅	混				其余默认
+casualness_delight:fish_and_chips	炸鱼薯条	2	厨锅	窜				菜名含「鱼」
+crabbersdelight:surf_and_turf	海陆大餐	2	备餐台	混		4		其余默认
+crabbersdelight:stuffed_nautilus_shell	填馅鹦鹉螺	2	厨锅	混				其余默认
+crabbersdelight:squid_kebob	鱿鱼烤串	2	烤炉	混	3			其余默认
+culturaldelights:pufferfish_roll	河豚寿司	2	备餐台	窜		3		菜名含「寿司」
+culturaldelights:egg_roll	煎蛋寿司	2	备餐台	窜		4		菜名含「寿司」
+culturaldelights:mutton_sandwich	羊肉三明治	2	备餐台	混		5		其余默认
+delightful:glow_jam_cookie	发光果酱曲奇	2	烤炉	混	1			其余默认
+delightful:nut_butter_bottle	坚果酱瓶	2	厨锅	浮				菜名含「酱」
+delightful:cantaloupe_popsicle	甜瓜冰棍	2	备餐台	浮		6	是	冷饮
+delightful:cactus_soup	仙人掌汤	2	厨锅	稳				菜名含「汤」
+delightful:lavender_tea	薰衣草茶	2	厨锅	混				其余默认
+dumplings_delight:salmon_boiled_dumpling	鲑鱼水饺	2	厨锅	沉				菜名含「水饺」
+dumplings_delight:mutton_boiled_dumpling	羊肉水饺	2	厨锅	沉				菜名含「水饺」
+farmersdelight:kelp_roll	海带寿司卷	2	备餐台	窜		4		菜名含「寿司」
+farmersdelight:baked_cod_stew	烘焙鳕鱼炖	2	厨锅	稳				菜名含「炖」
+farmersdelight:chicken_sandwich	鸡肉三明治	2	备餐台	混		5		其余默认
+farmersdelight:mushroom_rice	蘑菇饭	2	厨锅	混				其余默认
+farmersdelight:pumpkin_soup	南瓜汤	2	厨锅	稳				菜名含「汤」
+farmersdelight:bacon_sandwich	培根三明治	2	备餐台	混		5		其余默认
+farmersdelight:hot_cocoa	热可可	2	厨锅	混				其余默认
+farmersdelight:vegetable_soup	蔬菜汤	2	厨锅	稳				菜名含「汤」
+farmersdelight:fruit_salad	水果沙拉	2	备餐台	稳		5		菜名含「沙拉」
+farmersdelight:grilled_salmon	香烤鲑鱼	2	烤炉	混	1			其余默认
+farmersdelight:fish_stew	鱼肉炖	2	厨锅	稳				菜名含「炖」
+moredelight:diced_potatoes_with_egg_and_tomato	鸡蛋番茄丁土豆	2	厨锅	混				其余默认
+moredelight:chicken_sandwich_with_egg_and_tomato	鸡蛋番茄三明治	2	备餐台	混		5		其余默认
+moredelight:chicken_salad	鸡肉沙拉	2	备餐台	稳		5		菜名含「沙拉」
+moredelight:simple_hamburger	简单汉堡	2	备餐台	混		3		其余默认
+moredelight:toast_with_cheese	起司吐司	2	烤炉	混	1			其余默认
+moredelight:chocolate_popsicle	巧克力冰棒	2	备餐台	浮		6	是	冷饮
+oceansdelight:fugu_roll	河豚寿司	2	备餐台	窜		3		菜名含「寿司」
+oceansdelight:squid_rings	鱿鱼圈	2	厨锅	窜				菜名含「鱿鱼」
+brewinandchewin:glow_berry_marmalade	发光浆果酱	2	厨锅	浮				菜名含「酱」
+casualness_delight:roast_gluten	烤面筋	2	烤炉	混	1			其余默认
+crabbersdelight:sea_pickle_juice	海泡菜汁	2	备餐台	浮		6	是	冷饮
+crabbersdelight:shrimp_skewer	烤虾串	2	烤炉	混	3			其余默认
+crabbersdelight:coral_crunch	珊瑚脆片	2	备餐台	混		3		其余默认
+culturaldelights:elote	烤玉米	2	厨锅	混				其余默认
+culturaldelights:creamed_corn	奶油玉米	2	厨锅	混				其余默认
+culturaldelights:avocado_toast	牛油果土司	2	烤炉	混	1			其余默认
+delightful:wrapped_cantaloupe	培根卷甜瓜	2	备餐台	混		3		其余默认
+farmersdelight:honey_cookie	蜂蜜曲奇	2	烤炉	混	1			其余默认
+farmersdelight:salmon_roll	鲑鱼寿司	2	备餐台	窜		3		菜名含「寿司」
+farmersdelight:mixed_salad	混合沙拉	2	备餐台	稳		4		菜名含「沙拉」
+farmersdelight:chicken_soup	鸡肉汤	2	厨锅	稳				菜名含「汤」
+farmersdelight:beef_stew	牛肉炖	2	厨锅	稳				菜名含「炖」
+farmersdelight:barbecue_stick	烧烤串	2	烤炉	混	3			其余默认
+farmersdelight:ratatouille	蔬菜杂烩	2	厨锅	混				其余默认
+farmersdelight:stuffed_potato	填馅马铃薯	2	备餐台	混		4		其余默认
+farmersdelight:melon_popsicle	西瓜冰棍	2	备餐台	浮		6	是	冷饮
+farmersdelight:cod_roll	鳕鱼寿司	2	备餐台	窜		3		菜名含「寿司」
+moredelight:diced_potatoes_with_chicken_cuts	鸡肉丁土豆	2	厨锅	混				其余默认
+moredelight:cooked_rice_with_chicken_cuts	鸡肉煮饭	2	厨锅	混				其余默认
+moredelight:toast_with_honey	蜜糖烤面包	2	烤炉	稳	1			菜名含「面包」
+moredelight:steak_sandwich	牛排三明治	2	备餐台	混		4		其余默认
+moredelight:diced_potatoes_with_beef	牛肉丁土豆	2	厨锅	混				其余默认
+moredelight:cooked_rice_with_beef	牛肉煮饭	2	厨锅	混				其余默认
+moredelight:egg_with_bacon_sandwich	培根鸡蛋三明治	2	备餐台	混		4		其余默认
+moredelight:toast_with_chocolate	巧克力吐司	2	烤炉	混	1			其余默认
+moredelight:potato_salad	土豆沙拉	2	厨锅	混				其余默认
+moredelight:toast_with_glow_berries	荧光浆果吐司	2	烤炉	混	1			其余默认
+moredelight:diced_potatoes_with_porkchop	猪排丁土豆	2	厨锅	混				其余默认
+moredelight:porkchop_sandwich	猪排三明治	2	备餐台	混		4		其余默认
+moredelight:cooked_rice_with_porkchop	猪排煮饭	2	厨锅	混				其余默认
+oceansdelight:honey_fried_kelp	Honey Fried Kelp(英)	2	厨锅	混				其余默认
+oceansdelight:braised_sea_pickle	炖海泡菜	2	厨锅	稳				菜名含「炖」
+minecraft:cookie	曲奇	2	烤炉	混	1			其余默认
+brewinandchewin:apple_jelly	苹果酱	1	厨锅	浮				菜名含「酱」
+brewinandchewin:sweet_berry_jam	甜浆果酱	1	厨锅	浮				菜名含「酱」
+crabbersdelight:kelp_shake	海带汁	1	备餐台	浮		6	是	冷饮
+farmersdelight:bone_broth	大骨汤	1	厨锅	稳				菜名含「汤」
+farmersdelight:egg_sandwich	鸡蛋三明治	1	备餐台	混		3		其余默认
+farmersdelight:cabbage_rolls	卷心菜卷	1	厨锅	混				其余默认
+farmersdelight:bacon_and_eggs	培根鸡蛋	1	备餐台	混		3		其余默认
+farmersdelight:apple_cider	苹果酒	1	厨锅	混				其余默认
+farmersdelight:sweet_berry_cookie	甜浆果曲奇	1	烤炉	混	1			其余默认
+farmersdelight:melon_juice	西瓜汁	1	备餐台	浮		6	是	冷饮
+moredelight:tomato_sandwich	番茄三明治	1	备餐台	混		3		其余默认
+moredelight:carrot_soup	胡萝卜汤	1	厨锅	稳				菜名含「汤」
+moredelight:toast_with_egg	鸡蛋烤面包	1	烤炉	稳	1			菜名含「面包」
+moredelight:toast_with_sweet_berries	甜浆果烤面包	1	烤炉	稳	1			菜名含「面包」
+moredelight:mashed_potatoes	土豆泥	1	厨锅	混				其余默认
+minecraft:mushroom_stew	蘑菇煲	1	厨锅	稳				菜名含「煲」

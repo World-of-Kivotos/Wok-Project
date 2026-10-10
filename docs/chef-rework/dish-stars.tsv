@@ -1,0 +1,205 @@
+﻿星级	分数	菜名(中文)	物品ID	来源mod	制作方式	计分明细	自带效果
+★7	15	烈焰奶酪火锅	brewinandchewin:fiery_fondue_pot	Brewin' and Chewin'	厨锅(炼药锅作容器)·盛宴	绯红奶酪轮6+番茄酱2+面包1+火腿1+牛奶1+马铃薯1+盛宴3	舒适7分
+★7	14	巴克拉瓦	delightful:baklava	Delightful	工作台·盛宴	烈焰粉4+面团2+蜂蜜瓶2+烤橡子2+糖1+盛宴3	急迫 30s
+★6	13	绯红波兰饺子	brewinandchewin:scarlet_pierogi	Brewin' and Chewin'	厨锅	绯红奶酪切块6+下界疣4+面团2+马铃薯1	滋养7分
+★6	13	饺子拼盘	dumplings_delight:dumpling_medley	Dumplings Delight	工作台·盛宴	面团2+醋2+生羊肉1+生鸡肉1+胡萝卜1+洋葱1+卷心菜1+生鲑鱼1+盛宴3	(按份取出各类水饺,效果随水饺)
+★6	12	恐怖千层面	brewinandchewin:horror_lasagna	Brewin' and Chewin'	厨锅	绯红奶酪切块6+番茄酱2+生意面2+生牛肉1+甜菜根1	滋养5分
+★6	12	乳蛋饼	brewinandchewin:quiche	Brewin' and Chewin'	工作台·盛宴	芝士片(随性乐事)3+馅饼酥皮2+熟培根1+鸡蛋1+卷心菜1+牛奶1+盛宴3	无
+★6	12	Eggplant Parmesan(英)	culturaldelights:eggplant_parmesan_block	Cultural Delights	厨锅·盛宴	茄子2+番茄酱2+生意面2+牛奶1+面包1+鸡蛋1+盛宴3	滋养5分
+★6	12	热带寿司拼盘	culturaldelights:exotic_roll_medley	Cultural Delights	工作台·盛宴	米饭2+热带鱼2+河豚2+干海带1+甜菜根1+熟鸡肉1+盛宴3	无
+★6	12	下界菌水饺	dumplings_delight:fungus_boiled_dumpling	Dumplings Delight	厨锅	绯红菌4+诡异菌4+面团2+大葱2	无
+★6	11	披萨	brewinandchewin:pizza	Brewin' and Chewin'	工作台·盛宴	淡黄奶酪切块4+番茄酱2+牛排1+小麦1+盛宴3	无
+★6	11	火辣咖喱	culturaldelights:spicy_curry	Cultural Delights	厨锅	烈焰粉4+米饭2+番茄酱2+牛奶1+熟鸡肉1+洋葱1	滋养5分
+★6	11	墨西哥鸡肉卷	culturaldelights:chicken_taco	Cultural Delights	工作台	玉米饼3+番茄酱2+黄瓜2+玉米棒2+洋葱1+熟鸡肉1	无
+★6	11	豪华芝士汉堡	delightful:deluxe_cheeseburger	Delightful	工作台	汉堡面包(SAR)3+芝士片(随性乐事)3+番茄1+熟培根1+卷心菜1+洋葱1+牛肉饼1	⚠滋养4分、力量 30s
+★5	10	洛林乳蛋饼	casualness_delight:quiche_lorraine	Casualness Delight	工作台·盛宴	烟熏火腿2+馅饼酥皮2+鸡蛋1+熟培根1+牛奶1+盛宴3	舒适1.5分、滋养1分
+★5	10	仰望星空派	casualness_delight:stargazy_pie	Casualness Delight	工作台·盛宴	面团2+馅饼酥皮2+鸡蛋1+牛奶1+生鳕鱼1+盛宴3	反胃 10s、失明 15s
+★5	10	烤棉花糖饼干	delightful:smore	Delightful	工作台	烤插棍棉花糖3+蜂蜜瓶2+可可豆2+糖1+牛奶1+小麦1	舒适2分、缓降 10s
+★5	10	辣子仙人掌	delightful:cactus_chili	Delightful	厨锅	烈焰粉4+玉米棒2+番茄酱2+生猪排1+仙人掌肉1	⚠舒适3分、力量 20s
+★5	10	芝士汉堡	delightful:cheeseburger	Delightful	工作台	芝士片(随性乐事)3+汉堡面包(SAR)3+洋葱1+番茄1+卷心菜1+牛肉饼1	⚠滋养1分、力量 20s
+★5	10	蜜汁火腿	farmersdelight:honey_glazed_ham_block	Farmer's Delight	工作台·盛宴	烟熏火腿2+米饭2+蜂蜜瓶2+甜浆果1+盛宴3	滋养5分
+★5	9	八宝饭	casualness_delight:sweet_rice	Casualness Delight	厨锅·盛宴	蜂蜜瓶2+稻米1+糖1+苹果1+甜菜根1+盛宴3	无
+★5	9	蛤蜊大杂烩	crabbersdelight:clam_bake	Crabber's Delight	厨锅	熟龙虾2+熟虾2+熟蛤蜊肉2+海草1+洋葱1+胡萝卜1	滋养5分
+★5	9	大树莓派	delightful:salmonberry_pie	Delightful	工作台·盛宴	馅饼酥皮2+大树莓2+糖1+小麦1+盛宴3	水下呼吸 30s
+★5	9	填馅甜瓜	delightful:stuffed_cantaloupe_block	Delightful	厨锅·盛宴	甜瓜2+洋葱1+甜浆果1+稻米1+熟羊肉1+盛宴3	⚠滋养4分、抗性提升 II 30s
+★5	9	烤鸡	farmersdelight:roast_chicken_block	Farmer's Delight	工作台·盛宴	面包1+鸡蛋1+烤马铃薯1+洋葱1+熟鸡肉1+胡萝卜1+盛宴3	滋养5分
+★5	9	巧克力派	farmersdelight:chocolate_pie	Farmer's Delight	工作台·盛宴	馅饼酥皮2+可可豆2+糖1+牛奶1+盛宴3	速度 30s
+★5	9	寿司拼盘	farmersdelight:rice_roll_medley_block	Farmer's Delight	工作台·盛宴	米饭2+干海带1+生鳕鱼片1+生鲑鱼片1+胡萝卜1+盛宴3	无
+★5	9	填馅南瓜	farmersdelight:stuffed_pumpkin_block	Farmer's Delight	厨锅·盛宴	甜浆果1+马铃薯1+洋葱1+南瓜1+棕色蘑菇1+稻米1+盛宴3	滋养5分
+★5	9	豪华汉堡	moredelight:loaded_hamburger	More Delight	工作台	汉堡面包(SAR)3+番茄1+熟培根1+煎鸡蛋1+卷心菜1+洋葱1+牛肉饼1	无
+★4	8	钵钵鸡	casualness_delight:bobo_chicken	Casualness Delight	厨锅·盛宴	番茄酱2+生钵钵鸡肉1+生钵钵土豆1+生钵钵卷心菜1+盛宴3	滋养30s
+★4	8	盘装大炸饺	casualness_delight:plate_of_fried_dumpling	Casualness Delight	工作台·盛宴(子菜需炸锅)	面团2+生猪排1+卷心菜1+洋葱1+盛宴3	无
+★4	8	纸包鱼	casualness_delight:paper_wrapped_fish	Casualness Delight	厨锅·盛宴	卷心菜1+马铃薯1+洋葱1+番茄1+生鲑鱼1+盛宴3	舒适3分
+★4	8	牛肉卷饼	culturaldelights:beef_burrito	Cultural Delights	工作台	玉米饼3+米饭2+牛油果2+牛排1	无
+★4	8	浆果抹茶拿铁	delightful:berry_matcha_latte	Delightful	工作台	冰2+抹茶2+蜂蜜瓶2+牛奶1+甜浆果1	⚠瞬间治疗
+★4	8	兔肉水饺	dumplings_delight:rabbit_meat_boiled_dumpling	Dumplings Delight	厨锅	面团2+大葱2+生兔肉2+兔子脚2	跳跃提升 15s
+★4	8	苹果派	farmersdelight:apple_pie	Farmer's Delight	工作台·盛宴	馅饼酥皮2+糖1+小麦1+苹果1+盛宴3	速度 30s
+★4	8	下界沙拉	farmersdelight:nether_salad	Farmer's Delight	工作台	诡异菌4+绯红菌4	反胃 12s
+★4	8	守卫者浓汤	oceansdelight:guardian_soup	Ocean's Delight	厨锅·盛宴	守卫者2+鸡蛋1+洋葱1+番茄1+盛宴3	舒适3分
+★4	8	蛋糕	minecraft:cake	原版(配方来自FD/Delightful)	工作台·盛宴	面团2+鸡蛋1+糖1+牛奶1+盛宴3	速度 20s
+★4	8	南瓜派	minecraft:pumpkin_pie	原版(配方来自FD/Delightful)	工作台·盛宴	馅饼酥皮2+鸡蛋1+糖1+南瓜片1+盛宴3	速度 30s
+★4	7	奶酪意大利面	brewinandchewin:cheesy_pasta	Brewin' and Chewin'	厨锅	芝士片(随性乐事)3+生意面2+生鳕鱼1+番茄1	滋养5分
+★4	7	春卷拼盘	casualness_delight:spring_roll_medley	Casualness Delight	工作台·盛宴(子菜需炸锅)	面团2+牛肉馅1+卷心菜叶1+盛宴3	滋养30s
+★4	7	驴肉火烧	casualness_delight:donkey_burger	Casualness Delight	工作台	汉堡面包(SAR)3+烤驴肉2+洋葱1+卷心菜1	无
+★4	7	海鲜秋葵浓汤	crabbersdelight:seafood_gumbo	Crabber's Delight	厨锅	龙虾2+虾2+生猪排1+稻米1+洋葱1	舒适5分
+★4	7	蟹肉饼	crabbersdelight:crab_cakes	Crabber's Delight	厨锅	面团2+螃蟹2+鸡蛋1+洋葱1+牛奶1	滋养1分
+★4	7	恩潘纳达炸饺	culturaldelights:empanada	Cultural Delights	厨锅	玉米面团3+牛油果2+洋葱1+番茄1	无
+★4	7	丰盛色拉	culturaldelights:hearty_salad	Cultural Delights	工作台	玉米棒2+黄瓜2+牛油果2+番茄1	滋养5分
+★4	7	绿色寿司卷	culturaldelights:midori_roll	Cultural Delights	工作台	牛油果2+黄瓜2+米饭2+干海带1	无
+★4	7	茄子汉堡	culturaldelights:eggplant_burger	Cultural Delights	工作台	汉堡面包(SAR)3+烟熏茄子2+卷心菜1+番茄1	无
+★4	7	坚果酱果酱三明治	delightful:nut_butter_and_jam_sandwich	Delightful	工作台	坚果酱瓶4+甜浆果1+糖1+面包1	滋养3分
+★4	7	田园沙拉	delightful:field_salad	Delightful	工作台	大树莓2+烤橡子2+仙人掌肉排1+胡萝卜1+卷心菜1	滋养30s、生命恢复 10s
+★4	7	炸蟹角	delightful:crab_rangoon	Delightful	厨锅	芝士片(随性乐事)3+面团2+蟹腿2	无
+★4	7	白菜猪肉馄饨	dumplings_delight:pork_cabbage_wonton	Dumplings Delight	厨锅	大葱2+面团2+生猪排1+干海带1+卷心菜1	无
+★4	7	茄子鸡蛋水饺	dumplings_delight:eggplant_egg_boiled_dumpling	Dumplings Delight	厨锅	大葱2+茄子2+面团2+鸡蛋1	无
+★4	7	香菇猪肉馄饨	dumplings_delight:pork_mushroom_wonton	Dumplings Delight	厨锅	大葱2+面团2+生猪排1+干海带1+棕色蘑菇1	无
+★4	7	鱿鱼水饺	dumplings_delight:calamari_boiled_dumpling	Dumplings Delight	厨锅	面团2+大葱2+鱿鱼2+棕色蘑菇1	无
+★4	7	猪肉茴香水饺	dumplings_delight:pork_fennel_boiled_dumpling	Dumplings Delight	厨锅	大葱2+茴香2+面团2+生猪排1	无
+★4	7	汉堡包	farmersdelight:hamburger	Farmer's Delight	工作台	汉堡面包(SAR)3+洋葱1+卷心菜1+番茄1+牛肉饼1	无
+★4	7	牧羊人派	farmersdelight:shepherds_pie_block	Farmer's Delight	工作台·盛宴	洋葱1+烤马铃薯1+牛奶1+熟羊肉1+盛宴3	滋养5分
+★4	7	甜浆果芝士派	farmersdelight:sweet_berry_cheesecake	Farmer's Delight	工作台·盛宴	馅饼酥皮2+甜浆果1+牛奶1+盛宴3	速度 30s
+★4	7	远古守卫者沙拉卷	oceansdelight:cabbage_wrapped_elder_guardian	Ocean's Delight	工作台	熟远古守卫者肉片4+卷心菜1+洋葱1+番茄1	舒适30s
+★3	6	火腿奶酪三明治	brewinandchewin:ham_and_cheese_sandwich	Brewin' and Chewin'	工作台	芝士片(随性乐事)3+烟熏火腿2+面包1	无
+★3	6	蔬菜煎蛋卷	brewinandchewin:vegetable_omelet	Brewin' and Chewin'	厨锅	芝士片(随性乐事)3+鸡蛋1+洋葱1+胡萝卜1	滋养3分
+★3	6	河北正宗安徽牛肉板面	casualness_delight:beef_noodles	Casualness Delight	厨锅	生意面2+洋葱1+生牛肉1+卷心菜1+胡萝卜1	滋养3分
+★3	6	幻翼泡芙	casualness_delight:phantom_puff	Casualness Delight	厨锅	芝士片(随性乐事)3+幻翼膜2+牛奶1	缓降 40s
+★3	6	Coconut Pudding(英)	crabbersdelight:coconut_pudding	Crabber's Delight	厨锅	Coconut Milk(英)2+Coconut Halve(英)2+鸡蛋1+糖1	无
+★3	6	法式贝类浓汤	crabbersdelight:bisque	Crabber's Delight	厨锅	熟蛤蜊肉2+洋葱1+稻米1+牛奶1+胡萝卜1	滋养3分
+★3	6	虾炒饭	crabbersdelight:shrimp_fried_rice	Crabber's Delight	厨锅	虾2+米饭2+胡萝卜1+洋葱1	舒适30s
+★3	6	Poached Eggplants(英)	culturaldelights:poached_eggplants	Cultural Delights	厨锅	番茄酱2+茄子2+鸡蛋1+洋葱1	滋养5分
+★3	6	墨西哥鱼肉卷	culturaldelights:fish_taco	Cultural Delights	工作台	玉米饼3+番茄1+卷心菜1+熟鳕鱼1	无
+★3	6	猪肉卷饼	culturaldelights:pork_wrap	Cultural Delights	工作台	玉米饼3+卷心菜1+熟猪排1+苹果1	无
+★3	6	大树莓冰淇淋	delightful:salmonberry_ice_cream	Delightful	工作台	冰2+大树莓2+糖1+牛奶1	水下呼吸 1分
+★3	6	大树莓奶昔	delightful:salmonberry_milkshake	Delightful	工作台	冰2+大树莓2+糖1+牛奶1	水下呼吸 30s
+★3	6	抹茶冰淇淋	delightful:matcha_ice_cream	Delightful	工作台	抹茶2+冰2+牛奶1+糖1	无
+★3	6	抹茶奶昔	delightful:matcha_milkshake	Delightful	工作台	抹茶2+冰2+牛奶1+糖1	无
+★3	6	硬糖棒	delightful:rock_candy	Delightful	厨锅	玫瑰石英碎块4+甜浆果1+糖1	无
+★3	6	白菜猪肉水饺	dumplings_delight:pork_cabbage_boiled_dumpling	Dumplings Delight	厨锅	大葱2+面团2+生猪排1+卷心菜1	无
+★3	6	番茄鸡蛋水饺	dumplings_delight:tomato_egg_boiled_dumpling	Dumplings Delight	厨锅	大葱2+面团2+鸡蛋1+番茄1	无
+★3	6	番茄牛肉水饺	dumplings_delight:beef_tomato_boiled_dumpling	Dumplings Delight	厨锅	大葱2+面团2+生牛肉1+番茄1	无
+★3	6	河豚水饺	dumplings_delight:pufferfish_boiled_dumpling	Dumplings Delight	厨锅	大葱2+面团2+河豚2	中毒 3s、水下呼吸 3s
+★3	6	胡萝卜猪肉馄饨	dumplings_delight:pork_carrot_wonton	Dumplings Delight	厨锅	面团2+生猪排1+鸡蛋1+干海带1+胡萝卜1	无
+★3	6	蘑菇水饺	dumplings_delight:mushroom_boiled_dumpling	Dumplings Delight	厨锅	大葱2+面团2+棕色蘑菇1+红色蘑菇1	无
+★3	6	香菇鸡肉水饺	dumplings_delight:chicken_mushroom_boiled_dumpling	Dumplings Delight	厨锅	面团2+大葱2+棕色蘑菇1+生鸡肉1	无
+★3	6	鳕鱼水饺	dumplings_delight:cod_boiled_dumpling	Dumplings Delight	厨锅	大葱2+面团2+鸡蛋1+生鳕鱼1	无
+★3	6	猪肉海带水饺	dumplings_delight:pork_kelp_boiled_dumpling	Dumplings Delight	厨锅	大葱2+面团2+生猪排1+海带1	无
+★3	6	猪肉土豆水饺	dumplings_delight:pork_potato_boiled_dumpling	Dumplings Delight	厨锅	面团2+棕色蘑菇1+马铃薯1+生猪排1+洋葱1	无
+★3	6	炒饭	farmersdelight:fried_rice	Farmer's Delight	厨锅	玉米棒2+洋葱1+鸡蛋1+胡萝卜1+稻米1	舒适5分
+★3	6	羊肉卷饼	farmersdelight:mutton_wrap	Farmer's Delight	工作台	玉米饼3+卷心菜1+洋葱1+熟羊肉1	无
+★3	6	鱿鱼墨面	farmersdelight:squid_ink_pasta	Farmer's Delight	厨锅	墨囊2+生意面2+番茄1+生鳕鱼1	滋养5分
+★3	6	Cooked Stuffed Cod(英)	oceansdelight:cooked_stuffed_cod	Ocean's Delight	工作台→营火/烟熏炉	洋葱1+生鳕鱼1+绳子1+棕色蘑菇1+海带1+番茄1	无
+★3	6	远古守卫者寿司	oceansdelight:elder_guardian_roll	Ocean's Delight	工作台	生远古守卫者肉片4+米饭2	无
+★3	5	奶油洋葱汤	brewinandchewin:creamy_onion_soup	Brewin' and Chewin'	厨锅	芝士片(随性乐事)3+洋葱1+面包1	舒适3分
+★3	5	大炸饺	casualness_delight:fried_dumpling	Casualness Delight	工作台→炸锅(随性乐事)	面团2+生猪排1+洋葱1+卷心菜1	滋养3分
+★3	5	幻翼饺子	casualness_delight:phantom_dumplings	Casualness Delight	厨锅	幻翼膜2+卷心菜1+洋葱1+生鸡肉1	缓降 1分
+★3	5	绿舌头雪糕	casualness_delight:green_tongue	Casualness Delight	工作台	黏液球2+冰2+糖1	⚠抗火 8s、跳跃提升 III 15s
+★3	5	蛤蜊浓汤	crabbersdelight:clam_chowder	Crabber's Delight	厨锅	熟蛤蜊肉2+马铃薯1+洋葱1+牛奶1	舒适3分
+★3	5	青蛙腿烤串	crabbersdelight:frog_leg_kebob	Crabber's Delight	工作台	熟青蛙腿2+棕色蘑菇1+洋葱1+胡萝卜1	无
+★3	5	饭团	culturaldelights:rice_ball	Cultural Delights	工作台	米饭2+甜浆果1+干海带1+生鲑鱼1	无
+★3	5	鸡肉寿司	culturaldelights:chicken_roll	Cultural Delights	工作台	米饭2+熟鸡肉1+干海带1+甜菜根1	无
+★3	5	热带鱼寿司	culturaldelights:tropical_roll	Cultural Delights	工作台	热带鱼2+米饭2+干海带1	无
+★3	5	鱿鱼寿司	culturaldelights:calamari_roll	Cultural Delights	工作台	米饭2+生鱿鱼须2+干海带1	无
+★3	5	菲律宾酸汤	delightful:sinigang	Delightful	厨锅	番茄酱2+生猪排1+甜浆果1+洋葱1	舒适3分
+★3	5	抹茶拿铁	delightful:matcha_latte	Delightful	厨锅	抹茶2+蜂蜜瓶2+牛奶1	⚠瞬间治疗
+★3	5	甜瓜面包	delightful:cantaloupe_bread	Delightful	工作台	面团2+甜瓜片2+糖1	⚠抗性提升 15s
+★3	5	韭菜鸡蛋水饺	dumplings_delight:garlic_chive_egg_boiled_dumpling	Dumplings Delight	厨锅	面团2+韭菜2+鸡蛋1	无
+★3	5	蒲公英水饺	dumplings_delight:dandelion_leaf_boiled_dumpling	Dumplings Delight	厨锅	面团2+鸡蛋1+棕色蘑菇1+蒲公英1	生命恢复 3s
+★3	5	发光浆果蛋奶沙司	farmersdelight:glow_berry_custard	Farmer's Delight	厨锅	发光浆果2+鸡蛋1+糖1+牛奶1	发光 5s
+★3	5	饺子	farmersdelight:dumplings	Farmer's Delight	厨锅	面团2+洋葱1+生鸡肉1+卷心菜1	无
+★3	5	烤羊排	farmersdelight:roasted_mutton_chops	Farmer's Delight	工作台	米饭2+熟羊排1+番茄1+甜菜根1	滋养5分
+★3	5	面条汤	farmersdelight:noodle_soup	Farmer's Delight	厨锅	生意面2+生猪排1+煎鸡蛋1+干海带1	舒适5分
+★3	5	牛排配土豆	farmersdelight:steak_and_potatoes	Farmer's Delight	工作台	米饭2+烤马铃薯1+洋葱1+牛排1	滋养3分
+★3	5	肉丸意面	farmersdelight:pasta_with_meatballs	Farmer's Delight	厨锅	番茄酱2+生意面2+牛肉馅1	滋养3分
+★3	5	蔬菜面	farmersdelight:vegetable_noodles	Farmer's Delight	厨锅	生意面2+棕色蘑菇1+胡萝卜1+卷心菜1	滋养5分
+★3	5	羊排意面	farmersdelight:pasta_with_mutton_chop	Farmer's Delight	厨锅	番茄酱2+生意面2+生羊肉1	滋养3分
+★3	5	鸡蛋汉堡	moredelight:hamburger_with_egg	More Delight	工作台	汉堡面包(SAR)3+煎鸡蛋1+牛肉饼1	无
+★3	5	奶酪汉堡	moredelight:hamburger_with_cheese	More Delight	工作台	芝士片(随性乐事)3+牛肉饼1+面包1	无
+★3	5	奶油火腿意面	moredelight:creamy_pasta_with_ham	More Delight	厨锅	生意面2+洋葱1+火腿1+牛奶1	滋养3分
+★3	5	奶油鸡肉意面	moredelight:creamy_pasta_with_chicken_cuts	More Delight	厨锅	生意面2+洋葱1+生鸡肉1+牛奶1	滋养3分
+★3	5	兔肉煲	minecraft:rabbit_stew	原版(配方来自FD/Delightful)	厨锅	生兔肉2+烤马铃薯1+胡萝卜1+棕色蘑菇1	无
+★2	4	春卷	casualness_delight:spring_roll	Casualness Delight	工作台→炸锅(随性乐事)	面团2+牛肉馅1+卷心菜叶1	滋养30s
+★2	4	大辣片	casualness_delight:spicy_strips	Casualness Delight	厨锅	面团2+腐肉1+洋葱1	⚠腐坏(模组自定义) 1分、急迫 II 30s
+★2	4	炸鱼薯条	casualness_delight:fish_and_chips	Casualness Delight	厨锅	面团2+生鳕鱼片1+马铃薯1	舒适5分
+★2	4	海陆大餐	crabbersdelight:surf_and_turf	Crabber's Delight	工作台	熟蛤蜊肉2+烤马铃薯1+牛排1	滋养5分
+★2	4	填馅鹦鹉螺	crabbersdelight:stuffed_nautilus_shell	Crabber's Delight	厨锅	鹦鹉螺壳2+海带1+熟鳕鱼1	滋养3分
+★2	4	鱿鱼烤串	crabbersdelight:squid_kebob	Crabber's Delight	工作台	熟鱿鱼须2+番茄1+洋葱1	无
+★2	4	河豚寿司	culturaldelights:pufferfish_roll	Cultural Delights	工作台	米饭2+河豚2	反胃 10s、饥饿 II 10s
+★2	4	煎蛋寿司	culturaldelights:egg_roll	Cultural Delights	工作台	米饭2+煎鸡蛋1+干海带1	无
+★2	4	羊肉三明治	culturaldelights:mutton_sandwich	Cultural Delights	工作台	面包1+煎鸡蛋1+甜菜根1+熟羊肉1	无
+★2	4	发光果酱曲奇	delightful:glow_jam_cookie	Delightful	工作台	发光浆果2+糖1+小麦1	无
+★2	4	坚果酱瓶	delightful:nut_butter_bottle	Delightful	厨锅	橡子2+海带1+糖1	无
+★2	4	甜瓜冰棍	delightful:cantaloupe_popsicle	Delightful	工作台	甜瓜片2+冰2	⚠抗性提升 30s
+★2	4	仙人掌汤	delightful:cactus_soup	Delightful	厨锅	洋葱1+仙人掌肉1+番茄1+稻米1	舒适3分
+★2	4	薰衣草茶	delightful:lavender_tea	Delightful	厨锅	薰衣草2+绿茶叶2	舒适30s
+★2	4	鲑鱼水饺	dumplings_delight:salmon_boiled_dumpling	Dumplings Delight	厨锅	面团2+生鲑鱼1+胡萝卜1	无
+★2	4	羊肉水饺	dumplings_delight:mutton_boiled_dumpling	Dumplings Delight	厨锅	面团2+洋葱1+生羊肉1	无
+★2	4	海带寿司卷	farmersdelight:kelp_roll	Farmer's Delight	工作台	米饭2+干海带1+胡萝卜1	无
+★2	4	烘焙鳕鱼炖	farmersdelight:baked_cod_stew	Farmer's Delight	厨锅	马铃薯1+鸡蛋1+番茄1+生鳕鱼1	舒适5分
+★2	4	鸡肉三明治	farmersdelight:chicken_sandwich	Farmer's Delight	工作台	胡萝卜1+熟鸡肉1+卷心菜1+面包1	无
+★2	4	蘑菇饭	farmersdelight:mushroom_rice	Farmer's Delight	厨锅	红色蘑菇1+棕色蘑菇1+稻米1+胡萝卜1	滋养3分
+★2	4	南瓜汤	farmersdelight:pumpkin_soup	Farmer's Delight	厨锅	南瓜片1+生猪排1+卷心菜1+牛奶1	舒适5分
+★2	4	培根三明治	farmersdelight:bacon_sandwich	Farmer's Delight	工作台	熟培根1+卷心菜1+番茄1+面包片1	无
+★2	4	热可可	farmersdelight:hot_cocoa	Farmer's Delight	厨锅	可可豆2+糖1+牛奶1	饮用时清除一个负面效果(HotCocoaItem)
+★2	4	蔬菜汤	farmersdelight:vegetable_soup	Farmer's Delight	厨锅	卷心菜1+马铃薯1+甜菜根1+胡萝卜1	舒适3分
+★2	4	水果沙拉	farmersdelight:fruit_salad	Farmer's Delight	工作台	西瓜片1+甜浆果1+苹果1+南瓜片1	生命恢复 5s
+★2	4	香烤鲑鱼	farmersdelight:grilled_salmon	Farmer's Delight	工作台	熟鲑鱼1+甜浆果1+卷心菜1+洋葱1	滋养3分
+★2	4	鱼肉炖	farmersdelight:fish_stew	Farmer's Delight	厨锅	番茄酱2+生鳕鱼1+洋葱1	舒适3分
+★2	4	鸡蛋番茄丁土豆	moredelight:diced_potatoes_with_egg_and_tomato	More Delight	厨锅	洋葱1+切块土豆1+番茄1+煎鸡蛋1	无
+★2	4	鸡蛋番茄三明治	moredelight:chicken_sandwich_with_egg_and_tomato	More Delight	工作台	煎鸡蛋1+熟鸡肉1+番茄1+面包1	无
+★2	4	鸡肉沙拉	moredelight:chicken_salad	More Delight	工作台	洋葱1+卷心菜1+番茄1+熟鸡肉1	生命恢复I 5s
+★2	4	简单汉堡	moredelight:simple_hamburger	More Delight	工作台	汉堡面包(SAR)3+牛肉饼1	无
+★2	4	起司吐司	moredelight:toast_with_cheese	More Delight	工作台	芝士片(随性乐事)3+烤面包1	无
+★2	4	巧克力冰棒	moredelight:chocolate_popsicle	More Delight	工作台	冰2+可可豆2	无
+★2	4	河豚寿司	oceansdelight:fugu_roll	Ocean's Delight	工作台	米饭2+河豚肉片2	无
+★2	4	鱿鱼圈	oceansdelight:squid_rings	Ocean's Delight	厨锅	切段触手2+面团2	无
+★2	3	发光浆果酱	brewinandchewin:glow_berry_marmalade	Brewin' and Chewin'	厨锅	发光浆果2+糖1	无
+★2	3	烤面筋	casualness_delight:roast_gluten	Casualness Delight	工作台→营火/烟熏炉	面筋3	无
+★2	3	海泡菜汁	crabbersdelight:sea_pickle_juice	Crabber's Delight	工作台	海泡菜2+糖1	反胃 30s、水下呼吸 3分
+★2	3	烤虾串	crabbersdelight:shrimp_skewer	Crabber's Delight	工作台	熟虾2+番茄1	无
+★2	3	珊瑚脆片	crabbersdelight:coral_crunch	Crabber's Delight	工作台	珊瑚残片2+奶瓶1	舒适1分
+★2	3	烤玉米	culturaldelights:elote	Cultural Delights	厨锅	玉米棒2+牛奶1	无
+★2	3	奶油玉米	culturaldelights:creamed_corn	Cultural Delights	厨锅	玉米棒2+牛奶1	无
+★2	3	牛油果土司	culturaldelights:avocado_toast	Cultural Delights	工作台	牛油果2+面包1	无
+★2	3	培根卷甜瓜	delightful:wrapped_cantaloupe	Delightful	工作台	甜瓜片2+熟培根1	⚠抗性提升 15s
+★2	3	蜂蜜曲奇	farmersdelight:honey_cookie	Farmer's Delight	工作台	蜂蜜瓶2+小麦1	无
+★2	3	鲑鱼寿司	farmersdelight:salmon_roll	Farmer's Delight	工作台	米饭2+生鲑鱼片1	无
+★2	3	混合沙拉	farmersdelight:mixed_salad	Farmer's Delight	工作台	卷心菜1+甜菜根1+番茄1	生命恢复 5s
+★2	3	鸡肉汤	farmersdelight:chicken_soup	Farmer's Delight	厨锅	胡萝卜1+生鸡肉1+卷心菜1	舒适5分
+★2	3	牛肉炖	farmersdelight:beef_stew	Farmer's Delight	厨锅	马铃薯1+胡萝卜1+生牛肉1	舒适3分
+★2	3	烧烤串	farmersdelight:barbecue_stick	Farmer's Delight	工作台	洋葱1+牛排1+番茄1	无
+★2	3	蔬菜杂烩	farmersdelight:ratatouille	Farmer's Delight	厨锅	番茄1+洋葱1+甜菜根1	滋养1分
+★2	3	填馅马铃薯	farmersdelight:stuffed_potato	Farmer's Delight	工作台	烤马铃薯1+牛肉饼1+牛奶1	无
+★2	3	西瓜冰棍	farmersdelight:melon_popsicle	Farmer's Delight	工作台	冰2+西瓜片1	无
+★2	3	鳕鱼寿司	farmersdelight:cod_roll	Farmer's Delight	工作台	米饭2+生鳕鱼片1	无
+★2	3	鸡肉丁土豆	moredelight:diced_potatoes_with_chicken_cuts	More Delight	厨锅	切块土豆1+洋葱1+生鸡肉1	无
+★2	3	鸡肉煮饭	moredelight:cooked_rice_with_chicken_cuts	More Delight	厨锅	生鸡肉1+牛奶1+稻米1	滋养3分
+★2	3	蜜糖烤面包	moredelight:toast_with_honey	More Delight	工作台	蜂蜜瓶2+烤面包1	无
+★2	3	牛排三明治	moredelight:steak_sandwich	More Delight	工作台	面包1+牛排1+卷心菜1	无
+★2	3	牛肉丁土豆	moredelight:diced_potatoes_with_beef	More Delight	厨锅	切块土豆1+洋葱1+生牛肉1	无
+★2	3	牛肉煮饭	moredelight:cooked_rice_with_beef	More Delight	厨锅	生牛肉1+牛奶1+稻米1	滋养3分
+★2	3	培根鸡蛋三明治	moredelight:egg_with_bacon_sandwich	More Delight	工作台	煎鸡蛋1+熟培根1+面包片1	无
+★2	3	巧克力吐司	moredelight:toast_with_chocolate	More Delight	工作台	可可豆2+烤面包1	无
+★2	3	土豆沙拉	moredelight:potato_salad	More Delight	厨锅	切块土豆1+洋葱1+鸡蛋1	生命恢复I 5s
+★2	3	荧光浆果吐司	moredelight:toast_with_glow_berries	More Delight	工作台	发光浆果2+烤面包1	无
+★2	3	猪排丁土豆	moredelight:diced_potatoes_with_porkchop	More Delight	厨锅	切块土豆1+生猪排1+洋葱1	无
+★2	3	猪排三明治	moredelight:porkchop_sandwich	More Delight	工作台	熟猪排1+面包1+卷心菜1	无
+★2	3	猪排煮饭	moredelight:cooked_rice_with_porkchop	More Delight	厨锅	生猪排1+牛奶1+稻米1	滋养3分
+★2	3	Honey Fried Kelp(英)	oceansdelight:honey_fried_kelp	Ocean's Delight	厨锅	蜂蜜瓶2+干海带1	无
+★2	3	炖海泡菜	oceansdelight:braised_sea_pickle	Ocean's Delight	厨锅	海泡菜2+棕色蘑菇1	无
+★2	3	曲奇	minecraft:cookie	原版(配方来自FD/Delightful)	工作台	可可豆2+小麦1	无
+★1	2	苹果酱	brewinandchewin:apple_jelly	Brewin' and Chewin'	厨锅	糖1+苹果1	无
+★1	2	甜浆果酱	brewinandchewin:sweet_berry_jam	Brewin' and Chewin'	厨锅	糖1+甜浆果1	无
+★1	2	海带汁	crabbersdelight:kelp_shake	Crabber's Delight	工作台	海带1+糖1	海豚的恩惠 15s
+★1	2	大骨汤	farmersdelight:bone_broth	Farmer's Delight	厨锅	骨头1+棕色蘑菇1	舒适1分
+★1	2	鸡蛋三明治	farmersdelight:egg_sandwich	Farmer's Delight	工作台	煎鸡蛋1+面包1	无
+★1	2	卷心菜卷	farmersdelight:cabbage_rolls	Farmer's Delight	厨锅	卷心菜1+生猪排1	无
+★1	2	培根鸡蛋	farmersdelight:bacon_and_eggs	Farmer's Delight	工作台	熟培根1+煎鸡蛋1	滋养1分
+★1	2	苹果酒	farmersdelight:apple_cider	Farmer's Delight	厨锅	糖1+苹果1	伤害吸收I 60s
+★1	2	甜浆果曲奇	farmersdelight:sweet_berry_cookie	Farmer's Delight	工作台	甜浆果1+小麦1	无
+★1	2	西瓜汁	farmersdelight:melon_juice	Farmer's Delight	工作台	糖1+西瓜片1	饮用回复2点生命(MelonJuiceItem)
+★1	2	番茄三明治	moredelight:tomato_sandwich	More Delight	工作台	面包片1+番茄1	无
+★1	2	胡萝卜汤	moredelight:carrot_soup	More Delight	厨锅	胡萝卜1+牛奶1	舒适3分
+★1	2	鸡蛋烤面包	moredelight:toast_with_egg	More Delight	工作台	煎鸡蛋1+烤面包1	无
+★1	2	甜浆果烤面包	moredelight:toast_with_sweet_berries	More Delight	工作台	甜浆果1+烤面包1	无
+★1	2	土豆泥	moredelight:mashed_potatoes	More Delight	厨锅	牛奶1+切块土豆1	无
+★1	2	蘑菇煲	minecraft:mushroom_stew	原版(配方来自FD/Delightful)	厨锅	红色蘑菇1+棕色蘑菇1	无

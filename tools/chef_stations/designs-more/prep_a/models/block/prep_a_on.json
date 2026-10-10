@@ -1,0 +1,1388 @@
+{
+  "parent": "miningdim:block/prep_a",
+  "render_type": "minecraft:cutout_mipped",
+  "textures": {
+    "front": "miningdim:block/prep_a_front_on",
+    "drawer": "miningdim:block/prep_a_drawer",
+    "food": "miningdim:block/prep_a_food",
+    "chop": "miningdim:block/prep_a_chop"
+  },
+  "elements": [
+    {
+      "name": "worktop",
+      "from": [
+        0,
+        14,
+        0
+      ],
+      "to": [
+        16,
+        16,
+        16
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            16,
+            2
+          ],
+          "texture": "#front",
+          "cullface": "north"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            16,
+            2
+          ],
+          "texture": "#side",
+          "cullface": "south"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            16,
+            2
+          ],
+          "texture": "#side",
+          "cullface": "east"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            16,
+            2
+          ],
+          "texture": "#side",
+          "cullface": "west"
+        },
+        "up": {
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ],
+          "texture": "#top",
+          "cullface": "up"
+        },
+        "down": {
+          "uv": [
+            0,
+            0,
+            16,
+            16
+          ],
+          "texture": "#bottom"
+        }
+      }
+    },
+    {
+      "name": "carcass",
+      "from": [
+        0,
+        0,
+        1
+      ],
+      "to": [
+        16,
+        14,
+        16
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            2,
+            16,
+            16
+          ],
+          "texture": "#front"
+        },
+        "south": {
+          "uv": [
+            0,
+            2,
+            16,
+            16
+          ],
+          "texture": "#side",
+          "cullface": "south"
+        },
+        "east": {
+          "uv": [
+            0,
+            2,
+            15,
+            16
+          ],
+          "texture": "#side",
+          "cullface": "east"
+        },
+        "west": {
+          "uv": [
+            1,
+            2,
+            16,
+            16
+          ],
+          "texture": "#side",
+          "cullface": "west"
+        },
+        "down": {
+          "uv": [
+            0,
+            0,
+            16,
+            15
+          ],
+          "texture": "#bottom",
+          "cullface": "down"
+        }
+      }
+    },
+    {
+      "name": "stile east",
+      "from": [
+        15,
+        0,
+        0
+      ],
+      "to": [
+        16,
+        14,
+        1
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            2,
+            1,
+            16
+          ],
+          "texture": "#front",
+          "cullface": "north"
+        },
+        "east": {
+          "uv": [
+            15,
+            2,
+            16,
+            16
+          ],
+          "texture": "#side",
+          "cullface": "east"
+        },
+        "west": {
+          "uv": [
+            0,
+            2,
+            1,
+            16
+          ],
+          "texture": "#side"
+        },
+        "down": {
+          "uv": [
+            15,
+            15,
+            16,
+            16
+          ],
+          "texture": "#bottom",
+          "cullface": "down"
+        }
+      }
+    },
+    {
+      "name": "stile west",
+      "from": [
+        0,
+        0,
+        0
+      ],
+      "to": [
+        1,
+        14,
+        1
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            15,
+            2,
+            16,
+            16
+          ],
+          "texture": "#front",
+          "cullface": "north"
+        },
+        "west": {
+          "uv": [
+            0,
+            2,
+            1,
+            16
+          ],
+          "texture": "#side",
+          "cullface": "west"
+        },
+        "east": {
+          "uv": [
+            15,
+            2,
+            16,
+            16
+          ],
+          "texture": "#side"
+        },
+        "down": {
+          "uv": [
+            0,
+            15,
+            1,
+            16
+          ],
+          "texture": "#bottom",
+          "cullface": "down"
+        }
+      }
+    },
+    {
+      "name": "cutting board",
+      "from": [
+        8,
+        16,
+        1
+      ],
+      "to": [
+        15,
+        17,
+        10
+      ],
+      "faces": {
+        "up": {
+          "uv": [
+            0,
+            0,
+            7,
+            9
+          ],
+          "texture": "#board"
+        },
+        "north": {
+          "uv": [
+            0,
+            9,
+            7,
+            10
+          ],
+          "texture": "#board"
+        },
+        "south": {
+          "uv": [
+            0,
+            9,
+            7,
+            10
+          ],
+          "texture": "#board"
+        },
+        "east": {
+          "uv": [
+            0,
+            10,
+            9,
+            11
+          ],
+          "texture": "#board"
+        },
+        "west": {
+          "uv": [
+            0,
+            10,
+            9,
+            11
+          ],
+          "texture": "#board"
+        }
+      }
+    },
+    {
+      "name": "plate",
+      "from": [
+        1,
+        16,
+        2
+      ],
+      "to": [
+        7,
+        17,
+        8
+      ],
+      "faces": {
+        "up": {
+          "uv": [
+            0,
+            7,
+            6,
+            13
+          ],
+          "texture": "#ware"
+        },
+        "north": {
+          "uv": [
+            0,
+            13,
+            6,
+            14
+          ],
+          "texture": "#ware"
+        },
+        "south": {
+          "uv": [
+            0,
+            13,
+            6,
+            14
+          ],
+          "texture": "#ware"
+        },
+        "east": {
+          "uv": [
+            0,
+            13,
+            6,
+            14
+          ],
+          "texture": "#ware"
+        },
+        "west": {
+          "uv": [
+            0,
+            13,
+            6,
+            14
+          ],
+          "texture": "#ware"
+        }
+      }
+    },
+    {
+      "name": "spice shelf",
+      "from": [
+        1,
+        16,
+        11
+      ],
+      "to": [
+        15,
+        17,
+        15
+      ],
+      "faces": {
+        "up": {
+          "uv": [
+            0,
+            11,
+            14,
+            15
+          ],
+          "texture": "#board"
+        },
+        "north": {
+          "uv": [
+            0,
+            15,
+            14,
+            16
+          ],
+          "texture": "#board"
+        },
+        "south": {
+          "uv": [
+            0,
+            15,
+            14,
+            16
+          ],
+          "texture": "#board"
+        },
+        "east": {
+          "uv": [
+            10,
+            9,
+            14,
+            10
+          ],
+          "texture": "#board"
+        },
+        "west": {
+          "uv": [
+            10,
+            9,
+            14,
+            10
+          ],
+          "texture": "#board"
+        }
+      }
+    },
+    {
+      "name": "ketchup",
+      "from": [
+        11,
+        17,
+        12
+      ],
+      "to": [
+        13,
+        20,
+        14
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            2,
+            3
+          ],
+          "texture": "#ware"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            2,
+            3
+          ],
+          "texture": "#ware"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            2,
+            3
+          ],
+          "texture": "#ware"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            2,
+            3
+          ],
+          "texture": "#ware"
+        },
+        "up": {
+          "uv": [
+            0,
+            3,
+            2,
+            5
+          ],
+          "texture": "#ware"
+        }
+      }
+    },
+    {
+      "name": "ketchup nozzle",
+      "from": [
+        11.5,
+        20,
+        12.5
+      ],
+      "to": [
+        12.5,
+        21,
+        13.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            6,
+            3,
+            7,
+            4
+          ],
+          "texture": "#ware"
+        },
+        "south": {
+          "uv": [
+            6,
+            3,
+            7,
+            4
+          ],
+          "texture": "#ware"
+        },
+        "east": {
+          "uv": [
+            6,
+            3,
+            7,
+            4
+          ],
+          "texture": "#ware"
+        },
+        "west": {
+          "uv": [
+            6,
+            3,
+            7,
+            4
+          ],
+          "texture": "#ware"
+        },
+        "up": {
+          "uv": [
+            7,
+            3,
+            8,
+            4
+          ],
+          "texture": "#ware"
+        }
+      }
+    },
+    {
+      "name": "mustard",
+      "from": [
+        7,
+        17,
+        12
+      ],
+      "to": [
+        9,
+        20,
+        14
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            2,
+            0,
+            4,
+            3
+          ],
+          "texture": "#ware"
+        },
+        "south": {
+          "uv": [
+            2,
+            0,
+            4,
+            3
+          ],
+          "texture": "#ware"
+        },
+        "east": {
+          "uv": [
+            2,
+            0,
+            4,
+            3
+          ],
+          "texture": "#ware"
+        },
+        "west": {
+          "uv": [
+            2,
+            0,
+            4,
+            3
+          ],
+          "texture": "#ware"
+        },
+        "up": {
+          "uv": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "texture": "#ware"
+        }
+      }
+    },
+    {
+      "name": "mustard nozzle",
+      "from": [
+        7.5,
+        20,
+        12.5
+      ],
+      "to": [
+        8.5,
+        21,
+        13.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            6,
+            4,
+            7,
+            5
+          ],
+          "texture": "#ware"
+        },
+        "south": {
+          "uv": [
+            6,
+            4,
+            7,
+            5
+          ],
+          "texture": "#ware"
+        },
+        "east": {
+          "uv": [
+            6,
+            4,
+            7,
+            5
+          ],
+          "texture": "#ware"
+        },
+        "west": {
+          "uv": [
+            6,
+            4,
+            7,
+            5
+          ],
+          "texture": "#ware"
+        },
+        "up": {
+          "uv": [
+            7,
+            4,
+            8,
+            5
+          ],
+          "texture": "#ware"
+        }
+      }
+    },
+    {
+      "name": "salt & pepper",
+      "from": [
+        3,
+        17,
+        12
+      ],
+      "to": [
+        5,
+        20,
+        14
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            4,
+            0,
+            6,
+            3
+          ],
+          "texture": "#ware"
+        },
+        "south": {
+          "uv": [
+            6,
+            0,
+            4,
+            3
+          ],
+          "texture": "#ware"
+        },
+        "east": {
+          "uv": [
+            6,
+            0,
+            8,
+            3
+          ],
+          "texture": "#ware"
+        },
+        "west": {
+          "uv": [
+            8,
+            0,
+            10,
+            3
+          ],
+          "texture": "#ware"
+        },
+        "up": {
+          "uv": [
+            4,
+            3,
+            6,
+            5
+          ],
+          "texture": "#ware"
+        }
+      }
+    },
+    {
+      "name": "drawer (pulled out)",
+      "from": [
+        8,
+        9,
+        -1
+      ],
+      "to": [
+        15,
+        12,
+        1
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            7,
+            3
+          ],
+          "texture": "#drawer"
+        },
+        "up": {
+          "uv": [
+            0,
+            3,
+            7,
+            5
+          ],
+          "texture": "#drawer"
+        },
+        "down": {
+          "uv": [
+            0,
+            5,
+            7,
+            7
+          ],
+          "texture": "#drawer"
+        },
+        "east": {
+          "uv": [
+            7,
+            0,
+            9,
+            3
+          ],
+          "texture": "#drawer"
+        },
+        "west": {
+          "uv": [
+            7,
+            0,
+            9,
+            3
+          ],
+          "texture": "#drawer"
+        }
+      }
+    },
+    {
+      "name": "drawer pull east (out)",
+      "from": [
+        10,
+        10,
+        -1.75
+      ],
+      "to": [
+        13,
+        11,
+        -1
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            12,
+            0,
+            15,
+            1
+          ],
+          "texture": "#ware"
+        },
+        "up": {
+          "uv": [
+            12,
+            1,
+            15,
+            1.75
+          ],
+          "texture": "#ware"
+        },
+        "down": {
+          "uv": [
+            12,
+            1,
+            15,
+            1.75
+          ],
+          "texture": "#ware"
+        },
+        "east": {
+          "uv": [
+            15,
+            0,
+            15.75,
+            1
+          ],
+          "texture": "#ware"
+        },
+        "west": {
+          "uv": [
+            15,
+            0,
+            15.75,
+            1
+          ],
+          "texture": "#ware"
+        }
+      }
+    },
+    {
+      "name": "drawer pull west",
+      "from": [
+        3,
+        11,
+        0.25
+      ],
+      "to": [
+        6,
+        12,
+        1
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            12,
+            0,
+            15,
+            1
+          ],
+          "texture": "#ware"
+        },
+        "up": {
+          "uv": [
+            12,
+            1,
+            15,
+            1.75
+          ],
+          "texture": "#ware"
+        },
+        "down": {
+          "uv": [
+            12,
+            1,
+            15,
+            1.75
+          ],
+          "texture": "#ware"
+        },
+        "east": {
+          "uv": [
+            15,
+            0,
+            15.75,
+            1
+          ],
+          "texture": "#ware"
+        },
+        "west": {
+          "uv": [
+            15,
+            0,
+            15.75,
+            1
+          ],
+          "texture": "#ware"
+        }
+      }
+    },
+    {
+      "name": "door knob east",
+      "from": [
+        9,
+        5,
+        0.25
+      ],
+      "to": [
+        10,
+        6,
+        1
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            12,
+            2,
+            13,
+            3
+          ],
+          "texture": "#ware"
+        },
+        "up": {
+          "uv": [
+            12,
+            2,
+            13,
+            2.75
+          ],
+          "texture": "#ware"
+        },
+        "down": {
+          "uv": [
+            13,
+            2,
+            14,
+            2.75
+          ],
+          "texture": "#ware"
+        },
+        "east": {
+          "uv": [
+            13,
+            2,
+            13.75,
+            3
+          ],
+          "texture": "#ware"
+        },
+        "west": {
+          "uv": [
+            13,
+            2,
+            13.75,
+            3
+          ],
+          "texture": "#ware"
+        }
+      }
+    },
+    {
+      "name": "door knob west",
+      "from": [
+        6,
+        5,
+        0.25
+      ],
+      "to": [
+        7,
+        6,
+        1
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            12,
+            2,
+            13,
+            3
+          ],
+          "texture": "#ware"
+        },
+        "up": {
+          "uv": [
+            12,
+            2,
+            13,
+            2.75
+          ],
+          "texture": "#ware"
+        },
+        "down": {
+          "uv": [
+            13,
+            2,
+            14,
+            2.75
+          ],
+          "texture": "#ware"
+        },
+        "east": {
+          "uv": [
+            13,
+            2,
+            13.75,
+            3
+          ],
+          "texture": "#ware"
+        },
+        "west": {
+          "uv": [
+            13,
+            2,
+            13.75,
+            3
+          ],
+          "texture": "#ware"
+        }
+      }
+    },
+    {
+      "name": "towel",
+      "from": [
+        2.5,
+        6.5,
+        0
+      ],
+      "to": [
+        5.5,
+        11.5,
+        0.25
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            7,
+            7,
+            10,
+            12
+          ],
+          "texture": "#ware",
+          "cullface": "north"
+        },
+        "south": {
+          "uv": [
+            7,
+            7,
+            10,
+            12
+          ],
+          "texture": "#ware"
+        },
+        "east": {
+          "uv": [
+            10,
+            7,
+            10.25,
+            12
+          ],
+          "texture": "#ware"
+        },
+        "west": {
+          "uv": [
+            10,
+            7,
+            10.25,
+            12
+          ],
+          "texture": "#ware"
+        }
+      }
+    },
+    {
+      "name": "towel fold",
+      "from": [
+        2.5,
+        11.5,
+        0
+      ],
+      "to": [
+        5.5,
+        12.25,
+        1
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            7,
+            13,
+            10,
+            13.75
+          ],
+          "texture": "#ware",
+          "cullface": "north"
+        },
+        "up": {
+          "uv": [
+            7,
+            13,
+            10,
+            14
+          ],
+          "texture": "#ware"
+        },
+        "down": {
+          "uv": [
+            7,
+            13,
+            10,
+            14
+          ],
+          "texture": "#ware"
+        },
+        "east": {
+          "uv": [
+            10,
+            7,
+            11,
+            7.75
+          ],
+          "texture": "#ware"
+        },
+        "west": {
+          "uv": [
+            10,
+            7,
+            11,
+            7.75
+          ],
+          "texture": "#ware"
+        }
+      }
+    },
+    {
+      "name": "burger",
+      "from": [
+        2,
+        17,
+        3
+      ],
+      "to": [
+        6,
+        21,
+        7
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            4,
+            4
+          ],
+          "texture": "#food"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            4,
+            4
+          ],
+          "texture": "#food"
+        },
+        "east": {
+          "uv": [
+            0,
+            4,
+            4,
+            8
+          ],
+          "texture": "#food"
+        },
+        "west": {
+          "uv": [
+            0,
+            4,
+            4,
+            8
+          ],
+          "texture": "#food"
+        },
+        "up": {
+          "uv": [
+            4,
+            0,
+            8,
+            4
+          ],
+          "texture": "#food"
+        }
+      }
+    },
+    {
+      "name": "half tomato",
+      "from": [
+        10,
+        17,
+        6.5
+      ],
+      "to": [
+        13,
+        19,
+        8.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            8,
+            0,
+            11,
+            2
+          ],
+          "texture": "#food"
+        },
+        "south": {
+          "uv": [
+            8,
+            2,
+            11,
+            4
+          ],
+          "texture": "#food"
+        },
+        "east": {
+          "uv": [
+            11,
+            0,
+            13,
+            2
+          ],
+          "texture": "#food"
+        },
+        "west": {
+          "uv": [
+            11,
+            0,
+            13,
+            2
+          ],
+          "texture": "#food"
+        },
+        "up": {
+          "uv": [
+            11,
+            2,
+            14,
+            4
+          ],
+          "texture": "#food"
+        }
+      }
+    },
+    {
+      "name": "lettuce",
+      "from": [
+        13,
+        17,
+        6.5
+      ],
+      "to": [
+        15,
+        18,
+        9.5
+      ],
+      "faces": {
+        "up": {
+          "uv": [
+            14,
+            0,
+            16,
+            3
+          ],
+          "texture": "#food"
+        },
+        "north": {
+          "uv": [
+            14,
+            3,
+            16,
+            4
+          ],
+          "texture": "#food"
+        },
+        "south": {
+          "uv": [
+            14,
+            3,
+            16,
+            4
+          ],
+          "texture": "#food"
+        },
+        "east": {
+          "uv": [
+            13,
+            4,
+            16,
+            5
+          ],
+          "texture": "#food"
+        },
+        "west": {
+          "uv": [
+            13,
+            4,
+            16,
+            5
+          ],
+          "texture": "#food"
+        }
+      }
+    },
+    {
+      "name": "tomato slices",
+      "from": [
+        8,
+        17,
+        1
+      ],
+      "to": [
+        15,
+        17.25,
+        6
+      ],
+      "faces": {
+        "up": {
+          "uv": [
+            8,
+            1,
+            15,
+            6
+          ],
+          "texture": "#chop"
+        }
+      }
+    },
+    {
+      "name": "knife (rocking)",
+      "from": [
+        8,
+        17,
+        6
+      ],
+      "to": [
+        16,
+        21,
+        6
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            10,
+            8,
+            14
+          ],
+          "texture": "#chop"
+        },
+        "south": {
+          "uv": [
+            8,
+            10,
+            0,
+            14
+          ],
+          "texture": "#chop"
+        }
+      }
+    }
+  ]
+}

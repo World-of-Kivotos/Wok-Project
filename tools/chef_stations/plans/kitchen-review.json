@@ -1,0 +1,220 @@
+[
+ {
+  "name": "rest-top",
+  "media": {
+   "prefers-color-scheme": "light"
+  },
+  "wait": 300
+ },
+ {
+  "name": "rest-blank",
+  "js": "(() => {\n  window.__px = c => {\n    if (typeof c === 'string') c = document.querySelector(c);\n    if (!c) return null;\n    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;\n    let n = 0, h = 0; const cols = new Set();\n    for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 0) { n++; h = (Math.imul(h, 31) + d[i] * 7 + d[i + 1] * 13 + d[i + 2] * 17 + (i >> 2)) >>> 0; if (cols.size < 4000) cols.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]); }\n    return { w: c.width, h: c.height, filled: +(n / (d.length / 4)).toFixed(3), colors: cols.size, hash: h };\n  };\n  const vis = el => el.getClientRects().length && !el.closest('[hidden]') && !(el.closest('details:not([open])') && !el.closest('summary'));\n  const idOf = c => { const h = c.closest('[data-ref]') || c.closest('[data-key]'); return h.dataset.ref || h.dataset.key; };\n  // every block of buttons that drives views: cards, family scenes, the reference row\n  const sections = () => [...document.querySelectorAll('.card[data-key], .scene[data-key], .section[data-key=refs]')];\n  window.__toggleTest = () => {\n    __focus(); __anim(0);\n    const r = {};\n    for (const sec of sections()) {\n      const cs = [...sec.querySelectorAll('canvas')];\n      const btn = s => [...sec.querySelectorAll('[data-state=' + s + ']')].find(b => !b.closest('[data-ref]'));\n      btn('idle').click(); __render(); const a = cs.map(c => __px(c).hash);\n      btn('active').click(); __render(); const b = cs.map(c => __px(c).hash);\n      const chip = sec.querySelector('.chip'), chipActive = chip ? chip.textContent : '-', pressed = btn('active').getAttribute('aria-pressed');\n      btn('idle').click(); __render(); const c2 = cs.map(c => __px(c).hash);\n      r[sec.dataset.key] = cs.map((c, i) => idOf(c) + (a[i] !== b[i] ? ' CHANGES' : ' same')).join(', ') + ' | back to idle ' + a.every((x, i) => x === c2[i]) + ' | chip ' + chipActive + ' -> ' + (chip ? chip.textContent : '-') + ' | active pressed ' + pressed;\n    }\n    return r;\n  };\n  window.__globalTest = () => {\n    __focus(); __anim(0);\n    const all = [...document.querySelectorAll('canvas')];\n    const g = s => document.querySelector('[data-all-state=' + s + ']');\n    g('idle').click(); __render(); const a = all.map(c => __px(c).hash);\n    g('active').click(); __render(); const b = all.map(c => __px(c).hash);\n    const chips = [...document.querySelectorAll('.chip')].map(c => c.textContent);\n    const r = { afterActive: 'idle ' + g('idle').getAttribute('aria-pressed') + ' / active ' + g('active').getAttribute('aria-pressed'),\n      chipsAllActive: chips.every(t => t === '工作中') + ' (' + chips.length + ' chips)', unchangedCanvases: all.filter((c, i) => a[i] === b[i]).map(idOf),\n      sectionButtonsActive: [...document.querySelectorAll('.card [data-state=active], .scene [data-state=active]')].every(x => x.getAttribute('aria-pressed') === 'true') };\n    document.querySelector('.card[data-key] [data-state=idle]').click();\n    r.mixed = 'idle ' + g('idle').getAttribute('aria-pressed') + ' / active ' + g('active').getAttribute('aria-pressed');\n    g('idle').click(); __render(); const c2 = all.map(c => __px(c).hash);\n    r.backToIdle = a.every((x, i) => x === c2[i]); r.afterIdle = 'idle ' + g('idle').getAttribute('aria-pressed') + ' / active ' + g('active').getAttribute('aria-pressed');\n    return r;\n  };\n  // real clock: let the page play, sample each canvas a few times\n  window.__animTest = async () => {\n    const sleep = ms => new Promise(res => setTimeout(res, ms));\n    const r = {};\n    for (const k of [...__keys(), ...__scenes()]) {\n      __focus([k]); __state(k, 'active'); const t0 = __anim(null), hs = new Set();\n      const c = document.querySelector('[data-key=\"' + k + '\"] canvas');\n      for (let i = 0; i < 6; i++) { await sleep(130); hs.add(__px(c).hash); }\n      r[k] = hs.size + ' frames / ' + (__anim(null) - t0) + ' ticks';\n    }\n    __focus(); __state('*', 'idle');\n    return r;\n  };\n  // every visible canvas: drawn at all? (filled share of pixels, distinct colours)\n  window.__blank = asIs => {\n    if (!asIs) __render();\n    const rows = [...document.querySelectorAll('canvas')].filter(vis).map(c => { const p = __px(c); return { id: idOf(c), size: p.w + 'x' + p.h, filled: p.filled, colors: p.colors, ok: p.filled > 0.05 && p.colors > 20 }; });\n    return { count: rows.length, allOk: rows.every(r => r.ok), posterLeft: document.querySelectorAll('.poster').length, rows: rows.map(r => (r.ok ? 'ok ' : 'BLANK ') + r.id + ' ' + r.size + ' filled ' + r.filled + ' colors ' + r.colors) };\n  };\n  // layout audit: horizontal overflow, clipped text, scene labels overlapping / outside their view\n  window.__audit = () => {\n    const vw = document.documentElement.clientWidth, out = { scroll: document.documentElement.scrollWidth + ' / ' + innerWidth };\n    const name = el => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\\s+/).join('.') : '') + (el.textContent ? ' \"' + el.textContent.trim().slice(0, 18) + '\"' : '');\n    out.outside = [], out.clipped = [], out.wrappedButtons = [];\n    for (const el of document.querySelectorAll('body *')) {\n      if (!vis(el) || el.closest('.labels')) continue;\n      const r = el.getBoundingClientRect();\n      if (r.width && (r.right > vw + 0.5 || r.left < -0.5)) out.outside.push(name(el) + ' ' + Math.round(r.left) + '..' + Math.round(r.right));\n      const cs = getComputedStyle(el);\n      if (el.children.length === 0 && el.textContent.trim() && (el.scrollWidth > el.clientWidth + 1) && cs.overflowX !== 'visible') out.clipped.push(name(el));\n      if (el.tagName === 'BUTTON' && r.height > 40) out.wrappedButtons.push(name(el) + ' h=' + Math.round(r.height));\n    }\n    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);\n    for (let t; (t = walker.nextNode());) {\n      if (!t.textContent.trim() || !t.parentElement || !vis(t.parentElement) || t.parentElement.closest('script,style,.labels')) continue;\n      const rg = document.createRange(); rg.selectNodeContents(t); const tr = rg.getBoundingClientRect();\n      for (let a = t.parentElement; a && a !== document.body; a = a.parentElement) {\n        const cs = getComputedStyle(a);\n        if (cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;\n        const ar = a.getBoundingClientRect();\n        if (tr.left < ar.left - 0.5 || tr.right > ar.right + 0.5 || tr.top < ar.top - 0.5 || tr.bottom > ar.bottom + 0.5) out.clipped.push('text \"' + t.textContent.trim().slice(0, 20) + '\" in ' + name(a).slice(0, 40));\n        break;\n      }\n    }\n    out.labels = {};\n    for (const lv of [...document.querySelectorAll('.labels')].map(l => l.parentElement).filter(vis)) {\n      const b = lv.getBoundingClientRect(), key = lv.closest('[data-key]').dataset.key;\n      const rs = [...lv.querySelectorAll('.labels span')].filter(s => !s.hidden).map(s => [s.textContent, s.getBoundingClientRect()]);\n      const bad = [];\n      for (let i = 0; i < rs.length; i++) for (let j = i + 1; j < rs.length; j++) { const a = rs[i][1], c = rs[j][1]; if (a.left < c.right && c.left < a.right && a.top < c.bottom && c.top < a.bottom) bad.push('overlap ' + rs[i][0] + ' x ' + rs[j][0]); }\n      const chip = lv.querySelector('.chip'), cr = chip && chip.getBoundingClientRect();\n      if (cr) for (const [t, r] of rs) if (r.left < cr.right && cr.left < r.right && r.top < cr.bottom && cr.top < r.bottom) bad.push('on chip ' + t);\n      for (const [t, r] of rs) if (!(r.left >= b.left - 0.5 && r.right <= b.right + 0.5 && r.top >= b.top - 0.5 && r.bottom <= b.bottom + 0.5)) bad.push('outside ' + t);\n      out.labels[key] = rs.length + ' labels' + (bad.length ? ': ' + bad.join('; ') : ' ok');\n    }\n    return out;\n  };\n  window.__labelsAllViews = () => { const r = {}; for (const p of ['front', 'iso', 'top', 'side']) { __focus(); __view(p, 'family'); r[p] = __audit().labels; } __view('iso'); return r; };\n  return 'helpers ok';\n})() && __blank(true)",
+  "value": true
+ },
+ {
+  "name": "errors",
+  "js": "window.__errors",
+  "value": true
+ },
+ {
+  "name": "keys",
+  "js": "[__keys(), __scenes()]",
+  "value": true
+ },
+ {
+  "name": "toggle-test",
+  "js": "__toggleTest()",
+  "value": true
+ },
+ {
+  "name": "global-test",
+  "js": "__globalTest()",
+  "value": true
+ },
+ {
+  "name": "anim-test",
+  "js": "__animTest()",
+  "value": true,
+  "wait": 100
+ },
+ {
+  "name": "desk-audit",
+  "js": "__focus(); __state('*','idle'); __view('iso'); __anim(0); __audit()",
+  "value": true,
+  "wait": 300
+ },
+ {
+  "name": "desk-labels-all-views",
+  "js": "__labelsAllViews()",
+  "value": true
+ },
+ {
+  "name": "desk-blank-idle",
+  "js": "__focus(); __state('*','idle'); __view('iso'); __anim(0); __blank()",
+  "value": true
+ },
+ {
+  "name": "desk-light-idle",
+  "js": "__focus(); __state('*','idle'); __view('iso'); __anim(0)",
+  "full": true,
+  "wait": 600
+ },
+ {
+  "name": "desk-light-top",
+  "js": "__focus(); __state('*','idle'); __view('iso'); __anim(0); window.scrollTo(0,0)",
+  "wait": 400
+ },
+ {
+  "name": "desk-blank-active",
+  "js": "__focus(); __state('*','active'); __view('iso'); __anim(4); __blank()",
+  "value": true
+ },
+ {
+  "name": "desk-light-active",
+  "js": "__focus(); __state('*','active'); __view('iso'); __anim(4)",
+  "full": true,
+  "wait": 600
+ },
+ {
+  "name": "scene-{key}-idle",
+  "forEach": "__scenes()",
+  "js": "__focus(['{key}']); __state('{key}','idle'); __view('iso','{key}'); __anim(0)",
+  "selector": "[data-key='{key}']"
+ },
+ {
+  "name": "scene-{key}-active",
+  "forEach": "__scenes()",
+  "js": "__focus(['{key}']); __state('{key}','active'); __view('iso','{key}'); __anim(4)",
+  "selector": "[data-key='{key}']"
+ },
+ {
+  "name": "scene-{key}-front-active",
+  "forEach": "__scenes()",
+  "js": "__focus(['{key}']); __state('{key}','active'); __view('front','{key}'); __anim(6)",
+  "selector": "[data-key='{key}'] .view"
+ },
+ {
+  "name": "card-{key}-idle",
+  "forEach": "__keys()",
+  "js": "__focus(['{key}']); __state('{key}','idle'); __view('iso','{key}'); __anim(0)",
+  "selector": ".card[data-key='{key}'] .view"
+ },
+ {
+  "name": "card-{key}-active",
+  "forEach": "__keys()",
+  "js": "__focus(['{key}']); __state('{key}','active'); __view('iso','{key}'); __anim(4)",
+  "selector": ".card[data-key='{key}'] .view"
+ },
+ {
+  "name": "station-{key}",
+  "forEach": "['fryer','oven','prep']",
+  "js": "__focus(); __state('*','idle'); __view('iso'); __anim(0); document.getElementById('sec-{key}').scrollIntoView(); __render()",
+  "selector": "#sec-{key}"
+ },
+ {
+  "name": "card-B-whole",
+  "js": "__focus(); __state('*','idle'); __view('iso'); document.querySelector(\".card[data-key='B'] details\").open = true; __render()",
+  "selector": ".card[data-key='B']"
+ },
+ {
+  "name": "refs",
+  "js": "__focus(['refs']); __state('refs','idle'); document.querySelector(\".card[data-key='B'] details\").open = false; __render()",
+  "selector": "[data-key='refs']"
+ },
+ {
+  "name": "desk-dark-idle",
+  "js": "__focus(); __state('*','idle'); __view('iso'); __anim(0)",
+  "media": {
+   "prefers-color-scheme": "dark"
+  },
+  "full": true,
+  "wait": 600
+ },
+ {
+  "name": "desk-dark-active",
+  "js": "__focus(); __state('*','active'); __view('iso'); __anim(4)",
+  "full": true,
+  "wait": 600
+ },
+ {
+  "name": "desk-dark-scene-C-active",
+  "js": "__focus(['family-C']); __state('family-C','active'); __view('iso','family-C'); __anim(4)",
+  "selector": "[data-key='family-C']"
+ },
+ {
+  "name": "phone-audit",
+  "js": "__focus(); __state('*','idle'); __view('iso'); __anim(0); __audit()",
+  "media": {
+   "prefers-color-scheme": "light"
+  },
+  "width": 400,
+  "height": 860,
+  "dpr": 1,
+  "value": true,
+  "wait": 800
+ },
+ {
+  "name": "phone-labels-all-views",
+  "js": "__labelsAllViews()",
+  "value": true
+ },
+ {
+  "name": "phone-blank",
+  "js": "__focus(); __state('*','idle'); __view('iso'); __anim(0); __blank()",
+  "value": true
+ },
+ {
+  "name": "phone-light-idle",
+  "js": "__focus(); __state('*','idle'); __view('iso'); __anim(0)",
+  "full": true,
+  "wait": 600
+ },
+ {
+  "name": "phone-light-active",
+  "js": "__focus(); __state('*','active'); __view('iso'); __anim(4)",
+  "full": true,
+  "wait": 600
+ },
+ {
+  "name": "phone-active-audit",
+  "js": "__audit()",
+  "value": true
+ },
+ {
+  "name": "phone-top",
+  "js": "__focus(); __state('*','idle'); __view('iso'); __anim(0); window.scrollTo(0,0)",
+  "dpr": 2,
+  "wait": 600
+ },
+ {
+  "name": "phone-scene-A-active",
+  "js": "__focus(['family-A']); __state('family-A','active'); __view('iso','family-A'); __anim(4)",
+  "selector": "[data-key='family-A']"
+ },
+ {
+  "name": "phone-scene-{key}-side",
+  "forEach": "__scenes()",
+  "js": "__focus(['{key}']); __state('{key}','idle'); __view('side','{key}'); __anim(0)",
+  "selector": "[data-key='{key}'] .view"
+ },
+ {
+  "name": "phone-card-prep_b",
+  "js": "__focus(['prep_b']); __state('prep_b','active'); __view('iso','prep_b'); __anim(4)",
+  "selector": ".card[data-key='prep_b']"
+ },
+ {
+  "name": "phone-dark-idle",
+  "js": "__focus(); __state('*','idle'); __view('iso'); __anim(0)",
+  "media": {
+   "prefers-color-scheme": "dark"
+  },
+  "dpr": 1,
+  "full": true,
+  "wait": 600
+ },
+ {
+  "name": "phone-dark-audit",
+  "js": "__audit()",
+  "value": true
+ }
+]

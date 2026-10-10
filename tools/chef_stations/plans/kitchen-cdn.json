@@ -1,0 +1,65 @@
+[
+ {
+  "name": "ready",
+  "js": "window.__ready",
+  "value": true
+ },
+ {
+  "name": "errors",
+  "js": "window.__errors",
+  "value": true
+ },
+ {
+  "name": "three-source",
+  "js": "performance.getEntriesByType('resource').filter(e => /three/.test(e.name)).map(e => e.name + ' ' + Math.round(e.duration) + 'ms ' + e.transferSize + 'B')",
+  "value": true
+ },
+ {
+  "name": "three-revision",
+  "js": "(async () => (await import('https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js')).REVISION)()",
+  "value": true
+ },
+ {
+  "name": "vendor-requests",
+  "js": "performance.getEntriesByType('resource').filter(e => /vendor/.test(e.name)).length",
+  "value": true
+ },
+ {
+  "name": "noto-faces-loaded",
+  "js": "document.fonts.ready.then(() => [...document.fonts].filter(f => /Noto Sans SC/.test(f.family) && f.status === 'loaded').length)",
+  "value": true
+ },
+ {
+  "name": "body-font",
+  "js": "getComputedStyle(document.body).fontFamily",
+  "value": true
+ },
+ {
+  "name": "title-first",
+  "js": "document.title + ' | ' + document.documentElement.outerHTML.length",
+  "value": true
+ },
+ {
+  "name": "posters",
+  "js": "(async () => {\n  const t = await (await fetch(location.href)).text(), d = new DOMParser().parseFromString(t, 'text/html');\n  const imgs = [...d.querySelectorAll('img.poster')];\n  const rows = await Promise.all(imgs.map(i => new Promise(res => {\n    const h = i.closest('[data-ref]') || i.closest('[data-key]'), id = h.dataset.ref || h.dataset.key, im = new Image();\n    im.onload = () => res(id + ' ' + im.naturalWidth + 'x' + im.naturalHeight + ' ' + Math.round(i.src.length / 1024) + 'KB');\n    im.onerror = () => res(id + ' BROKEN');\n    im.src = i.src;\n  })));\n  return { inSource: imgs.length, stillInPage: document.querySelectorAll('img.poster').length, rows };\n})()",
+  "value": true
+ },
+ {
+  "name": "cdn-top",
+  "js": "__focus(); __state('*','idle'); __view('iso'); __anim(0)",
+  "media": {
+   "prefers-color-scheme": "light"
+  },
+  "wait": 500
+ },
+ {
+  "name": "posters-only-top",
+  "js": "(async () => {\n  __focus(); __state('*', 'idle'); __anim(0);\n  const t = await (await fetch(location.href)).text(), d = new DOMParser().parseFromString(t, 'text/html');\n  let n = 0;\n  for (const img of d.querySelectorAll('img.poster')) {\n    const h = img.closest('[data-ref]') || img.closest('[data-key]');\n    const view = document.querySelector((h.dataset.ref ? '[data-ref=\"' + h.dataset.ref + '\"]' : '[data-key=\"' + h.dataset.key + '\"]') + ' .view');\n    if (!view) continue;\n    view.querySelector('canvas').style.visibility = 'hidden';\n    for (const l of view.querySelectorAll('.labels')) l.style.visibility = 'hidden';\n    view.prepend(document.importNode(img, true)); n++;\n  }\n  await Promise.all([...document.querySelectorAll('img.poster')].map(i => i.decode().catch(() => null)));\n  window.scrollTo(0, 0);\n  return n;\n})()",
+  "wait": 500
+ },
+ {
+  "name": "posters-only-page",
+  "full": true,
+  "wait": 300
+ }
+]

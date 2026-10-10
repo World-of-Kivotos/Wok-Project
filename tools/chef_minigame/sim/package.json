@@ -1,0 +1,12 @@
+{
+  "name": "zhangshao-sim",
+  "private": true,
+  "type": "module",
+  "description": "掌勺小游戏确定性内核（spec.md v1）",
+  "scripts": {
+    "test": "node tests.mjs",
+    "build": "node build-inline.mjs",
+    "golden": "node gen-golden.mjs",
+    "balance": "node bots.mjs balance 300"
+  }
+}

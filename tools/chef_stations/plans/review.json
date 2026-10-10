@@ -1,0 +1,155 @@
+[
+ {
+  "name": "helpers",
+  "js": "(() => {\n  window.__px = sel => {\n    const c = document.querySelector(sel);\n    if (!c) return null;\n    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;\n    let n = 0, h = 0; const cols = new Set();\n    for (let i = 0; i < d.length; i += 4) {\n      if (d[i + 3] > 0) { n++; h = (Math.imul(h, 31) + d[i] * 7 + d[i + 1] * 13 + d[i + 2] * 17 + (i >> 2)) >>> 0; if (cols.size < 4000) cols.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]); }\n    }\n    return { w: c.width, h: c.height, filled: +(n / (d.length / 4)).toFixed(3), colors: cols.size, hash: h };\n  };\n  const secOf = k => k === 'kitchen' ? document.querySelector('[data-key=kitchen]') : document.querySelector(`.card[data-key='${k}']`);\n  const canvasSel = k => k === 'kitchen' ? '#v-kitchen' : `.card[data-key='${k}'] canvas`;\n  // real button clicks: idle -> active -> idle, compare pixels\n  window.__toggleTest = () => {\n    const r = {};\n    __focus(); __anim(0);\n    for (const k of [...__keys(), 'kitchen']) {\n      const sec = secOf(k), sel = canvasSel(k);\n      sec.querySelector('[data-state=idle]').click(); __render(); const a = __px(sel);\n      sec.querySelector('[data-state=active]').click(); __render(); const b = __px(sel);\n      const chip = sec.querySelector('.chip').textContent, pressed = sec.querySelector('[data-state=active]').getAttribute('aria-pressed');\n      sec.querySelector('[data-state=idle]').click(); __render(); const c = __px(sel);\n      r[k] = { idleVsActiveDiffer: a.hash !== b.hash, backToIdleSame: a.hash === c.hash, chipWhenActive: chip, activePressed: pressed, chipAfter: sec.querySelector('.chip').textContent, filled: a.filled, idleColors: a.colors, activeColors: b.colors, size: a.w + 'x' + a.h };\n    }\n    return r;\n  };\n  // real clock: let the page play, sample each canvas a few times\n  window.__animTest = async () => {\n    const sleep = ms => new Promise(res => setTimeout(res, ms));\n    const r = {};\n    for (const k of [...__keys(), 'kitchen']) {\n      __focus([k]); __state(k, 'active'); __anim(null);\n      const t0 = __anim(null), hs = new Set();\n      for (let i = 0; i < 6; i++) { await sleep(130); hs.add(__px(canvasSel(k)).hash); }\n      r[k] = { distinctFrames: hs.size, ticks: (__anim(null) - t0) };\n    }\n    __focus(); __state('*', 'idle');\n    return r;\n  };\n  // layout audit: horizontal overflow, clipped text, kitchen labels outside their view\n  window.__audit = () => {\n    const vw = document.documentElement.clientWidth, out = { scroll: document.documentElement.scrollWidth + ' / ' + innerWidth };\n    const vis = el => el.getClientRects().length && !el.closest('[hidden]');\n    const name = el => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\\s+/).join('.') : '') + (el.textContent ? ' \"' + el.textContent.trim().slice(0, 18) + '\"' : '');\n    out.outside = [], out.clipped = [], out.wrappedButtons = [];\n    for (const el of document.querySelectorAll('body *')) {\n      if (!vis(el) || el.closest('.labels')) continue;\n      const r = el.getBoundingClientRect();\n      if (r.width && (r.right > vw + 0.5 || r.left < -0.5)) out.outside.push(name(el) + ' ' + Math.round(r.left) + '..' + Math.round(r.right));\n      const cs = getComputedStyle(el);\n      if (el.children.length === 0 && el.textContent.trim() && (el.scrollWidth > el.clientWidth + 1) && cs.overflowX !== 'visible') out.clipped.push(name(el));\n      if (el.tagName === 'BUTTON' && r.height > 40) out.wrappedButtons.push(name(el) + ' h=' + Math.round(r.height));\n    }\n    // text nodes whose box sticks out of an overflow:hidden ancestor\n    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);\n    for (let t; (t = walker.nextNode());) {\n      if (!t.textContent.trim() || !t.parentElement || !vis(t.parentElement) || t.parentElement.closest('script,style,.labels')) continue;\n      const rg = document.createRange(); rg.selectNodeContents(t); const tr = rg.getBoundingClientRect();\n      for (let a = t.parentElement; a && a !== document.body; a = a.parentElement) {\n        const cs = getComputedStyle(a);\n        if (cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;\n        const ar = a.getBoundingClientRect();\n        if (tr.left < ar.left - 0.5 || tr.right > ar.right + 0.5 || tr.top < ar.top - 0.5 || tr.bottom > ar.bottom + 0.5) out.clipped.push('text \"' + t.textContent.trim().slice(0, 20) + '\" in ' + name(a).slice(0, 40));\n        break;\n      }\n    }\n    const lv = document.querySelector('[data-key=kitchen] .view');\n    if (lv && vis(lv)) {\n      const b = lv.getBoundingClientRect();\n      const rs = [...lv.querySelectorAll('.labels span')].filter(s => !s.hidden).map(s => [s.textContent, s.getBoundingClientRect()]);\n      out.labelOverlaps = [];\n      for (let i = 0; i < rs.length; i++) for (let j = i + 1; j < rs.length; j++) { const a = rs[i][1], c = rs[j][1]; if (a.left < c.right && c.left < a.right && a.top < c.bottom && c.top < a.bottom) out.labelOverlaps.push(rs[i][0] + ' x ' + rs[j][0]); }\n      out.labels = [...lv.querySelectorAll('.labels span')].map(s => { const r = s.getBoundingClientRect(); return s.textContent + ': ' + (s.hidden ? 'hidden' : (r.left >= b.left - 0.5 && r.right <= b.right + 0.5 && r.top >= b.top - 0.5 && r.bottom <= b.bottom + 0.5 ? 'inside' : 'CLIPPED l' + Math.round(r.left - b.left) + ' r' + Math.round(b.right - r.right) + ' t' + Math.round(r.top - b.top))); });\n    }\n    __render();\n    out.canvases = [...document.querySelectorAll('canvas')].filter(vis).map((c, i) => {\n      if (!c.id) c.id = 'cv' + i;\n      const p = __px('#' + c.id), host = c.closest('[data-ref]') || c.closest('[data-key]');\n      return (host.dataset.ref || host.dataset.key) + ' ' + p.w + 'x' + p.h + ' filled ' + p.filled + ' colors ' + p.colors;\n    });\n    return out;\n  };\n  return 'helpers ok';\n})()\n",
+  "value": true,
+  "media": {
+   "prefers-color-scheme": "light"
+  }
+ },
+ {
+  "name": "keys",
+  "js": "__keys()",
+  "value": true
+ },
+ {
+  "name": "errors",
+  "js": "window.__errors",
+  "value": true
+ },
+ {
+  "name": "toggle-test",
+  "js": "__toggleTest()",
+  "value": true
+ },
+ {
+  "name": "anim-test",
+  "js": "__animTest()",
+  "value": true,
+  "wait": 100
+ },
+ {
+  "name": "desk-audit",
+  "js": "__focus(); __state(\"*\",\"idle\"); __view(\"iso\"); __anim(0); __audit()",
+  "value": true,
+  "wait": 300
+ },
+ {
+  "name": "desk-kitchen-label-overlaps",
+  "js": "(() => { const r = {}; for (const p of ['front','iso','top','side']) { __focus(['kitchen']); __view(p,'kitchen'); r[p] = __audit().labelOverlaps; } __focus(); __view('iso'); return r; })()",
+  "value": true
+ },
+ {
+  "name": "desk-light",
+  "js": "__focus(); __state(\"*\",\"idle\"); __view(\"iso\"); __anim(0)",
+  "full": true,
+  "wait": 600
+ },
+ {
+  "name": "desk-light-active",
+  "js": "__focus(); __state(\"*\",\"active\"); __view(\"iso\"); __anim(4)",
+  "full": true,
+  "wait": 600
+ },
+ {
+  "name": "{key}-iso",
+  "forEach": "__keys()",
+  "js": "__focus(['{key}']); __state('{key}','idle'); __view('iso','{key}'); __anim(0)",
+  "selector": ".card[data-key='{key}'] .view"
+ },
+ {
+  "name": "{key}-iso-active",
+  "forEach": "__keys()",
+  "js": "__focus(['{key}']); __state('{key}','active'); __view('iso','{key}'); __anim(4)",
+  "selector": ".card[data-key='{key}'] .view"
+ },
+ {
+  "name": "{key}-iso-active-t7",
+  "forEach": "__keys()",
+  "js": "__focus(['{key}']); __state('{key}','active'); __view('iso','{key}'); __anim(7)",
+  "selector": ".card[data-key='{key}'] .view"
+ },
+ {
+  "name": "kitchen",
+  "js": "__focus(['kitchen']); __state('kitchen','idle'); __view('iso','kitchen'); __anim(0)",
+  "selector": "[data-key='kitchen'] .wide"
+ },
+ {
+  "name": "kitchen-active",
+  "js": "__focus(['kitchen']); __state('kitchen','active'); __view('iso','kitchen'); __anim(4)",
+  "selector": "[data-key='kitchen'] .wide"
+ },
+ {
+  "name": "kitchen-front-active",
+  "js": "__focus(['kitchen']); __state('kitchen','active'); __view('front','kitchen'); __anim(6)",
+  "selector": "[data-key='kitchen'] .wide"
+ },
+ {
+  "name": "desk-dark",
+  "js": "__focus(); __state(\"*\",\"idle\"); __view(\"iso\"); __anim(0)",
+  "media": {
+   "prefers-color-scheme": "dark"
+  },
+  "full": true,
+  "wait": 600
+ },
+ {
+  "name": "desk-dark-kitchen-active",
+  "js": "__focus(['kitchen']); __state('kitchen','active'); __view('iso','kitchen'); __anim(4)",
+  "selector": "[data-key='kitchen'] .wide"
+ },
+ {
+  "name": "phone-audit",
+  "js": "__focus(); __state(\"*\",\"idle\"); __view(\"iso\"); __anim(0); __audit()",
+  "media": {
+   "prefers-color-scheme": "light"
+  },
+  "width": 400,
+  "height": 860,
+  "dpr": 1,
+  "value": true,
+  "wait": 800
+ },
+ {
+  "name": "phone-kitchen-label-overlaps",
+  "js": "(() => { const r = {}; for (const p of ['front','iso','top','side']) { __focus(['kitchen']); __view(p,'kitchen'); r[p] = __audit().labelOverlaps; } __focus(); __view('iso'); return r; })()",
+  "value": true
+ },
+ {
+  "name": "phone-light",
+  "js": "__focus(); __render()",
+  "full": true,
+  "wait": 600
+ },
+ {
+  "name": "phone-light-top",
+  "js": "__focus(); window.scrollTo(0,0); __render()",
+  "dpr": 2,
+  "wait": 600
+ },
+ {
+  "name": "phone-kitchen-active",
+  "js": "__focus(['kitchen']); __state('kitchen','active'); __view('iso','kitchen'); __anim(4)",
+  "selector": "[data-key='kitchen'] .wide"
+ },
+ {
+  "name": "phone-B-card",
+  "js": "__focus(['B']); __state('B','active'); __view('iso','B'); __anim(4)",
+  "selector": ".card[data-key='B']"
+ },
+ {
+  "name": "phone-dark",
+  "js": "__focus(); __state(\"*\",\"idle\"); __view(\"iso\"); __anim(0)",
+  "media": {
+   "prefers-color-scheme": "dark"
+  },
+  "dpr": 1,
+  "full": true,
+  "wait": 600
+ },
+ {
+  "name": "phone-dark-audit",
+  "js": "__audit()",
+  "value": true
+ }
+]

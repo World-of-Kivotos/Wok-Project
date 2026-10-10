@@ -1,0 +1,13 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": { "side": "miningdim:block/b_side", "strip": "miningdim:block/b_strip", "gone": "miningdim:block/does_not_exist" },
+  "elements": [
+    { "name": "body", "from": [2, 0, 2], "to": [14, 8, 14], "faces": { "north": { "texture": "#side" }, "up": { "texture": "#side" } } },
+    { "name": "overlay twin", "from": [4, 2, 2], "to": [10, 6, 3], "faces": { "north": { "texture": "#side" } } },
+    { "name": "bad angle", "from": [6, 8, 6], "to": [10, 9, 10], "rotation": { "origin": [8, 8, 8], "axis": "y", "angle": 30 }, "faces": { "up": { "texture": "#side" } } },
+    { "name": "two axes", "from": [6, 9, 6], "to": [10, 10, 10], "rotation": { "origin": [8, 8, 8], "axis": "y", "angle": 22.5, "x": 10 }, "faces": { "up": { "texture": "#missing_var" } } },
+    { "name": "gone tex", "from": [0, 0, 0], "to": [1, 1, 1], "faces": { "west": { "texture": "#gone", "uv": [0, 0, 17, 16] } } },
+    { "name": "inverted", "from": [5, 5, 5], "to": [4, 6, 6], "faces": { "east": { "texture": "#strip" } } },
+    { "name": "plate", "from": [3, 12, 3], "to": [13, 12, 13], "faces": { "up": { "texture": "#side" }, "north": { "texture": "#side" } } }
+  ]
+}

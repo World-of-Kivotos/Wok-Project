@@ -1,0 +1,34 @@
+{
+  "variants": {
+    "active=false,facing=north": {
+      "model": "miningdim:block/fryer_b_idle"
+    },
+    "active=true,facing=north": {
+      "model": "miningdim:block/fryer_b_active"
+    },
+    "active=false,facing=east": {
+      "model": "miningdim:block/fryer_b_idle",
+      "y": 90
+    },
+    "active=true,facing=east": {
+      "model": "miningdim:block/fryer_b_active",
+      "y": 90
+    },
+    "active=false,facing=south": {
+      "model": "miningdim:block/fryer_b_idle",
+      "y": 180
+    },
+    "active=true,facing=south": {
+      "model": "miningdim:block/fryer_b_active",
+      "y": 180
+    },
+    "active=false,facing=west": {
+      "model": "miningdim:block/fryer_b_idle",
+      "y": 270
+    },
+    "active=true,facing=west": {
+      "model": "miningdim:block/fryer_b_active",
+      "y": 270
+    }
+  }
+}

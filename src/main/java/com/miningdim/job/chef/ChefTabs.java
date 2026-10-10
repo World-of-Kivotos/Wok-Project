@@ -10,7 +10,7 @@ import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.RegistryObject;
 
 /**
- * 厨师专属创造物品栏 (任务约定: 不碰中央 ModCreativeTabs, 自建专属标签页)。放 5 档调味台 BlockItem。
+ * 厨师专属创造物品栏 (任务约定: 不碰中央 ModCreativeTabs, 自建专属标签页)。放 5 档调味台与 9 台烹饪台 BlockItem。
  *
  * 标题键 itemGroup.miningdim_chef (lang 由集成合并)。1.20.1 用 DeferredRegister(Registries.CREATIVE_MODE_TAB)。
  */
@@ -32,6 +32,7 @@ public final class ChefTabs {
                         output.accept(ChefItems.SEASONING_TABLE_HIGH.get());
                         output.accept(ChefItems.SEASONING_TABLE_EXTRAORDINARY.get());
                         output.accept(ChefItems.SEASONING_TABLE_RADIANT.get());
+                        ChefItems.COOKING_STATIONS.forEach(station -> output.accept(station.get()));
                     })
                     .build());
 

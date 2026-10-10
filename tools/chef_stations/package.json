@@ -1,0 +1,6 @@
+{
+  "name": "station-preview",
+  "private": true,
+  "type": "module",
+  "description": "Minecraft 1.20.1 block-model preview tooling (Node built-ins only, no npm install needed)"
+}

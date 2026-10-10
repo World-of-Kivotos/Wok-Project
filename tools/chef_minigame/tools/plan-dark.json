@@ -1,0 +1,8 @@
+[
+  { "name": "dark-rest", "full": true, "wait": 700 },
+  { "name": "fryer-sloppy-run", "jsFile": "bot.js", "js": "__bot.run({station:1, slotStar:5, level:3, seed:4242, sloppy:true, lag:7})", "value": true },
+  { "name": "dark-fryer-result", "selector": ".game", "wait": 500 },
+  { "name": "reduced-motion-oven", "media": { "prefers-color-scheme": "dark", "prefers-reduced-motion": "reduce" }, "js": "__bot.run({station:2, slotStar:4, level:4, seed:99, sloppy:true, lag:6})", "value": true },
+  { "name": "dark-oven-result", "selector": ".game", "wait": 500 },
+  { "name": "dark-full", "full": true, "wait": 400 }
+]

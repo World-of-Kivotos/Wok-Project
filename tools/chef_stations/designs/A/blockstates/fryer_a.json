@@ -1,0 +1,64 @@
+{
+  "variants": {
+    "active=false,facing=north,support=none": {
+      "model": "miningdim:block/fryer_a_idle"
+    },
+    "active=false,facing=north,support=tray": {
+      "model": "miningdim:block/fryer_a_idle_tray"
+    },
+    "active=true,facing=north,support=none": {
+      "model": "miningdim:block/fryer_a_active"
+    },
+    "active=true,facing=north,support=tray": {
+      "model": "miningdim:block/fryer_a_active_tray"
+    },
+    "active=false,facing=east,support=none": {
+      "model": "miningdim:block/fryer_a_idle",
+      "y": 90
+    },
+    "active=false,facing=east,support=tray": {
+      "model": "miningdim:block/fryer_a_idle_tray",
+      "y": 90
+    },
+    "active=true,facing=east,support=none": {
+      "model": "miningdim:block/fryer_a_active",
+      "y": 90
+    },
+    "active=true,facing=east,support=tray": {
+      "model": "miningdim:block/fryer_a_active_tray",
+      "y": 90
+    },
+    "active=false,facing=south,support=none": {
+      "model": "miningdim:block/fryer_a_idle",
+      "y": 180
+    },
+    "active=false,facing=south,support=tray": {
+      "model": "miningdim:block/fryer_a_idle_tray",
+      "y": 180
+    },
+    "active=true,facing=south,support=none": {
+      "model": "miningdim:block/fryer_a_active",
+      "y": 180
+    },
+    "active=true,facing=south,support=tray": {
+      "model": "miningdim:block/fryer_a_active_tray",
+      "y": 180
+    },
+    "active=false,facing=west,support=none": {
+      "model": "miningdim:block/fryer_a_idle",
+      "y": 270
+    },
+    "active=false,facing=west,support=tray": {
+      "model": "miningdim:block/fryer_a_idle_tray",
+      "y": 270
+    },
+    "active=true,facing=west,support=none": {
+      "model": "miningdim:block/fryer_a_active",
+      "y": 270
+    },
+    "active=true,facing=west,support=tray": {
+      "model": "miningdim:block/fryer_a_active_tray",
+      "y": 270
+    }
+  }
+}

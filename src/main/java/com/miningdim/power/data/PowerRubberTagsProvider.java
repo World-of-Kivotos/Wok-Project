@@ -14,7 +14,12 @@ import net.minecraftforge.common.data.ExistingFileHelper;
 
 import java.util.concurrent.CompletableFuture;
 
-/** 橡胶木按原版木材分类接入燃烧、工具与树木标签。 */
+/**
+ * 橡胶木按原版木材分类接入燃烧与树木标签。
+ *
+ * 斧子挖掘标签 (橡胶原木、橡胶木板) 不在这里生成: 原版 mineable/axe 由多个模块共用 (厨师的木质备餐台也在里面),
+ * 和 mineable/pickaxe 一样改为 src/main/resources 下手工维护的共享文件, 见 module-registry.json 的 sharedResources。
+ */
 final class PowerRubberTagsProvider extends BlockTagsProvider {
 
     PowerRubberTagsProvider(PackOutput output, CompletableFuture<HolderLookup.Provider> lookupProvider,
@@ -29,7 +34,6 @@ final class PowerRubberTagsProvider extends BlockTagsProvider {
         tag(BlockTags.LEAVES).add(PowerRubberRegistry.RUBBER_LEAVES.get());
         tag(BlockTags.SAPLINGS).add(PowerRubberRegistry.RUBBER_SAPLING.get());
         tag(BlockTags.PLANKS).add(PowerRubberRegistry.RUBBER_PLANKS.get());
-        tag(BlockTags.MINEABLE_WITH_AXE).add(PowerRubberRegistry.RUBBER_LOG.get(), PowerRubberRegistry.RUBBER_PLANKS.get());
     }
 
     @Override

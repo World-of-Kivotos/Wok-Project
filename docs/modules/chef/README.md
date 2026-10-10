@@ -10,6 +10,8 @@
 
 本模块负责任意 `ItemStack.getFoodProperties(entity)` 成品食物的品质盖章、五档调味台、火候与调味 QTE、调料方向标签和厨师效果结算契约。品质仍写在原食物的 NBT 上，不注册新的菜肴物品。
 
+厨师重构新增的九台烹饪台（炸锅、烤炉、备餐台，各有田园 rustic、商用不锈钢 steel、中式 chinese 三套外观，功能相同、玩家按喜好造）目前只交付方块本身：朝向、工作状态、形状、遮挡、光照、粒子、掉落、合成与语言，没有方块实体，烹饪逻辑与"掌勺"小游戏之后接入。造型取自厨师重构的 station-preview 预览工具定稿方案，形状、遮挡、发光与粒子出生点逐台照各方案 `meta.json` 的实装说明，取值集中在 `station/CookingStations.java`。为便于进游戏目测待机/工作中两种外观，创造模式玩家双手空着潜行右键可切换 `lit`（生存无效），这是临时入口，接入烹饪逻辑后删除。因为台子还没有功能，九个配方暂时用 `forge:false` 条件关着（生存合不出来，创造标签页照常可拿），物品提示里写着功能种类、摆放要求和「烹饪功能尚未开放」；接入烹饪逻辑时删掉配方的 `conditions`、去掉这行提示，并把 `CookingStationGameTests.RECIPES_OPEN` 改成 `true`。
+
 客户端界面显示服务端 `ContainerData`：剩余时间、火候、调味台档位、目标品质、已计入厨师等级与台档的实时目标达成率、当前 QTE 目标、台档修正后的 QTE 总数、命中数、命中条速度、失败原因和最终品质。开始包为 `START(targetQualityTier)`，其余输入为 `HEAT_PRESS`、`HEAT_RELEASE`、`SEASON_HIT(target)`；五种品质对所有台档开放，服务端只校验目标品质 ID，并锁定开局厨师等级、台档、目标品质及其动态 QTE 数量和节奏。结算使用一个随机数从目标向低档依次对照实时阈值，客户端不得自行决定计时、品质或效果。
 
 ## 配置
@@ -29,8 +31,10 @@
 | 注册类别 | ID |
 | --- | --- |
 | 方块 | `miningdim:seasoning_table_low`、`medium`、`high`、`extraordinary`、`radiant` |
-| 方块实体 | `miningdim:seasoning_table` |
-| 方块物品 | 五个与方块同名的 `miningdim:seasoning_table_*` |
+| 方块（烹饪台） | `miningdim:deep_fryer_rustic`、`deep_fryer_steel`、`deep_fryer_chinese`、`baking_oven_rustic`、`baking_oven_steel`、`baking_oven_chinese`、`prep_counter_rustic`、`prep_counter_steel`、`prep_counter_chinese`；状态 `facing` + `lit`，`deep_fryer_rustic` 另有 `support`（`none`/`tray`），`prep_counter_steel` 另有 `lid_blocked` |
+| 方块实体 | `miningdim:seasoning_table`（烹饪台本阶段没有方块实体） |
+| 方块物品 | 五个与方块同名的 `miningdim:seasoning_table_*`，九个与方块同名的烹饪台 |
+| 配方 | `miningdim:chef/<烹饪台 id>`，九个工作台有序配方，只用原版材料；烹饪逻辑接入前带 `forge:false` 条件、不加载 |
 | 菜单 | `miningdim:seasoning_table` |
 | 创造标签页 | `miningdim:miningdim_chef` |
 | 网络频道 | `miningdim:chef` |
@@ -47,5 +51,11 @@ GeckoLib 是客户端与服务端都必须安装的运行时依赖，锁定 `4.8
 增香效果黑名单包含原版金苹果、附魔金苹果，以及 FID 1.1.0.3 官方 JAR 中核定的 32 个效果。该 JAR SHA-256 为 `C9CE8AFBC6FEBAB2A94AD45247A3D3FCEC32978516E3335134E46ECC0EEF7778`；资源中只放 32 个 optional 条目，`sesameglide` 与 `sesamedoor` 不列入黑名单。
 
 本模块拥有 `seasoning_table_*` blockstate/model、`geo/block/seasoning_table.geo.json`、`animations/block/seasoning_table.animation.json`、五档静态方块纹理与五档 `seasoning_table_*_geo.png` 动态模型图集、调味台 GUI、十个窗口效果图标的行为定义与 `chef.*` 注册键（这十个 PNG 文件本身按目录整体归 WOK-核心的 `assets/miningdim/textures/mob_effect/`，与跨职业共享的 `ModJobEffects` 同目录，见 RESOURCE_OWNERSHIP.md 的厨师行与 module-registry.json 中 wok-core 的 `resourcePaths`；本模块不拥有这些 PNG）、`recipes/chef/`、`tags/items/seasonings/*.json`、`tags/items/seasonings.json`、`tags/items/unseasonable.json`、`tags/items/chef_amplify_item_blacklist.json` 和 `tags/mob_effect/chef_amplify_effect_blacklist.json`。共享语言文件仅由本模块维护厨师前缀键。
+
+烹饪台资源按文件名前缀 `deep_fryer`、`baking_oven`、`prep_counter` 归本模块：blockstate、方块与物品模型、方块贴图（含 `.mcmeta` 动画）和 `loot_tables/blocks/` 下的战利品表；贴图与 `.mcmeta` 从预览方案逐字节拷入（另加两张拷自农夫乐事的托架贴图，见下），方块模型只改了文件名和模型里的 `miningdim:block/...` 引用，blockstate 与五个物品模型按 Java 里的方块状态重新生成。冷藏备餐台工作中翻开的掀盖会伸进上方一格，所以多一个 `lid_blocked` 状态：上方方块的选择框不为空时为 `true`，工作中改用方案预备的"掀盖合着"模型 `prep_counter_steel_on_closed`。木质备餐台、中式案台的摆件和砖砌烤炉的烟囱也高出方块顶，没有备用模型，物品提示里写"上方请留空"。挖掘工具：砖与金属的八台在共享文件 `data/minecraft/tags/blocks/mineable/pickaxe.json` 里各占一条；木质备餐台在共享文件 `data/minecraft/tags/blocks/mineable/axe.json` 里（这份原先由电力模块的数据生成器写在 `src/generated` 下，现已改为和 pickaxe 一样手工维护，电力的橡胶原木、橡胶木板也在里面）。资源的完整性（方块状态覆盖每种状态、模型链与贴图能解析）由 `CookingStationAssetGameTests` 守着。
+
+八台砖与金属的台子在 `mineable/pickaxe` 里、又没有方块实体，满足矿工连锁/隧道挖的 `ChainMiningEngine.chainable` 判定（镐类可采、手持镐够档、可破坏、没有方块实体），所以在矿洞维度里相邻的台子可能被连锁或 3×3 隧道挖一起挖掉；掉落照常返还，不进矿石经济计数，只是误拆。是否把它们排除出连锁由矿工模块决定，本模块不改。
+
+炉上油锅（`deep_fryer_rustic`）和农夫乐事厨锅一样要下方热源：只按名字读 `farmersdelight:heat_sources`、`tray_heat_sources`、`heat_conductors` 三个方块标签，不引用农夫乐事的类；没装农夫乐事时三个标签为空，这台锅找不到热源，其余八台自带热源不受影响。它架在营火类热源上时换 `*_tray` 模型，托架贴图是农夫乐事 1.2.9 `cooking_pot_tray_top`/`_side` 的逐字节拷贝 `deep_fryer_rustic_tray_top`/`_side`（MIT，见仓库根的 THIRD-PARTY-NOTICES.md），不再跨 mod 引用，农夫乐事 1.3.x 把原图改名为 `heating_tray_*` 也不受影响。邻居更新覆盖不到的熄火情形（隔着漏斗的热源熄灭或被拆掉、中途卸掉农夫乐事）由工作中每 20 刻一次的计划刻复核兜底。
 
 运行期 PNG 和 GeckoLib JSON 由 `tools/generate_chef_assets.py` 与 `tools/generate_chef_gecko_assets.py` 可复现生成；挑选后的模型说明预览保存在 `docs/assets/chef/`：`chef_asset_style_source.png`（配色与笔触风格母本）与 `chef_runtime_asset_preview.png`（运行期 PNG 产出预览）由 `tools/generate_chef_assets.py` 引用，`chef_gecko_workstation_preview.png`（横跨两格的 GeckoLib 工位预览）由 `tools/generate_chef_gecko_assets.py` 引用。不得把 `tools/__pycache__` 或本地发布 JAR 纳入资源提交。

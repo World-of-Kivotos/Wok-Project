@@ -1,0 +1,8 @@
+{
+  "key": "_broken",
+  "tag": "反例",
+  "name": "故意写错的模型",
+  "tagline": "check.mjs 的自测：每种错误各放一个。",
+  "description": "z-fight、非法角度、多轴旋转、缺贴图、UV 越界、from>to、没 mcmeta 的竖条贴图、没写 render_type 却用透明像素。",
+  "blocks": [{ "label": "坏块", "idle": { "model": "broken", "y": 45 }, "active": { "model": "broken" } }]
+}

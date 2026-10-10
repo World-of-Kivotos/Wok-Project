@@ -1,0 +1,25 @@
+{
+  "key": "_sample",
+  "tag": "示例",
+  "order": 0,
+  "name": "示例油槽",
+  "tagline": "两个元素加一张 4 帧油面动画，只用来验证工具链。",
+  "description": "一个 12×9×12 的钢槽，正面一块旋钮面板。工作中模型继承待机模型，只把油面换成动画贴图、面板指示灯点亮。",
+  "notes": [
+    "待机 / 工作中两个模型，工作中靠 parent 继承，只覆盖两张贴图。",
+    "油面 sample_oil_on：16×64 竖条，4 帧，每帧 3 tick，不插值。"
+  ],
+  "blocks": [
+    {
+      "label": "油槽",
+      "idle": {
+        "model": "sample_fryer",
+        "y": 0
+      },
+      "active": {
+        "model": "sample_fryer_on",
+        "y": 0
+      }
+    }
+  ]
+}

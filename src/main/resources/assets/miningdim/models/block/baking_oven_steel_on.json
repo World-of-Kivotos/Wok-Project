@@ -1,0 +1,8 @@
+{
+  "parent": "miningdim:block/baking_oven_steel",
+  "textures": {
+    "glass": "miningdim:block/baking_oven_steel_glass_on",
+    "dial": "miningdim:block/baking_oven_steel_dial_on",
+    "top": "miningdim:block/baking_oven_steel_top_on"
+  }
+}

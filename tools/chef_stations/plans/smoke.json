@@ -1,0 +1,6 @@
+[
+  { "name": "ready", "js": "window.__ready", "value": true },
+  { "name": "errors", "js": "window.__errors", "value": true },
+  { "name": "noto-faces-loaded", "js": "document.fonts.ready.then(() => [...document.fonts].filter(f => /Noto Sans SC/.test(f.family) && f.status === 'loaded').length)", "value": true },
+  { "name": "page", "js": "__focus(); __anim(0)", "full": true, "wait": 600 }
+]

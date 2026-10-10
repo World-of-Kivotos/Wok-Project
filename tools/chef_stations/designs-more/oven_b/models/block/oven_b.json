@@ -1,0 +1,1140 @@
+{
+  "parent": "minecraft:block/block",
+  "render_type": "minecraft:cutout",
+  "textures": {
+    "particle": "miningdim:block/oven_b_side",
+    "front": "miningdim:block/oven_b_front",
+    "side": "miningdim:block/oven_b_side",
+    "back": "miningdim:block/oven_b_back",
+    "top": "miningdim:block/oven_b_top",
+    "bottom": "miningdim:block/oven_b_bottom",
+    "glass": "miningdim:block/oven_b_glass",
+    "parts": "miningdim:block/oven_b_parts",
+    "dial": "miningdim:block/oven_b_dial",
+    "grate": "miningdim:block/oven_b_grate"
+  },
+  "elements": [
+    {
+      "name": "leg front west",
+      "from": [
+        1,
+        0,
+        2
+      ],
+      "to": [
+        3,
+        2,
+        4
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "south": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "west": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "east": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "down": {
+          "uv": [
+            2,
+            4,
+            4,
+            6
+          ],
+          "texture": "#parts",
+          "cullface": "down"
+        }
+      }
+    },
+    {
+      "name": "leg front east",
+      "from": [
+        13,
+        0,
+        2
+      ],
+      "to": [
+        15,
+        2,
+        4
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "south": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "west": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "east": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "down": {
+          "uv": [
+            2,
+            4,
+            4,
+            6
+          ],
+          "texture": "#parts",
+          "cullface": "down"
+        }
+      }
+    },
+    {
+      "name": "leg back west",
+      "from": [
+        1,
+        0,
+        13
+      ],
+      "to": [
+        3,
+        2,
+        15
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "south": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "west": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "east": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "down": {
+          "uv": [
+            2,
+            4,
+            4,
+            6
+          ],
+          "texture": "#parts",
+          "cullface": "down"
+        }
+      }
+    },
+    {
+      "name": "leg back east",
+      "from": [
+        13,
+        0,
+        13
+      ],
+      "to": [
+        15,
+        2,
+        15
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "south": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "west": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "east": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "down": {
+          "uv": [
+            2,
+            4,
+            4,
+            6
+          ],
+          "texture": "#parts",
+          "cullface": "down"
+        }
+      }
+    },
+    {
+      "name": "cabinet",
+      "from": [
+        0,
+        2,
+        1
+      ],
+      "to": [
+        16,
+        11,
+        16
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            5,
+            16,
+            14
+          ],
+          "texture": "#front"
+        },
+        "south": {
+          "uv": [
+            0,
+            5,
+            16,
+            14
+          ],
+          "texture": "#back",
+          "cullface": "south"
+        },
+        "west": {
+          "uv": [
+            1,
+            5,
+            16,
+            14
+          ],
+          "texture": "#side",
+          "cullface": "west"
+        },
+        "east": {
+          "uv": [
+            16,
+            5,
+            1,
+            14
+          ],
+          "texture": "#side",
+          "cullface": "east"
+        },
+        "up": {
+          "uv": [
+            0,
+            1,
+            16,
+            16
+          ],
+          "texture": "#top"
+        },
+        "down": {
+          "uv": [
+            0,
+            0,
+            16,
+            15
+          ],
+          "texture": "#bottom"
+        }
+      }
+    },
+    {
+      "name": "lip",
+      "from": [
+        0,
+        10,
+        0
+      ],
+      "to": [
+        16,
+        11,
+        1
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            5,
+            16,
+            6
+          ],
+          "texture": "#front",
+          "cullface": "north"
+        },
+        "up": {
+          "uv": [
+            0,
+            0,
+            16,
+            1
+          ],
+          "texture": "#top"
+        },
+        "down": {
+          "uv": [
+            0,
+            3,
+            16,
+            4
+          ],
+          "texture": "#parts"
+        },
+        "west": {
+          "uv": [
+            0,
+            5,
+            1,
+            6
+          ],
+          "texture": "#side",
+          "cullface": "west"
+        },
+        "east": {
+          "uv": [
+            1,
+            5,
+            0,
+            6
+          ],
+          "texture": "#side",
+          "cullface": "east"
+        }
+      }
+    },
+    {
+      "name": "oven door",
+      "from": [
+        1,
+        2,
+        0
+      ],
+      "to": [
+        15,
+        10,
+        1
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            1,
+            6,
+            15,
+            14
+          ],
+          "texture": "#front",
+          "cullface": "north"
+        },
+        "down": {
+          "uv": [
+            0,
+            6,
+            14,
+            7
+          ],
+          "texture": "#parts"
+        },
+        "west": {
+          "uv": [
+            15,
+            6,
+            16,
+            14
+          ],
+          "texture": "#parts"
+        },
+        "east": {
+          "uv": [
+            15,
+            6,
+            16,
+            14
+          ],
+          "texture": "#parts"
+        }
+      }
+    },
+    {
+      "name": "window glass",
+      "from": [
+        2,
+        2,
+        0.5
+      ],
+      "to": [
+        14,
+        10,
+        0.5
+      ],
+      "shade": false,
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            12,
+            8
+          ],
+          "texture": "#glass"
+        }
+      }
+    },
+    {
+      "name": "door handle",
+      "from": [
+        2,
+        9,
+        -2
+      ],
+      "to": [
+        14,
+        10,
+        -1
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            12,
+            1
+          ],
+          "texture": "#parts"
+        },
+        "south": {
+          "uv": [
+            0,
+            2,
+            12,
+            3
+          ],
+          "texture": "#parts"
+        },
+        "up": {
+          "uv": [
+            0,
+            1,
+            12,
+            2
+          ],
+          "texture": "#parts"
+        },
+        "down": {
+          "uv": [
+            0,
+            2,
+            12,
+            3
+          ],
+          "texture": "#parts"
+        },
+        "west": {
+          "uv": [
+            12,
+            0,
+            13,
+            1
+          ],
+          "texture": "#parts"
+        },
+        "east": {
+          "uv": [
+            12,
+            0,
+            13,
+            1
+          ],
+          "texture": "#parts"
+        }
+      }
+    },
+    {
+      "name": "handle bracket east",
+      "from": [
+        12,
+        9,
+        -1
+      ],
+      "to": [
+        13,
+        10,
+        0
+      ],
+      "faces": {
+        "up": {
+          "uv": [
+            13,
+            0,
+            14,
+            1
+          ],
+          "texture": "#parts"
+        },
+        "down": {
+          "uv": [
+            14,
+            0,
+            15,
+            1
+          ],
+          "texture": "#parts"
+        },
+        "west": {
+          "uv": [
+            14,
+            0,
+            15,
+            1
+          ],
+          "texture": "#parts"
+        },
+        "east": {
+          "uv": [
+            14,
+            0,
+            15,
+            1
+          ],
+          "texture": "#parts"
+        }
+      }
+    },
+    {
+      "name": "handle bracket west",
+      "from": [
+        3,
+        9,
+        -1
+      ],
+      "to": [
+        4,
+        10,
+        0
+      ],
+      "faces": {
+        "up": {
+          "uv": [
+            13,
+            0,
+            14,
+            1
+          ],
+          "texture": "#parts"
+        },
+        "down": {
+          "uv": [
+            14,
+            0,
+            15,
+            1
+          ],
+          "texture": "#parts"
+        },
+        "west": {
+          "uv": [
+            14,
+            0,
+            15,
+            1
+          ],
+          "texture": "#parts"
+        },
+        "east": {
+          "uv": [
+            14,
+            0,
+            15,
+            1
+          ],
+          "texture": "#parts"
+        }
+      }
+    },
+    {
+      "name": "grate",
+      "from": [
+        1,
+        11,
+        3
+      ],
+      "to": [
+        15,
+        12,
+        10
+      ],
+      "faces": {
+        "up": {
+          "uv": [
+            0,
+            0,
+            14,
+            7
+          ],
+          "texture": "#grate"
+        },
+        "north": {
+          "uv": [
+            0,
+            7,
+            14,
+            8
+          ],
+          "texture": "#grate"
+        },
+        "south": {
+          "uv": [
+            0,
+            7,
+            14,
+            8
+          ],
+          "texture": "#grate"
+        },
+        "west": {
+          "uv": [
+            0,
+            7,
+            7,
+            8
+          ],
+          "texture": "#grate"
+        },
+        "east": {
+          "uv": [
+            0,
+            7,
+            7,
+            8
+          ],
+          "texture": "#grate"
+        }
+      }
+    },
+    {
+      "name": "grate inner west",
+      "from": [
+        1,
+        11,
+        3
+      ],
+      "to": [
+        1,
+        12,
+        10
+      ],
+      "faces": {
+        "east": {
+          "uv": [
+            0,
+            7,
+            7,
+            8
+          ],
+          "texture": "#grate"
+        }
+      }
+    },
+    {
+      "name": "grate inner east",
+      "from": [
+        15,
+        11,
+        3
+      ],
+      "to": [
+        15,
+        12,
+        10
+      ],
+      "faces": {
+        "west": {
+          "uv": [
+            0,
+            7,
+            7,
+            8
+          ],
+          "texture": "#grate"
+        }
+      }
+    },
+    {
+      "name": "grate inner front",
+      "from": [
+        1,
+        11,
+        3
+      ],
+      "to": [
+        15,
+        12,
+        3
+      ],
+      "faces": {
+        "south": {
+          "uv": [
+            0,
+            7,
+            14,
+            8
+          ],
+          "texture": "#grate"
+        }
+      }
+    },
+    {
+      "name": "grate inner back",
+      "from": [
+        1,
+        11,
+        10
+      ],
+      "to": [
+        15,
+        12,
+        10
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            7,
+            14,
+            8
+          ],
+          "texture": "#grate"
+        }
+      }
+    },
+    {
+      "name": "backsplash",
+      "from": [
+        0,
+        11,
+        13
+      ],
+      "to": [
+        16,
+        16,
+        16
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            16,
+            5
+          ],
+          "texture": "#front"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            16,
+            5
+          ],
+          "texture": "#back",
+          "cullface": "south"
+        },
+        "west": {
+          "uv": [
+            13,
+            0,
+            16,
+            5
+          ],
+          "texture": "#side",
+          "cullface": "west"
+        },
+        "east": {
+          "uv": [
+            16,
+            0,
+            13,
+            5
+          ],
+          "texture": "#side",
+          "cullface": "east"
+        },
+        "up": {
+          "uv": [
+            0,
+            13,
+            16,
+            16
+          ],
+          "texture": "#top",
+          "cullface": "up"
+        }
+      }
+    },
+    {
+      "name": "knob east",
+      "from": [
+        12,
+        11.5,
+        12
+      ],
+      "to": [
+        14,
+        13.5,
+        13
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            2,
+            2
+          ],
+          "texture": "#dial"
+        },
+        "west": {
+          "uv": [
+            2,
+            0,
+            3,
+            2
+          ],
+          "texture": "#dial"
+        },
+        "east": {
+          "uv": [
+            2,
+            0,
+            3,
+            2
+          ],
+          "texture": "#dial"
+        },
+        "up": {
+          "uv": [
+            0,
+            2,
+            2,
+            3
+          ],
+          "texture": "#dial"
+        },
+        "down": {
+          "uv": [
+            0,
+            2,
+            2,
+            3
+          ],
+          "texture": "#dial"
+        }
+      }
+    },
+    {
+      "name": "knob west",
+      "from": [
+        2,
+        11.5,
+        12
+      ],
+      "to": [
+        4,
+        13.5,
+        13
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            2,
+            2
+          ],
+          "texture": "#dial"
+        },
+        "west": {
+          "uv": [
+            2,
+            0,
+            3,
+            2
+          ],
+          "texture": "#dial"
+        },
+        "east": {
+          "uv": [
+            2,
+            0,
+            3,
+            2
+          ],
+          "texture": "#dial"
+        },
+        "up": {
+          "uv": [
+            0,
+            2,
+            2,
+            3
+          ],
+          "texture": "#dial"
+        },
+        "down": {
+          "uv": [
+            0,
+            2,
+            2,
+            3
+          ],
+          "texture": "#dial"
+        }
+      }
+    },
+    {
+      "name": "lamp east",
+      "from": [
+        13,
+        14,
+        12.5
+      ],
+      "to": [
+        14,
+        15,
+        13
+      ],
+      "shade": false,
+      "faces": {
+        "north": {
+          "uv": [
+            4,
+            0,
+            5,
+            1
+          ],
+          "texture": "#dial"
+        },
+        "west": {
+          "uv": [
+            5,
+            0,
+            5.5,
+            1
+          ],
+          "texture": "#dial"
+        },
+        "east": {
+          "uv": [
+            5,
+            0,
+            5.5,
+            1
+          ],
+          "texture": "#dial"
+        },
+        "up": {
+          "uv": [
+            4,
+            1,
+            5,
+            1.5
+          ],
+          "texture": "#dial"
+        },
+        "down": {
+          "uv": [
+            4,
+            1,
+            5,
+            1.5
+          ],
+          "texture": "#dial"
+        }
+      }
+    },
+    {
+      "name": "lamp west",
+      "from": [
+        2,
+        14,
+        12.5
+      ],
+      "to": [
+        3,
+        15,
+        13
+      ],
+      "shade": false,
+      "faces": {
+        "north": {
+          "uv": [
+            4,
+            0,
+            5,
+            1
+          ],
+          "texture": "#dial"
+        },
+        "west": {
+          "uv": [
+            5,
+            0,
+            5.5,
+            1
+          ],
+          "texture": "#dial"
+        },
+        "east": {
+          "uv": [
+            5,
+            0,
+            5.5,
+            1
+          ],
+          "texture": "#dial"
+        },
+        "up": {
+          "uv": [
+            4,
+            1,
+            5,
+            1.5
+          ],
+          "texture": "#dial"
+        },
+        "down": {
+          "uv": [
+            4,
+            1,
+            5,
+            1.5
+          ],
+          "texture": "#dial"
+        }
+      }
+    },
+    {
+      "name": "oven thermometer",
+      "from": [
+        6,
+        11,
+        12.5
+      ],
+      "to": [
+        10,
+        15,
+        13
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            8,
+            0,
+            12,
+            4
+          ],
+          "texture": "#dial"
+        },
+        "up": {
+          "uv": [
+            8,
+            4,
+            12,
+            4.5
+          ],
+          "texture": "#dial"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "conditions": [{ "type": "forge:false" }],
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    " S ",
+    "IBI",
+    " I "
+  ],
+  "key": {
+    "B": { "item": "minecraft:iron_bars" },
+    "I": { "item": "minecraft:iron_ingot" },
+    "S": { "item": "minecraft:stick" }
+  },
+  "result": {
+    "item": "miningdim:deep_fryer_rustic",
+    "count": 1
+  }
+}

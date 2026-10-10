@@ -1,0 +1,7 @@
+{
+  "parent": "miningdim:block/sample_fryer",
+  "textures": {
+    "top": "miningdim:block/sample_oil_on",
+    "panel": "miningdim:block/sample_panel_on"
+  }
+}

@@ -1,0 +1,1270 @@
+{
+  "parent": "miningdim:block/prep_counter_steel_on",
+  "render_type": "minecraft:cutout",
+  "elements": [
+    {
+      "name": "leg front west",
+      "from": [
+        1,
+        0,
+        2
+      ],
+      "to": [
+        3,
+        2,
+        4
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "south": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "west": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "east": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "down": {
+          "uv": [
+            2,
+            4,
+            4,
+            6
+          ],
+          "texture": "#parts",
+          "cullface": "down"
+        }
+      }
+    },
+    {
+      "name": "leg front east",
+      "from": [
+        13,
+        0,
+        2
+      ],
+      "to": [
+        15,
+        2,
+        4
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "south": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "west": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "east": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "down": {
+          "uv": [
+            2,
+            4,
+            4,
+            6
+          ],
+          "texture": "#parts",
+          "cullface": "down"
+        }
+      }
+    },
+    {
+      "name": "leg back west",
+      "from": [
+        1,
+        0,
+        13
+      ],
+      "to": [
+        3,
+        2,
+        15
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "south": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "west": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "east": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "down": {
+          "uv": [
+            2,
+            4,
+            4,
+            6
+          ],
+          "texture": "#parts",
+          "cullface": "down"
+        }
+      }
+    },
+    {
+      "name": "leg back east",
+      "from": [
+        13,
+        0,
+        13
+      ],
+      "to": [
+        15,
+        2,
+        15
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "south": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "west": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "east": {
+          "uv": [
+            0,
+            4,
+            2,
+            6
+          ],
+          "texture": "#parts"
+        },
+        "down": {
+          "uv": [
+            2,
+            4,
+            4,
+            6
+          ],
+          "texture": "#parts",
+          "cullface": "down"
+        }
+      }
+    },
+    {
+      "name": "cabinet",
+      "from": [
+        0,
+        2,
+        1
+      ],
+      "to": [
+        16,
+        11,
+        16
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            5,
+            16,
+            14
+          ],
+          "texture": "#front"
+        },
+        "south": {
+          "uv": [
+            0,
+            5,
+            16,
+            14
+          ],
+          "texture": "#back",
+          "cullface": "south"
+        },
+        "west": {
+          "uv": [
+            1,
+            5,
+            16,
+            14
+          ],
+          "texture": "#side",
+          "cullface": "west"
+        },
+        "east": {
+          "uv": [
+            16,
+            5,
+            1,
+            14
+          ],
+          "texture": "#side",
+          "cullface": "east"
+        },
+        "up": {
+          "uv": [
+            0,
+            1,
+            16,
+            16
+          ],
+          "texture": "#top"
+        },
+        "down": {
+          "uv": [
+            0,
+            0,
+            16,
+            15
+          ],
+          "texture": "#bottom"
+        }
+      }
+    },
+    {
+      "name": "lip",
+      "from": [
+        0,
+        10,
+        0
+      ],
+      "to": [
+        16,
+        11,
+        1
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            5,
+            16,
+            6
+          ],
+          "texture": "#front",
+          "cullface": "north"
+        },
+        "down": {
+          "uv": [
+            0,
+            6,
+            16,
+            7
+          ],
+          "texture": "#parts"
+        },
+        "west": {
+          "uv": [
+            0,
+            5,
+            1,
+            6
+          ],
+          "texture": "#side",
+          "cullface": "west"
+        },
+        "east": {
+          "uv": [
+            1,
+            5,
+            0,
+            6
+          ],
+          "texture": "#side",
+          "cullface": "east"
+        }
+      }
+    },
+    {
+      "name": "cutting board",
+      "from": [
+        0,
+        11,
+        0
+      ],
+      "to": [
+        16,
+        12,
+        6
+      ],
+      "faces": {
+        "up": {
+          "uv": [
+            0,
+            0,
+            16,
+            6
+          ],
+          "texture": "#board"
+        },
+        "north": {
+          "uv": [
+            0,
+            6,
+            16,
+            7
+          ],
+          "texture": "#board",
+          "cullface": "north"
+        },
+        "south": {
+          "uv": [
+            0,
+            8,
+            16,
+            9
+          ],
+          "texture": "#board"
+        },
+        "west": {
+          "uv": [
+            0,
+            7,
+            6,
+            8
+          ],
+          "texture": "#board",
+          "cullface": "west"
+        },
+        "east": {
+          "uv": [
+            6,
+            7,
+            0,
+            8
+          ],
+          "texture": "#board",
+          "cullface": "east"
+        }
+      }
+    },
+    {
+      "name": "groove cap west",
+      "from": [
+        0,
+        11,
+        6
+      ],
+      "to": [
+        1,
+        12,
+        7
+      ],
+      "faces": {
+        "west": {
+          "uv": [
+            6,
+            4,
+            7,
+            5
+          ],
+          "texture": "#side",
+          "cullface": "west"
+        }
+      }
+    },
+    {
+      "name": "groove cap east",
+      "from": [
+        15,
+        11,
+        6
+      ],
+      "to": [
+        16,
+        12,
+        7
+      ],
+      "faces": {
+        "east": {
+          "uv": [
+            7,
+            4,
+            6,
+            5
+          ],
+          "texture": "#side",
+          "cullface": "east"
+        }
+      }
+    },
+    {
+      "name": "rail well",
+      "from": [
+        0,
+        11,
+        7
+      ],
+      "to": [
+        16,
+        13,
+        16
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            3,
+            16,
+            5
+          ],
+          "texture": "#front"
+        },
+        "south": {
+          "uv": [
+            0,
+            3,
+            16,
+            5
+          ],
+          "texture": "#back",
+          "cullface": "south"
+        },
+        "west": {
+          "uv": [
+            7,
+            3,
+            16,
+            5
+          ],
+          "texture": "#side",
+          "cullface": "west"
+        },
+        "east": {
+          "uv": [
+            16,
+            3,
+            7,
+            5
+          ],
+          "texture": "#side",
+          "cullface": "east"
+        }
+      }
+    },
+    {
+      "name": "rail frame",
+      "from": [
+        0,
+        13,
+        7
+      ],
+      "to": [
+        16,
+        14,
+        16
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            2,
+            16,
+            3
+          ],
+          "texture": "#front"
+        },
+        "south": {
+          "uv": [
+            0,
+            2,
+            16,
+            3
+          ],
+          "texture": "#back",
+          "cullface": "south"
+        },
+        "west": {
+          "uv": [
+            7,
+            2,
+            16,
+            3
+          ],
+          "texture": "#side",
+          "cullface": "west"
+        },
+        "east": {
+          "uv": [
+            16,
+            2,
+            7,
+            3
+          ],
+          "texture": "#side",
+          "cullface": "east"
+        }
+      }
+    },
+    {
+      "name": "door handle",
+      "from": [
+        6,
+        3,
+        0
+      ],
+      "to": [
+        7,
+        8,
+        1
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            8,
+            0,
+            9,
+            5
+          ],
+          "texture": "#parts",
+          "cullface": "north"
+        },
+        "west": {
+          "uv": [
+            9,
+            0,
+            10,
+            5
+          ],
+          "texture": "#parts"
+        },
+        "east": {
+          "uv": [
+            9,
+            0,
+            10,
+            5
+          ],
+          "texture": "#parts"
+        },
+        "up": {
+          "uv": [
+            10,
+            0,
+            11,
+            1
+          ],
+          "texture": "#parts"
+        },
+        "down": {
+          "uv": [
+            10,
+            0,
+            11,
+            1
+          ],
+          "texture": "#parts"
+        }
+      }
+    },
+    {
+      "name": "ketchup bottle",
+      "from": [
+        12,
+        12,
+        3
+      ],
+      "to": [
+        14,
+        15,
+        5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            8,
+            5,
+            10,
+            8
+          ],
+          "texture": "#food"
+        },
+        "south": {
+          "uv": [
+            8,
+            5,
+            10,
+            8
+          ],
+          "texture": "#food"
+        },
+        "west": {
+          "uv": [
+            8,
+            5,
+            10,
+            8
+          ],
+          "texture": "#food"
+        },
+        "east": {
+          "uv": [
+            8,
+            5,
+            10,
+            8
+          ],
+          "texture": "#food"
+        },
+        "up": {
+          "uv": [
+            8,
+            8,
+            10,
+            10
+          ],
+          "texture": "#food"
+        }
+      }
+    },
+    {
+      "name": "ketchup nozzle",
+      "from": [
+        12.5,
+        15,
+        3.5
+      ],
+      "to": [
+        13.5,
+        16,
+        4.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            12,
+            5,
+            13,
+            6
+          ],
+          "texture": "#food"
+        },
+        "south": {
+          "uv": [
+            12,
+            5,
+            13,
+            6
+          ],
+          "texture": "#food"
+        },
+        "west": {
+          "uv": [
+            12,
+            5,
+            13,
+            6
+          ],
+          "texture": "#food"
+        },
+        "east": {
+          "uv": [
+            12,
+            5,
+            13,
+            6
+          ],
+          "texture": "#food"
+        },
+        "up": {
+          "uv": [
+            12,
+            6,
+            13,
+            7
+          ],
+          "texture": "#food",
+          "cullface": "up"
+        }
+      }
+    },
+    {
+      "name": "mustard bottle",
+      "from": [
+        13,
+        12,
+        1
+      ],
+      "to": [
+        15,
+        15,
+        3
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            10,
+            5,
+            12,
+            8
+          ],
+          "texture": "#food"
+        },
+        "south": {
+          "uv": [
+            10,
+            5,
+            12,
+            8
+          ],
+          "texture": "#food"
+        },
+        "west": {
+          "uv": [
+            10,
+            5,
+            12,
+            8
+          ],
+          "texture": "#food"
+        },
+        "east": {
+          "uv": [
+            10,
+            5,
+            12,
+            8
+          ],
+          "texture": "#food"
+        },
+        "up": {
+          "uv": [
+            10,
+            8,
+            12,
+            10
+          ],
+          "texture": "#food"
+        }
+      }
+    },
+    {
+      "name": "mustard nozzle",
+      "from": [
+        13.5,
+        15,
+        1.5
+      ],
+      "to": [
+        14.5,
+        16,
+        2.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            13,
+            5,
+            14,
+            6
+          ],
+          "texture": "#food"
+        },
+        "south": {
+          "uv": [
+            13,
+            5,
+            14,
+            6
+          ],
+          "texture": "#food"
+        },
+        "west": {
+          "uv": [
+            13,
+            5,
+            14,
+            6
+          ],
+          "texture": "#food"
+        },
+        "east": {
+          "uv": [
+            13,
+            5,
+            14,
+            6
+          ],
+          "texture": "#food"
+        },
+        "up": {
+          "uv": [
+            13,
+            6,
+            14,
+            7
+          ],
+          "texture": "#food",
+          "cullface": "up"
+        }
+      }
+    },
+    {
+      "name": "thermo display",
+      "from": [
+        1,
+        7,
+        0.5
+      ],
+      "to": [
+        5,
+        10,
+        1
+      ],
+      "forge_data": {
+        "block_light": 15,
+        "sky_light": 15
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            4,
+            3
+          ],
+          "texture": "#display",
+          "shade": false
+        },
+        "west": {
+          "uv": [
+            4,
+            0,
+            4.5,
+            3
+          ],
+          "texture": "#display"
+        },
+        "east": {
+          "uv": [
+            4,
+            0,
+            4.5,
+            3
+          ],
+          "texture": "#display"
+        },
+        "down": {
+          "uv": [
+            0,
+            3,
+            4,
+            3.5
+          ],
+          "texture": "#display"
+        }
+      }
+    },
+    {
+      "name": "lid",
+      "from": [
+        0,
+        14,
+        7
+      ],
+      "to": [
+        16,
+        16,
+        16
+      ],
+      "faces": {
+        "up": {
+          "uv": [
+            0,
+            7,
+            16,
+            16
+          ],
+          "texture": "#top",
+          "cullface": "up"
+        },
+        "north": {
+          "uv": [
+            0,
+            0,
+            16,
+            2
+          ],
+          "texture": "#front"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            16,
+            2
+          ],
+          "texture": "#back",
+          "cullface": "south"
+        },
+        "west": {
+          "uv": [
+            7,
+            0,
+            16,
+            2
+          ],
+          "texture": "#side",
+          "cullface": "west"
+        },
+        "east": {
+          "uv": [
+            16,
+            0,
+            7,
+            2
+          ],
+          "texture": "#side",
+          "cullface": "east"
+        }
+      }
+    },
+    {
+      "name": "lid handle",
+      "from": [
+        5,
+        14,
+        6
+      ],
+      "to": [
+        11,
+        15,
+        7
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            6,
+            1
+          ],
+          "texture": "#parts"
+        },
+        "up": {
+          "uv": [
+            0,
+            1,
+            6,
+            2
+          ],
+          "texture": "#parts"
+        },
+        "down": {
+          "uv": [
+            0,
+            2,
+            6,
+            3
+          ],
+          "texture": "#parts"
+        },
+        "west": {
+          "uv": [
+            6,
+            0,
+            7,
+            1
+          ],
+          "texture": "#parts"
+        },
+        "east": {
+          "uv": [
+            6,
+            0,
+            7,
+            1
+          ],
+          "texture": "#parts"
+        }
+      }
+    },
+    {
+      "name": "burger",
+      "from": [
+        7.5,
+        12,
+        1
+      ],
+      "to": [
+        11.5,
+        15,
+        5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            0,
+            4,
+            3
+          ],
+          "texture": "#food"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            4,
+            3
+          ],
+          "texture": "#food"
+        },
+        "west": {
+          "uv": [
+            0,
+            0,
+            4,
+            3
+          ],
+          "texture": "#food"
+        },
+        "east": {
+          "uv": [
+            0,
+            0,
+            4,
+            3
+          ],
+          "texture": "#food"
+        },
+        "up": {
+          "uv": [
+            4,
+            0,
+            8,
+            4
+          ],
+          "texture": "#food"
+        }
+      }
+    },
+    {
+      "name": "burger crown",
+      "from": [
+        8.5,
+        15,
+        2
+      ],
+      "to": [
+        10.5,
+        16,
+        4
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            12,
+            0,
+            14,
+            1
+          ],
+          "texture": "#food"
+        },
+        "south": {
+          "uv": [
+            12,
+            0,
+            14,
+            1
+          ],
+          "texture": "#food"
+        },
+        "west": {
+          "uv": [
+            12,
+            0,
+            14,
+            1
+          ],
+          "texture": "#food"
+        },
+        "east": {
+          "uv": [
+            12,
+            0,
+            14,
+            1
+          ],
+          "texture": "#food"
+        },
+        "up": {
+          "uv": [
+            12,
+            1,
+            14,
+            3
+          ],
+          "texture": "#food",
+          "cullface": "up"
+        }
+      }
+    },
+    {
+      "name": "wrap",
+      "from": [
+        1,
+        12,
+        2
+      ],
+      "to": [
+        7,
+        14,
+        4
+      ],
+      "rotation": {
+        "origin": [
+          4,
+          13,
+          3
+        ],
+        "axis": "y",
+        "angle": -22.5
+      },
+      "faces": {
+        "north": {
+          "uv": [
+            6,
+            5,
+            0,
+            7
+          ],
+          "texture": "#food"
+        },
+        "south": {
+          "uv": [
+            0,
+            5,
+            6,
+            7
+          ],
+          "texture": "#food"
+        },
+        "up": {
+          "uv": [
+            0,
+            7,
+            6,
+            9
+          ],
+          "texture": "#food"
+        },
+        "west": {
+          "uv": [
+            6,
+            5,
+            8,
+            7
+          ],
+          "texture": "#food"
+        },
+        "east": {
+          "uv": [
+            6,
+            7,
+            8,
+            9
+          ],
+          "texture": "#food"
+        }
+      }
+    }
+  ]
+}

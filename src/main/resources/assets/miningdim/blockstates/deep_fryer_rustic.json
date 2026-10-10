@@ -1,0 +1,64 @@
+{
+  "variants": {
+    "facing=east,lit=false,support=none": {
+      "model": "miningdim:block/deep_fryer_rustic",
+      "y": 90
+    },
+    "facing=east,lit=false,support=tray": {
+      "model": "miningdim:block/deep_fryer_rustic_tray",
+      "y": 90
+    },
+    "facing=east,lit=true,support=none": {
+      "model": "miningdim:block/deep_fryer_rustic_on",
+      "y": 90
+    },
+    "facing=east,lit=true,support=tray": {
+      "model": "miningdim:block/deep_fryer_rustic_on_tray",
+      "y": 90
+    },
+    "facing=north,lit=false,support=none": {
+      "model": "miningdim:block/deep_fryer_rustic"
+    },
+    "facing=north,lit=false,support=tray": {
+      "model": "miningdim:block/deep_fryer_rustic_tray"
+    },
+    "facing=north,lit=true,support=none": {
+      "model": "miningdim:block/deep_fryer_rustic_on"
+    },
+    "facing=north,lit=true,support=tray": {
+      "model": "miningdim:block/deep_fryer_rustic_on_tray"
+    },
+    "facing=south,lit=false,support=none": {
+      "model": "miningdim:block/deep_fryer_rustic",
+      "y": 180
+    },
+    "facing=south,lit=false,support=tray": {
+      "model": "miningdim:block/deep_fryer_rustic_tray",
+      "y": 180
+    },
+    "facing=south,lit=true,support=none": {
+      "model": "miningdim:block/deep_fryer_rustic_on",
+      "y": 180
+    },
+    "facing=south,lit=true,support=tray": {
+      "model": "miningdim:block/deep_fryer_rustic_on_tray",
+      "y": 180
+    },
+    "facing=west,lit=false,support=none": {
+      "model": "miningdim:block/deep_fryer_rustic",
+      "y": 270
+    },
+    "facing=west,lit=false,support=tray": {
+      "model": "miningdim:block/deep_fryer_rustic_tray",
+      "y": 270
+    },
+    "facing=west,lit=true,support=none": {
+      "model": "miningdim:block/deep_fryer_rustic_on",
+      "y": 270
+    },
+    "facing=west,lit=true,support=tray": {
+      "model": "miningdim:block/deep_fryer_rustic_on_tray",
+      "y": 270
+    }
+  }
+}

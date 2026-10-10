@@ -1,0 +1,18 @@
+{
+  "conditions": [{ "type": "forge:false" }],
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "BBB",
+    "B B",
+    "ICI"
+  ],
+  "key": {
+    "B": { "item": "minecraft:bricks" },
+    "C": { "item": "minecraft:campfire" },
+    "I": { "item": "minecraft:iron_ingot" }
+  },
+  "result": {
+    "item": "miningdim:baking_oven_rustic",
+    "count": 1
+  }
+}

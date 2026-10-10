@@ -1,0 +1,12 @@
+[
+  { "name": "mobile-rest", "full": true, "wait": 700 },
+  { "name": "layout", "js": "(() => { const de = document.documentElement, wide = [...document.querySelectorAll('body *')].filter(e => { const r = e.getBoundingClientRect(); return r.width > 0 && (r.right > innerWidth + 0.5 || r.left < -0.5) && !e.closest('.tbl'); }).slice(0, 8).map(e => e.tagName + '.' + e.className + ' ' + Math.round(e.getBoundingClientRect().right)); const w = document.querySelector('.wrap'); return { scrollW: de.scrollWidth, innerW: innerWidth, hScroll: de.scrollWidth > innerWidth, gutter: getComputedStyle(w).paddingLeft, canvas: [document.getElementById('zs-canvas').width, document.getElementById('zs-canvas').style.width], coarse: matchMedia('(pointer: coarse)').matches, keysShown: getComputedStyle(document.querySelector('.keys')).display, touchHint: getComputedStyle(document.querySelector('.keys-touch')).display, overflowing: wide }; })()", "value": true },
+  { "name": "prep-sloppy-run", "jsFile": "bot.js", "js": "__bot.run({station:3, slotStar:6, level:4, seed:31337, sloppy:true, lag:6})", "value": true },
+  { "name": "mobile-ended-first-screen", "js": "(scrollTo(0,0), new Promise((res) => setTimeout(() => { const h = document.getElementById('zs-hold').getBoundingClientRect(); res({ hold: document.getElementById('zs-hold').innerText.replace(/\\n/g, ' | '), holdTop: Math.round(h.top), holdBottom: Math.round(h.bottom), innerH: innerHeight, visible: h.bottom <= innerHeight }); }, 300)))", "value": true },
+  { "name": "mobile-ended-viewport", "wait": 200 },
+  { "name": "mobile-prep-result", "full": true, "wait": 500 },
+  { "name": "mobile-card", "selector": "#zs-card", "wait": 300 },
+  { "name": "tap-again", "js": "new Promise((res) => setTimeout(() => { const b = document.getElementById('zs-hold'); b.dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 7, bubbles: true, cancelable: true })); b.dispatchEvent(new PointerEvent('pointerup', { button: 0, pointerId: 7, bubbles: true, cancelable: true })); setTimeout(() => res({ phaseAfterTap: __zs.state().phase, hold: b.innerText.replace(/\\n/g, ' | ') }), 200); }, 500))", "value": true },
+  { "name": "mobile-countdown", "selector": ".stage", "wait": 50 },
+  { "name": "layout-after", "js": "({ scrollW: document.documentElement.scrollWidth, innerW: innerWidth, hScroll: document.documentElement.scrollWidth > innerWidth })", "value": true }
+]

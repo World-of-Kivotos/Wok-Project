@@ -1,0 +1,17 @@
+[
+  { "name": "keys", "js": "__keys()", "value": true },
+  { "name": "errors", "js": "window.__errors", "value": true },
+  { "name": "page", "js": "__focus(); __anim(0)", "full": true, "wait": 600 },
+  { "name": "{key}-iso", "forEach": "__keys()", "js": "__focus(['{key}']); __state('{key}','idle'); __view('iso','{key}')", "selector": ".card[data-key='{key}'] .view" },
+  { "name": "{key}-iso-active", "forEach": "__keys()", "js": "__focus(['{key}']); __state('{key}','active'); __anim(4)", "selector": ".card[data-key='{key}'] .view" },
+  { "name": "{key}-front", "forEach": "__keys()", "js": "__focus(['{key}']); __state('{key}','idle'); __view('front','{key}')", "selector": ".card[data-key='{key}'] .view" },
+  { "name": "{key}-top-active", "forEach": "__keys()", "js": "__focus(['{key}']); __state('{key}','active'); __view('top','{key}'); __anim(4)", "selector": ".card[data-key='{key}'] .view" },
+  { "name": "{key}-side", "forEach": "__keys()", "js": "__focus(['{key}']); __state('{key}','idle'); __view('side','{key}')", "selector": ".card[data-key='{key}'] .view" },
+  { "name": "{key}-card", "forEach": "__keys()", "js": "__focus(['{key}']); __view('iso','{key}')", "selector": ".card[data-key='{key}']" },
+  { "name": "kitchen", "js": "__focus(['kitchen']); __state('kitchen','idle'); __view('iso','kitchen')", "selector": "[data-key='kitchen'] .wide" },
+  { "name": "kitchen-front-active", "js": "__focus(['kitchen']); __state('kitchen','active'); __view('front','kitchen'); __anim(6)", "selector": "[data-key='kitchen'] .wide" },
+  { "name": "refs", "js": "__focus(['refs']); __state('refs','idle')", "selector": "[data-key='refs'] .refrow" },
+  { "name": "page-dark", "js": "__focus(); __state('*','idle'); __view('iso'); __anim(0)", "media": { "prefers-color-scheme": "dark" }, "full": true, "wait": 600 },
+  { "name": "page-phone", "js": "__render()", "media": { "prefers-color-scheme": "light" }, "width": 400, "height": 860, "dpr": 2, "full": true, "wait": 800 },
+  { "name": "phone-overflow", "js": "document.documentElement.scrollWidth + ' / ' + innerWidth", "value": true }
+]

@@ -1,0 +1,19 @@
+{
+  "conditions": [{ "type": "forge:false" }],
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "SIS",
+    "PTP",
+    "PPP"
+  ],
+  "key": {
+    "I": { "item": "minecraft:iron_ingot" },
+    "P": { "tag": "minecraft:planks" },
+    "S": { "tag": "minecraft:wooden_slabs" },
+    "T": { "item": "minecraft:crafting_table" }
+  },
+  "result": {
+    "item": "miningdim:prep_counter_rustic",
+    "count": 1
+  }
+}

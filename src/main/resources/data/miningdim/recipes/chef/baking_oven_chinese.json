@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "KKK",
+    "KNK",
+    "BCB"
+  ],
+  "key": {
+    "B": { "item": "minecraft:bricks" },
+    "C": { "item": "minecraft:campfire" },
+    "K": { "item": "minecraft:clay" },
+    "N": { "item": "minecraft:chain" }
+  },
+  "result": {
+    "item": "miningdim:baking_oven_chinese",
+    "count": 1
+  }
+}

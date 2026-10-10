@@ -18,7 +18,8 @@ import org.slf4j.LoggerFactory;
  * MiningDim 只登记 {@link ChefModule}，避免外部调用方绕过经验来源注册。
  *
  * register 内自注册:
- *  - 自己 package 的 DeferredRegister: ChefBlocks/ChefItems/ChefBlockEntities/ChefTabs (modBus);
+ *  - 自己 package 的 DeferredRegister: ChefBlocks/ChefItems/ChefBlockEntities/ChefTabs (modBus; 9 台烹饪台
+ *    随 ChefBlocks/ChefItems 一起注册, 方块类在 station 子包);
  *    MenuType 经共享 ModMenus DeferredRegister (由 JobFrameworkSystem 接 modBus, 厨师只往其上登记, 故触类
  *    {@link ChefMenus} 确保静态登记被收集);
  *  - 厨师 SERVER 配置 SPEC (自己的 toml, 不碰中央 MiningServerConfig) + 其加载/重载期的跨键不变量体检;
@@ -71,7 +72,7 @@ public final class ChefSystem implements Subsystem {
         // 平板厨师页的 job.chef.state (数值实时读 ChefConfig, 故与上面的 registerConfig 先后无关)。
         ChefWebUiActions.registerAll();
 
-        LOGGER.info("[miningdim] chef subsystem registered (5 seasoning tables + minigame + effects + amplify blacklist + job.chef.state action)");
+        LOGGER.info("[miningdim] chef subsystem registered (5 seasoning tables + 9 cooking stations + minigame + effects + amplify blacklist + job.chef.state action)");
     }
 
     /** 只校验厨师自己的 SERVER spec; 同总线上其它模组/子系统的配置事件一律放行。 */

@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "SAS",
+    "BDB",
+    "BPB"
+  ],
+  "key": {
+    "A": { "item": "minecraft:bamboo" },
+    "B": { "item": "minecraft:bricks" },
+    "D": { "tag": "minecraft:wooden_doors" },
+    "P": { "tag": "minecraft:planks" },
+    "S": { "tag": "minecraft:wooden_slabs" }
+  },
+  "result": {
+    "item": "miningdim:prep_counter_chinese",
+    "count": 1
+  }
+}

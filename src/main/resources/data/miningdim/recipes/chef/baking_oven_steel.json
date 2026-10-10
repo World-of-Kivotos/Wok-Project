@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "IRI",
+    "GFG",
+    "I I"
+  ],
+  "key": {
+    "F": { "item": "minecraft:furnace" },
+    "G": { "item": "minecraft:glass_pane" },
+    "I": { "item": "minecraft:iron_ingot" },
+    "R": { "item": "minecraft:redstone" }
+  },
+  "result": {
+    "item": "miningdim:baking_oven_steel",
+    "count": 1
+  }
+}

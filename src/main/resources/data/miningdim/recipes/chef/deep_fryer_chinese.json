@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "IAI",
+    "BIB",
+    "BCB"
+  ],
+  "key": {
+    "A": { "item": "minecraft:bamboo" },
+    "B": { "item": "minecraft:bricks" },
+    "C": { "item": "minecraft:campfire" },
+    "I": { "item": "minecraft:iron_ingot" }
+  },
+  "result": {
+    "item": "miningdim:deep_fryer_chinese",
+    "count": 1
+  }
+}

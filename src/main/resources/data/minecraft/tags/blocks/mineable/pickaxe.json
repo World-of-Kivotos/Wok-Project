@@ -17,6 +17,14 @@
     "miningdim:geothermal_generator",
     "miningdim:industrial_power_cell",
     "miningdim:modern_power_cell",
-    "miningdim:future_power_cell"
+    "miningdim:future_power_cell",
+    "miningdim:deep_fryer_rustic",
+    "miningdim:deep_fryer_steel",
+    "miningdim:deep_fryer_chinese",
+    "miningdim:baking_oven_rustic",
+    "miningdim:baking_oven_steel",
+    "miningdim:baking_oven_chinese",
+    "miningdim:prep_counter_steel",
+    "miningdim:prep_counter_chinese"
   ]
 }

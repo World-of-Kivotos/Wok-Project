@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "BRB",
+    "IUI",
+    "I I"
+  ],
+  "key": {
+    "B": { "item": "minecraft:iron_bars" },
+    "I": { "item": "minecraft:iron_ingot" },
+    "R": { "item": "minecraft:redstone" },
+    "U": { "item": "minecraft:bucket" }
+  },
+  "result": {
+    "item": "miningdim:deep_fryer_steel",
+    "count": 1
+  }
+}

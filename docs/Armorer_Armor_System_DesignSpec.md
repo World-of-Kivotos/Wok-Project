@@ -137,7 +137,7 @@ TaCZ 已把一颗子弹拆成普通段与穿甲段，插板不重新读取枪械
 - 原版生物近战与无仇恨近战；
 - 玩家近战；
 - 原版 projectile 标签；
-- 原版 explosion 标签；
+- 原版 explosion 标签（例外：玩家射出的 TaCZ 子弹爆炸打到玩家时，默认在进入插板前就被取消，见 [军火商规格 3C](Munitions_Job_DesignSpec.md)）；
 - Wok champion_skill_aoe。
 
 当前明确排除：

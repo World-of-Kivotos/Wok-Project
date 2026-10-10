@@ -25,8 +25,8 @@ import java.util.UUID;
  *  - 死池回血无效 (拒诈尸复活); 渲染镜像在任意分数与 1024 边界的精确换算;
  *  - 贡献池盖章双门槛"取一"语义独立验证 (仅过门槛一 / 仅过门槛二 / 恰边界);
  *  - 团队人均分母剔 0 伤参战者;
- *  - 离线没收后高伤玩家被剔, 其份额由余下合格者瓜分整池 (非按人头复制, 非池缩水);
- *  - round 不整除时末名吸收余数 -> Σ应得 == 固定池 (无信用点丢失/虚增);
+ *  - 离线没收后高伤玩家被剔, 其份额作废不回池, 余下合格者只拿各自那份 (非按人头复制);
+ *  - 不整除时按最大余数法取整 -> Σ应得 == 固定池 (无信用点丢失/虚增);
  *  - 两门槛皆败 -> 整池不发 (空 payout)。
  *
  * 全部断言具体数额 (删被测核心逻辑必挂, 禁 is-not-null 弱校验)。纯逻辑层: 只构造 BloodPool / DamageContribution
@@ -285,13 +285,13 @@ public final class ChampionRewardBloodPoolGameTests {
     }
 
     // ============================================================
-    // 离线没收: 高伤离线者被剔, 余下合格者瓜分整池 (非池缩水/非人头复制)
+    // 离线没收: 高伤离线者被剔, 其份额作废不回池 (余下合格者只拿各自那份)
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void offlineForfeitRedistributesWholePool(GameTestHelper helper) {
-        // 三玩家有效伤害 [6000, 4000, 离线 10000]; bossHp=100000 (0.5%=500) 三者均过门槛一。
-        // 离线者 (最高伤) 被没收, 整池 10000 由在线两人按 6000:4000 = 60%:40% 瓜分 (池不缩水, 不复制给离线者)。
+    public static void offlineForfeitShareIsVoidedNotRepooled(GameTestHelper helper) {
+        // 三玩家净伤 [6000, 4000, 离线 10000]; bossHp=100000 (0.5%=500) 三者均过门槛一。
+        // 离线者 (最高伤) 被没收; 分母仍是全部净伤 20000, 在线两人各拿 池 × 本人/20000, 离线那一半留在池里不发。
         UUID online1 = UUID.randomUUID();
         UUID online2 = UUID.randomUUID();
         UUID offline = UUID.randomUUID();
@@ -303,41 +303,43 @@ public final class ChampionRewardBloodPoolGameTests {
 
         helper.assertTrue(payout.size() == 2, "offline high-damage player excluded; only 2 qualifiers paid");
         helper.assertTrue(!payout.containsKey(offline), "offline player receives nothing (forfeited)");
-        // 在线两人按 6000:4000 瓜分整池: 6000/10000 = 0.6 -> 6000; 末名 online2 吸收余数 -> 4000。
-        helper.assertTrue(payout.get(online1) == 6_000L, "online1 weight 60% of whole pool -> 6000");
-        helper.assertTrue(payout.get(online2) == 4_000L, "online2 (last) absorbs remainder -> 4000");
+        helper.assertTrue(payout.get(online1) == 3_000L, "online1 = 10000 x 6000/20000 = 3000");
+        helper.assertTrue(payout.get(online2) == 2_000L, "online2 = 10000 x 4000/20000 = 2000");
         long total = payout.get(online1) + payout.get(online2);
-        helper.assertTrue(total == 10_000L,
-                "whole fixed pool consumed by remaining qualifiers (not shrunk, not head-count copied)");
+        helper.assertTrue(total == 5_000L,
+                "forfeited half of the pool is voided, not redistributed to the remaining qualifiers");
         helper.succeed();
     }
 
     // ============================================================
-    // round 不整除时末名吸收余数 -> Σ应得 == 固定池 (无信用点丢失/虚增)
+    // 不整除时最大余数法取整 -> Σ应得 == 固定池 (无信用点丢失/虚增)
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void weightedRoundingRemainderAbsorbedByLast(GameTestHelper helper) {
-        // 三玩家有效伤害 [1, 1, 1] 对固定池 10 瓜分: 各权 1/3, round(10/3) = round(3.333) = 3。
-        // 前两名各 3 (distributed=6), 末名吸收 10-6 = 4。Σ = 3+3+4 = 10 == 池 (不丢 1 也不虚增)。
+    public static void weightedRoundingLargestRemainder(GameTestHelper helper) {
+        // 三玩家净伤 [1, 1, 1] 对固定池 10 瓜分: 配额各 3.333, 先各 floor 3 (共 9), 剩 1 个名额; 小数与净伤都平手,
+        // 按 UUID 升序给最小者 -> [3,3,4] 且多出的 1 与输入序无关。Σ = 10 == 池 (不丢 1 也不虚增)。
         // bossHp 小到三者均过门槛: bossHp=100 -> 0.5%=0.5, 各 1 >= 0.5 合格。
         UUID a = UUID.randomUUID();
         UUID b = UUID.randomUUID();
         UUID c = UUID.randomUUID();
+        UUID smallest = a.compareTo(b) < 0 ? (a.compareTo(c) < 0 ? a : c) : (b.compareTo(c) < 0 ? b : c);
         List<DamageContribution> contribs = List.of(
                 new DamageContribution(a, 1.0D, 1L, true),
                 new DamageContribution(b, 1.0D, 2L, true),
                 new DamageContribution(c, 1.0D, 3L, true));
         Map<UUID, Long> payout = ContributionPool.distribute(contribs, 100.0D, 10L);
         helper.assertTrue(payout.size() == 3, "all three equal-damage players qualify");
-        helper.assertTrue(payout.get(a) == 3L, "player a round(10/3) = 3");
-        helper.assertTrue(payout.get(b) == 3L, "player b round(10/3) = 3");
-        helper.assertTrue(payout.get(c) == 4L, "player c (last) absorbs remainder 10-6 = 4");
+        for (UUID id : List.of(a, b, c)) {
+            long expected = id.equals(smallest) ? 4L : 3L;
+            helper.assertTrue(payout.get(id) == expected,
+                    "floor 3 each, the tie-broken smallest UUID takes the leftover -> " + expected);
+        }
         long total = payout.get(a) + payout.get(b) + payout.get(c);
         helper.assertTrue(total == 10L, "non-divisible weighted shares sum EXACTLY to fixed pool 10 (no loss/inflation)");
 
-        // 大池非整除: 伤害 [7000, 2000, 1000] 池 9999 -> a=round(9999*0.7)=6999, b=round(9999*0.2)=2000,
-        // c(末)=9999-6999-2000=1000。Σ=9999。
+        // 大池非整除: 伤害 [7000, 2000, 1000] 池 9999 -> 配额 6999.3 / 1999.8 / 999.9, floor 后剩 2 个名额,
+        // 按小数从大到小给 z (0.9) 与 y (0.8) -> 6999 / 2000 / 1000。Σ=9999。
         UUID x = UUID.randomUUID();
         UUID y = UUID.randomUUID();
         UUID z = UUID.randomUUID();
@@ -346,9 +348,9 @@ public final class ChampionRewardBloodPoolGameTests {
                 new DamageContribution(y, 2_000.0D, 2L, true),
                 new DamageContribution(z, 1_000.0D, 3L, true));
         Map<UUID, Long> p2 = ContributionPool.distribute(big, 1_000_000.0D, 9_999L);
-        helper.assertTrue(p2.get(x) == 6_999L, "x round(9999*0.70) = 6999");
-        helper.assertTrue(p2.get(y) == 2_000L, "y round(9999*0.20) = 2000");
-        helper.assertTrue(p2.get(z) == 1_000L, "z (last) = 9999 - 6999 - 2000 = 1000");
+        helper.assertTrue(p2.get(x) == 6_999L, "x floor(6999.3) = 6999 (smallest fraction, no leftover)");
+        helper.assertTrue(p2.get(y) == 2_000L, "y floor(1999.8) + 1 = 2000");
+        helper.assertTrue(p2.get(z) == 1_000L, "z floor(999.9) + 1 = 1000");
         long total2 = p2.get(x) + p2.get(y) + p2.get(z);
         helper.assertTrue(total2 == 9_999L, "big-pool weighted shares sum exactly to 9999");
         helper.succeed();
@@ -373,9 +375,10 @@ public final class ChampionRewardBloodPoolGameTests {
                 new DamageContribution(leech2, 10.0D, 11L, true),
                 new DamageContribution(carry, 90_000.0D, 5L, true));
         Map<UUID, Long> payout = ContributionPool.distribute(contribs, bossHp, 5_000L);
-        // 唯一合格者 carry 独吞整池; 两蹭枪 0。
+        // 唯一合格者 carry 拿自己那份 round(5000 × 90000/90020) = 4999; 两蹭枪 0, 其份额作废不回池。
         helper.assertTrue(payout.size() == 1, "only carry qualifies; two leeches fail both thresholds");
-        helper.assertTrue(payout.get(carry) == 5_000L, "sole qualifier takes whole fixed pool 5000");
+        helper.assertTrue(payout.get(carry) == 4_999L,
+                "sole qualifier takes its own share round(5000 x 90000/90020) = 4999 (leech shares voided)");
         helper.assertTrue(!payout.containsKey(leech1), "leech1 not head-count copied");
         helper.assertTrue(!payout.containsKey(leech2), "leech2 not head-count copied");
 

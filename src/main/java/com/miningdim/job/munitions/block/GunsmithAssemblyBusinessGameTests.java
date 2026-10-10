@@ -850,7 +850,8 @@ public final class GunsmithAssemblyBusinessGameTests {
         assertClose(helper, m1911.effectiveRange(), 19.0D, "M1911 preview effective range");
         assertClose(helper, m1911.recoilChange(), (1.0D / 1.08D - 1.0D) * 100.0D,
                 "M1911 preview recoil");
-        assertClose(helper, m1911.spreadChange(), (1.0D / 1.30D - 1.0D) * 100.0D,
+        // 散布含握把分量 (E8): 扳机 1.30 与握把 1.40 写进的是同一份 TaCZ 散布缓存。
+        assertClose(helper, m1911.spreadChange(), (1.0D / 1.30D / 1.40D - 1.0D) * 100.0D,
                 "M1911 preview spread");
         assertClose(helper, m1911.adsTime(), 0.08D / 1.40D, "M1911 preview ADS");
         assertClose(helper, m1911.average(), 6.08D / 5.0D, "M1911 preview five-part average");
@@ -912,13 +913,13 @@ public final class GunsmithAssemblyBusinessGameTests {
                 GunsmithPartQuality.LEGENDARY, GunsmithPartVariant.RED_EAST_HIGH_PRESSURE_GAS));
         GunsmithAssemblyRecipe.Preview preview =
                 GunsmithAssemblyRecipe.preview(GunsmithBlueprint.AK47, parts, AK47_BASE_STATS);
-        // 1.20 (MILSPEC 枪机品质系数) x 2.00 (传奇红东导气伤害乘数) = 2.40 已越过 2.25 总帽, 故预览伤害
-        // 手算为 9.0 (AK 基础伤害) x 2.25 = 20.25。预览与成品必须同帽, 否则装配台显示一套、到手另一套 (审查 27)。
-        assertClose(helper, preview.damage(), 20.25D,
-                "legendary red east gas preview damage must be clamped by the total damage cap");
-        assertClose(helper, preview.range(), 0.858D,
-                "red east gas must reduce the legendary core range coefficient by 40 percent");
-        assertClose(helper, preview.effectiveRange(), 44.616D,
+        // 平衡方案 E4 后: 1.20 (MILSPEC 枪机品质系数) x 1.60 (传奇红东导气伤害乘数) = 1.92, 在 2.25 总帽之下,
+        // 预览伤害手算为 9.0 (AK 基础伤害) x 1.92 = 17.28。越帽的钳制由 damageMultiplierCapClampsTheAkDoubleSpecialCompound 守。
+        assertClose(helper, preview.damage(), 17.28D,
+                "legendary red east gas preview damage must apply bolt quality x the legendary 1.60 bonus");
+        assertClose(helper, preview.range(), 1.0725D,
+                "red east gas must reduce the legendary core range coefficient by 25 percent");
+        assertClose(helper, preview.effectiveRange(), 55.77D,
                 "red east gas must preserve legendary range scaling before applying its penalty");
 
         ItemStack output = GunsmithAssemblyRecipe.assemble(new ItemStack(Items.IRON_HOE),
@@ -932,19 +933,19 @@ public final class GunsmithAssemblyBusinessGameTests {
                 "current gun NBT must cache base damage instead of the hot-reload component bonus");
         GunsmithGunStats stats = GunsmithGunStats.from(output);
         helper.assertTrue(stats != null, "red east assembly must produce valid gunsmith stats");
-        assertClose(helper, stats.damage(), 2.25D,
-                "assembled red east damage multiplier must be clamped to the 2.25 total cap");
-        assertClose(helper, stats.range(), 0.858D, "assembled red east effective-range multiplier");
+        assertClose(helper, stats.damage(), 1.92D,
+                "assembled red east damage multiplier must be bolt quality 1.20 x legendary 1.60");
+        assertClose(helper, stats.range(), 1.0725D, "assembled red east effective-range multiplier");
         assertClose(helper, stats.fireRate(), 0.75D, "assembled red east fire-rate multiplier");
-        assertClose(helper, stats.specialSpread(), 1.80D, "assembled red east spread penalty");
+        assertClose(helper, stats.specialSpread(), 1.30D, "assembled red east spread penalty");
         assertClose(helper, stats.specialRecoil(), 2.00D, "assembled red east all-axis recoil penalty");
-        assertClose(helper, stats.verticalRecoil(), 3.00D, "assembled red east pitch-recoil multiplier");
+        assertClose(helper, stats.verticalRecoil(), 2.00D, "assembled red east pitch-recoil multiplier");
         GunsmithStatMultipliers multipliers = GunsmithStatMultipliers.of(stats, 10.0D);
-        assertClose(helper, multipliers.inaccuracy(), (1.0D / 1.30D) * 1.80D,
+        assertClose(helper, multipliers.inaccuracy(), (1.0D / 1.30D) * 1.30D,
                 "red east spread penalty must stack after handguard control");
         assertClose(helper, multipliers.recoil(), (1.0D / 1.08D) * 2.00D,
                 "red east all-axis recoil must stack after stock control");
-        assertClose(helper, multipliers.verticalRecoil(), (1.0D / 1.08D) * 2.00D * 3.00D,
+        assertClose(helper, multipliers.verticalRecoil(), (1.0D / 1.08D) * 2.00D * 2.00D,
                 "red east extra vertical recoil must stack after all-axis recoil");
         helper.assertTrue(stats.parts().stream().anyMatch(part ->
                         part.part() == GunsmithPressPart.CORE
@@ -956,8 +957,9 @@ public final class GunsmithAssemblyBusinessGameTests {
     /**
      * 总帽必须真的咬得住最坏组合 (审查 27)。
      *
-     * AK 平台上三件加伤互不排斥: 传奇枪机的品质系数上限 1.50 x 传奇红东高压导气核心的伤害 2.00 x
-     * 赤雪-A 枪机型号的伤害 1.25 = 3.75 倍, 对 AK47 基础伤害 9.0 折算单发躯干 33.75 点, 80 血公服三发致死。
+     * 红东高压导气与赤雪-A 枪机互斥 (平衡方案 E6) 之后, AK 新装配能到的最坏组合是传奇枪机品质系数上限 1.50 x
+     * 传奇红东高压导气核心的伤害 1.60 = 2.40 倍, 仍越过 2.25 总帽。互斥前装出的双加伤 AK (再乘赤雪 1.25 = 3.00)
+     * 被本帽钳住的用例在 GunsmithComponentBalanceGameTests。
      * 期望值全部手算, 不回调 capDamageMultiplier / gunsmithDamageMultiplierCap 当预言机。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
@@ -967,22 +969,21 @@ public final class GunsmithAssemblyBusinessGameTests {
         parts.put(GunsmithPressPart.CORE, GunsmithPartItem.createStack(
                 ModMunitionsItems.GUNSMITH_PART.get(), GunsmithPlatform.AK, GunsmithPressPart.CORE,
                 GunsmithPartQuality.LEGENDARY, GunsmithPartVariant.RED_EAST_HIGH_PRESSURE_GAS));
-        parts.put(GunsmithPressPart.BOLT, GunsmithPartItem.createStack(
-                ModMunitionsItems.GUNSMITH_PART.get(), GunsmithPlatform.AK, GunsmithPressPart.BOLT,
-                GunsmithPartQuality.LEGENDARY, GunsmithPartVariant.RED_WINTER_CHIXUE_A_BOLT, 1.50D));
+        parts.put(GunsmithPressPart.BOLT, part(GunsmithPlatform.AK, GunsmithPressPart.BOLT,
+                GunsmithPartQuality.LEGENDARY, 1.50D));
 
         GunsmithAssemblyRecipe.Preview preview =
                 GunsmithAssemblyRecipe.preview(GunsmithBlueprint.AK47, parts, AK47_BASE_STATS);
         assertClose(helper, preview.damage(), 20.25D,
-                "装配预览的伤害必须与成品同帽 (9.0 x 2.25), 不得显示未封顶的 9.0 x 3.75");
+                "装配预览的伤害必须与成品同帽 (9.0 x 2.25), 不得显示未封顶的 9.0 x 2.40");
 
         ItemStack output = GunsmithAssemblyRecipe.assemble(new ItemStack(Items.IRON_HOE),
                 GunsmithBlueprintItem.createStack(ModMunitionsItems.GUNSMITH_BLUEPRINT.get(),
                         GunsmithBlueprint.AK47), parts);
         GunsmithGunStats stats = GunsmithGunStats.from(output);
-        helper.assertTrue(stats != null, "双特殊组件的 AK 仍必须是合法数据");
+        helper.assertTrue(stats != null, "传奇枪机 + 传奇红东的 AK 必须是合法数据");
         assertClose(helper, stats.damage(), 2.25D,
-                "1.50 x 2.00 x 1.25 = 3.75 必须被钳到 2.25");
+                "1.50 x 1.60 = 2.40 必须被钳到 2.25");
         // 帽是读取期施加的: NBT 里缓存的仍是未封顶的品质系数, 封顶绝不能反写玩家的零件数值。
         assertClose(helper, output.getOrCreateTag().getCompound(GunsmithGunStats.ROOT_KEY)
                         .getCompound(GunsmithGunStats.STATS_KEY).getDouble("damage"), 1.50D,
@@ -1045,7 +1046,7 @@ public final class GunsmithAssemblyBusinessGameTests {
         assertClose(helper, preview.effectiveRange(), 62.40D, "legendary MK-AX-A preview effective range");
         assertClose(helper, preview.recoilChange(), (1.0D / 1.08D * 0.75D - 1.0D) * 100.0D,
                 "legendary MK-AX-A preview recoil");
-        assertClose(helper, preview.spreadChange(), (1.0D / 1.30D * 0.75D - 1.0D) * 100.0D,
+        assertClose(helper, preview.spreadChange(), (1.0D / 1.30D * 0.75D / 1.40D - 1.0D) * 100.0D,
                 "legendary MK-AX-A preview spread");
         assertClose(helper, preview.adsTime(), 0.16D / (1.40D * 0.70D),
                 "MK-AX-A must reduce ADS speed by a fixed 30 percent");
@@ -1083,7 +1084,7 @@ public final class GunsmithAssemblyBusinessGameTests {
                 GunsmithAssemblyRecipe.preview(GunsmithBlueprint.M4A1, parts, M4_BASE_STATS);
         assertClose(helper, preview.recoilChange(), (1.0D / 1.08D * 0.65D - 1.0D) * 100.0D,
                 "three-round-burst bolt preview recoil");
-        assertClose(helper, preview.spreadChange(), (1.0D / 1.30D * 0.75D - 1.0D) * 100.0D,
+        assertClose(helper, preview.spreadChange(), (1.0D / 1.30D * 0.75D / 1.40D - 1.0D) * 100.0D,
                 "three-round-burst bolt preview spread");
 
         ItemStack blueprint = GunsmithBlueprintItem.createStack(
@@ -1131,7 +1132,7 @@ public final class GunsmithAssemblyBusinessGameTests {
                 "Trinity preview effective range");
         assertClose(helper, preview.recoilChange(), (1.0D / 1.08D - 1.0D) * 100.0D,
                 "Trinity preview must preserve base recoil");
-        assertClose(helper, preview.spreadChange(), (1.0D / 1.30D * 0.70D - 1.0D) * 100.0D,
+        assertClose(helper, preview.spreadChange(), (1.0D / 1.30D * 0.70D / 1.40D - 1.0D) * 100.0D,
                 "Trinity preview spread");
         assertClose(helper, preview.adsTime(), 0.16D / (1.40D * 0.50D),
                 "Trinity preview ADS time");
@@ -1424,9 +1425,9 @@ public final class GunsmithAssemblyBusinessGameTests {
 
         GunsmithGunStats stats = GunsmithGunStats.from(legacy);
         helper.assertTrue(stats != null, "v2 red east gun must remain readable");
-        assertClose(helper, stats.range(), 0.858D,
+        assertClose(helper, stats.range(), 1.0725D,
                 "v2 red east gun must migrate to the multiplicative range penalty");
-        assertClose(helper, stats.effectiveRange(AK47_BASE_STATS), 44.616D,
+        assertClose(helper, stats.effectiveRange(AK47_BASE_STATS), 55.77D,
                 "migrated v2 red east gun must preserve quality scaling before applying the penalty");
         helper.succeed();
     }

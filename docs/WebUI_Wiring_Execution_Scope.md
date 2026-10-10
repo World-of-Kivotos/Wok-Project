@@ -125,6 +125,8 @@
 | `job.tarot.buyPack` | BACKEND | C15 | 卡包是信用点主力 sink，`spentToday` 是私有计数无 getter，玩家看不到"今天还能买几包" |
 | `job.agent.scan` | SPEC | C16 | **本组最大缺口**：menu/S2C/C2S 三件套齐全，但 `AgentSealSeam.buildScanSnapshot` 与 `AgentScanMenu.Provider` 全工程零调用点。须先定决策 J9（触发入口） |
 
+> 本轮范围之外的后续增补（不改上表的 W4 快照口径）：军火商系统采购的 `job.munitions.shop`（只读目录，进批）与 `job.munitions.buy`（写动作，`purchaseId` 幂等）于 2026-09-27 落地（分支 `feat/munitions-system-shop`），对应清单 C20b / C20c，规则见 [Munitions_Job_DesignSpec.md](Munitions_Job_DesignSpec.md) 6.4。它照 `job.tarot.buyPack` 的写动作范式实现：业务判定与扣费全在服务端域类 `MunitionsShop`，`*WebUiActions` 只做入参校验、错误码映射与 JSON 化；前端同步了契约表（`lib/types.ts` / `lib/bridge.ts`）、`SERVER_ACTIONS`、`bridge.mock` 与 `mock/handlers.ts` 的背包镜像刷新表，目录另登记进前后两侧的 `BATCHABLE`（`check:contract` 逐条核对）。
+
 ### 分支 W5 · 经济（3 条）
 
 | action | 档 | 清单行 | 实现要点 |

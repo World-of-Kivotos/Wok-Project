@@ -69,7 +69,7 @@
 │   ├─ 酿酒师 9 酒永久层数 / 月光词条 / 配方表 / 酒窖陈酿
 │   ├─ 塔罗   卡组 / CD / 卡包 / 合成 / 碎片兑换
 │   ├─ 特勤   战术扫描 / 封印 / 悬赏板 / 五支线数值
-│   ├─ 军火商 军火台 / 冲压机 / 装配台 / 图纸百科
+│   ├─ 军火商 军火台 / 冲压机 / 装配台 / 图纸百科 / 系统采购
 │   └─ 工程师 纳米生产台 / 档位表 / 护甲特效
 ├─ 矿洞                  三难度总览 / 进入 · 离开 / 等级门 / 重置倒计时 / danger
 ├─ 精英怪图鉴            35 词条表 / 10 星级表 / 难度分布 / 参团贡献
@@ -192,6 +192,8 @@ PixelLoading / PixelEmpty / PixelError / PixelConfirmDanger
 | C18 | 特勤悬赏板 | BACKEND | 周期/目标类型骨架就绪，但模板库与持久化序列化未实现（`AgentBountySavedData` 类注释自标遗留待办），暂无可读数据源 |
 | C19 | `job.munitions.state` | READY | `MunitionsWebUiActions.STATE`。军火台/冲压机/装配台的 ContainerData 已 JSON 化 |
 | C20 | `job.blueprints` | READY | `MunitionsWebUiActions.BLUEPRINTS`。`GunsmithBlueprint` 枚举（枪型 + requiredParts）静态表 dump |
+| C20b | `job.munitions.shop`（2026-09-27 新增，本清单原未登记） | READY | `MunitionsWebUiActions.SHOP`。系统采购目录（六档军火台 + 冲压机 + 装配台 + 全部图纸），每行带等级门、售价、可购态与 `reasonCode`；只读，已进 `system.batch` 白名单（两侧 `BATCHABLE` 同步）。判定真源 `MunitionsShop.evaluate`，规则见 [Munitions_Job_DesignSpec.md](Munitions_Job_DesignSpec.md) 6.4 |
+| C20c | `job.munitions.buy`（同上） | READY | `MunitionsWebUiActions.BUY`。写动作：`{entryId, purchaseId}`，`purchaseId` 是客户端 UUID 幂等键（同 id 重复到达回放回执、不二次扣费）；拒绝码 `SHOP_ITEM_UNAVAILABLE` / `PURCHASE_LEVEL_LOCKED` / `PURCHASE_CAP_REACHED` / `ALREADY_OWNED` / `ECONOMY_OFFLINE` / `INSUFFICIENT_FUNDS` / `INVENTORY_FULL`，与目录行 `reasonCode` 同值。前端落点 `MunitionsPanel` 的"系统采购"区块，`mock/handlers.ts` 已登记进 `MIRROR_AFTER_INVENTORY` |
 | C21 | `job.engineer.state` | READY(部分) + 待决策 | `EngineerWebUiActions.STATE` 已上线（档位表/护甲特效）；**纳米校准 QTE 游标仍不进 MCEF**，见 J5 |
 | C22 | 电力/线缆 | NONE(webui) | 原写的两条理由均已失效：`com.miningdim.power` 包已在本 checkout（cable / grid / generator / machine / storage 等子包齐全），`ConductorMaterial` 12 级也已全部经 `PowerRegistry.REGISTERED_MATERIALS` 真实注册为方块与物品。仍为 NONE 的是 **webui 侧**：派发表里没有任何 `power.*` action，前端要接得先设计这一层 |
 
@@ -241,7 +243,7 @@ PixelLoading / PixelEmpty / PixelError / PixelConfirmDanger
 |---|---|---|---|
 | G1 | `champion.codex` | READY | `ChampionWebUiActions.CODEX`。35 词条（池/成本/最低星/互斥族/5 档数值）+ 10 星级主数据表 + 难度分布升格概率，纯静态 dump |
 | G2 | `champion.inspect` | READY | `ChampionWebUiActions.INSPECT`。按实体查星级/词条/品质配色/血量（6 星及以上走自定义血池） |
-| G3 | 参团贡献实时进度 | BACKEND | 账本只在死亡时 drain 一次性瓜分，**战斗中玩家完全不知道自己是否已达 0.5% boss 血或 15% 队均门槛** |
+| G3 | 参团贡献实时进度 | BACKEND | 账本挂在精英 capability 上、只在死亡时一次性瓜分后清空，**战斗中玩家完全不知道自己是否已达 0.5% boss 血或 15% 队均门槛、最近命中是否还在 5 分钟窗口内** |
 | G4 | 击杀奖励结算 | BACKEND | 只打 LOGGER + grantDaily 入账，**没有任何 S2C 告诉玩家分到了多少**（撞 A11） |
 | G5 | 燃烧/寒霜 DoT 层数 | BACKEND | 只扣血 + 粒子，不挂 MobEffectInstance，玩家在原生效果栏看不到叠了几层/合计 %maxHP/s |
 | G6 | 玩家减伤汇总 | BACKEND | `ReductionSource.rate()` 依赖 DamageSource 入参，只在受击瞬间现算，**无脱离受击场景的快照查询** |

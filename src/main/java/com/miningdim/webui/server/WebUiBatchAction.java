@@ -103,6 +103,7 @@ final class WebUiBatchAction {
             "job.engineer.state",
             "job.farmer.state",
             "job.miner.state",
+            "job.munitions.shop",
             "job.munitions.state",
             "job.progress",
             "job.tarot.state",

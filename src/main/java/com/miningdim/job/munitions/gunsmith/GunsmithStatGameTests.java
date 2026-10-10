@@ -299,7 +299,8 @@ public final class GunsmithStatGameTests {
                 1.20D, 1.30D, 1.0D, 1.0D, 1.0D, 1.0D, 1.80D);
         assertClose(helper, underCap.headshot(), 1.30D, "headshot below the cap must apply directly");
 
-        // 红冬传奇总伤害 3.0 = 枪机 1.5 x 导气 2.0；爆头帽只钳枪机 1.5 x 枪管 1.5，导气不得把爆头压到躯干以下。
+        // 红冬双加伤存量 AK 总伤害 3.0 = 枪机 1.5 x 红东导气 1.6 x 赤雪 1.25；爆头帽只钳枪机 1.5 x 枪管 1.5，
+        // 组件伤害不得把爆头压到躯干以下。
         GunsmithStatMultipliers redWinter = GunsmithStatMultipliers.of(
                 3.00D, 1.50D, 1.50D, 1.0D, 1.0D, 1.0D, 1.0D, 1.80D);
         assertClose(helper, redWinter.damage(), 3.00D, "special component damage must remain on body damage");
@@ -312,8 +313,10 @@ public final class GunsmithStatGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void redEastHighPressureGasUsesQualityTableAndMultiplicativeRangePenalty(GameTestHelper helper) {
-        double[] damage = {1.20D, 1.40D, 1.60D, 1.80D, 2.00D};
-        double[] spread = {1.20D, 1.35D, 1.50D, 1.65D, 1.80D};
+        // 平衡方案 E4: 伤害 1.20-2.00 压到 1.36-1.60 (普通档不再是伤害 x 射速 0.90 的负收益), 散布 1.20-1.80 收到
+        // 1.10-1.30, 射程惩罚 0.60 放宽到 0.75, 额外垂直后坐 3.00 降到 2.00; 射速 0.75 与全向后坐 2.00 不动。
+        double[] damage = {1.36D, 1.42D, 1.48D, 1.54D, 1.60D};
+        double[] spread = {1.10D, 1.15D, 1.20D, 1.25D, 1.30D};
         double[] recoil = {2.00D, 2.00D, 2.00D, 2.00D, 2.00D};
         GunsmithPartVariant variant = GunsmithPartVariant.RED_EAST_HIGH_PRESSURE_GAS;
         for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
@@ -325,12 +328,12 @@ public final class GunsmithStatGameTests {
                     "red east spread table " + quality.id());
             assertClose(helper, variant.recoilMultiplier(quality), recoil[quality.index()],
                     "red east all-axis recoil table " + quality.id());
-            assertClose(helper, variant.verticalRecoilMultiplier(quality), 3.00D,
+            assertClose(helper, variant.verticalRecoilMultiplier(quality), 2.00D,
                     "red east extra vertical recoil must be fixed across qualities");
-            assertClose(helper, variant.rangeMultiplier(quality), 0.60D,
-                    "red east gas must apply a 40 percent effective-range penalty");
+            assertClose(helper, variant.rangeMultiplier(quality), 0.75D,
+                    "red east gas must apply a 25 percent effective-range penalty");
         }
-        assertClose(helper, variant.applyRangeMultiplier(1.43D, GunsmithPartQuality.LEGENDARY), 0.858D,
+        assertClose(helper, variant.applyRangeMultiplier(1.43D, GunsmithPartQuality.LEGENDARY), 1.0725D,
                 "red east range penalty must preserve the core quality coefficient");
         helper.assertTrue(variant.supports(GunsmithPlatform.AK, GunsmithPressPart.CORE),
                 "red east gas must support AK core");
@@ -418,10 +421,12 @@ public final class GunsmithStatGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void chixueABoltUsesFixedAkTradeoffsAndExistingBoltSlot(GameTestHelper helper) {
+        // 平衡方案 E5: 伤害由五档恒 1.25 改为随品质 1.05-1.25, 传奇档不变; 穿甲与后坐代价仍五档恒定。
+        double[] damage = {1.05D, 1.10D, 1.15D, 1.20D, 1.25D};
         GunsmithPartVariant variant = GunsmithPartVariant.RED_WINTER_CHIXUE_A_BOLT;
         for (GunsmithPartQuality quality : GunsmithPartQuality.values()) {
-            assertClose(helper, variant.damageMultiplier(quality), 1.25D,
-                    "Chixue-A damage bonus must remain fixed across qualities");
+            assertClose(helper, variant.damageMultiplier(quality), damage[quality.index()],
+                    "Chixue-A damage table " + quality.id());
             assertClose(helper, variant.recoilMultiplier(quality), 1.35D,
                     "Chixue-A recoil penalty must remain fixed across qualities");
             assertClose(helper, variant.armorIgnoreMultiplier(quality), 0.75D,

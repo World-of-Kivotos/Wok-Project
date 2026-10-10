@@ -1,5 +1,6 @@
 package com.miningdim.job.munitions.gunsmith;
 
+import com.miningdim.job.munitions.MunitionsCaliber;
 import net.minecraft.resources.ResourceLocation;
 
 import java.util.Arrays;
@@ -90,6 +91,27 @@ public enum GunsmithBlueprint {
 
     public Set<GunsmithPressPart> requiredParts() {
         return requiredParts;
+    }
+
+    /**
+     * 这张图纸造出来的枪吃哪一档军火台口径 (Munitions_Job_DesignSpec 6.3 口径弹药对照表)。
+     *
+     * 系统采购按它定图纸的等级门: max(装配解锁等级, 本口径解锁等级) —— 等级够装配却造不出这发弹的号,
+     * 买到图纸也只能造一把打不响的枪。弹药 id 逐张取自枪数据文件的 ammo 字段, 与
+     * {@code TaczRecipeFilterGameTests.BLUEPRINT_AMMO} 同一出处, {@code MunitionsShopGameTests} 逐张对账。
+     * 用无 default 的 switch: 新增图纸不补这一行就编译不过, 不会静默落到某个兜底口径上。
+     */
+    public MunitionsCaliber ammoCaliber() {
+        return switch (this) {
+            case M4A1, M16A1, M16A4, HK416D, SPR15HB -> MunitionsCaliber.RIFLE_556;
+            case AK47, RPK, TYPE_81 -> MunitionsCaliber.RIFLE;
+            case M1911, UMP45 -> MunitionsCaliber.PISTOL_45ACP;
+            case M870, M1887_LONG, KSG, M1014 -> MunitionsCaliber.SHOTGUN;
+            case UZI, HK_MP5A5, STERLING, MPX -> MunitionsCaliber.PISTOL;
+            case KAR98K -> MunitionsCaliber.SNIPER_792;
+            case SMLE_III -> MunitionsCaliber.SNIPER_303;
+            case M700 -> MunitionsCaliber.SNIPER_3006;
+        };
     }
 
     public int iconModelData() {

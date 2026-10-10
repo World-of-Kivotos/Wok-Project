@@ -9,8 +9,14 @@ package com.miningdim.champion;
  * 据此盖章, 但本枚举本身无世界/实体引用。
  *
  * 数值逐行对齐 spec 第五章表 (星|生存池|战斗池|机动池|技能池|总词条上限|技能数上限|最高品质|基础有效HP|基础单击%)。
- * 技能 3★ 才解锁 (1-2★ 杂兵技能数上限 = 0)。基础有效 HP 6★ 起破原版 generic.max_health 1024 上限, 故 6★+
- * 走自定义血池 (spec 6.2)。
+ * 技能 3★ 才解锁 (1-2★ 杂兵技能数上限 = 0)。6★+ 恒走自定义血池 (spec 6.2); 4-5★ 基础有效 HP 虽已过原版
+ * generic.max_health 1024 上限, 但点数换算后多数个体回落到 1024 以内, 只有换算后仍破线的个体才建池
+ * (判据见 ChampionPromoter.requiresBloodPool)。
+ *
+ * 基础有效 HP 标定 (2026-09, spec 6.1): 锚点为枪匠普通 M4A1 (8 伤 / 810 RPM / 30 发 / 战术换弹 1.87s, 持续
+ * 58.6 HP/s)。6-10★ 按约 4 人小队、墙钟 25/56/100/165/270s 反推; 3-5★ 按单人 "N★ 约打 N 匣" 反推;
+ * 1-2★ 保持旧值 135/225 (给还没有枪的新手留低血, 用户拍板)。6-10★ 的数值以 6★+ 穿甲段分流
+ * ({@link ChampionDamageReduction#ARMOR_PIERCE_AFFIX_BYPASS}) 已生效为前提。
  *
  * 红线 3 单击 %maxHP 上限按星级三档抬升 (spec 第三章红线 3): 1-5★ ≤40% / 6-7★ ≤50% / 8-10★ ≤60%。
  * "基础单击%"列 (4%-20%) 是该星普通近战单击的名义基线; 红线 3 是该星任何普通单击 (不可躲) 的硬上限,
@@ -21,14 +27,14 @@ public enum StarRank {
     //         star surv comb mob skill affixCap skillCap  maxQuality            baseEffHp  baseHitPct
     STAR_1(1,   10,   8,   0,    0,     1,      0, AffixQuality.COMMON,      135.0D,    0.04D),
     STAR_2(2,   20,  14,   4,    0,     2,      0, AffixQuality.COMMON,      225.0D,    0.05D),
-    STAR_3(3,   35,  24,   8,   15,     3,      1, AffixQuality.UNCOMMON,    360.0D,    0.06D),
-    STAR_4(4,   55,  36,  12,   25,     4,      1, AffixQuality.UNCOMMON,    540.0D,    0.08D),
-    STAR_5(5,   80,  55,  20,   45,     5,      1, AffixQuality.RARE,        765.0D,    0.10D),
-    STAR_6(6,  120,  80,  30,   70,     6,      2, AffixQuality.RARE,      2_700.0D,    0.12D),
-    STAR_7(7,  165, 110,  45,  110,     7,      2, AffixQuality.EPIC,      6_000.0D,    0.14D),
-    STAR_8(8,  240, 160,  75,  180,     9,      3, AffixQuality.EPIC,     27_000.0D,    0.16D),
-    STAR_9(9,  330, 230, 115,  260,    11,      3, AffixQuality.LEGENDARY, 45_000.0D,    0.18D),
-    STAR_10(10, 440, 310, 155,  360,    13,      4, AffixQuality.LEGENDARY, 73_000.0D,    0.20D);
+    STAR_3(3,   35,  24,   8,   15,     3,      1, AffixQuality.UNCOMMON,    920.0D,    0.06D),
+    STAR_4(4,   55,  36,  12,   25,     4,      1, AffixQuality.UNCOMMON,  1_050.0D,    0.08D),
+    STAR_5(5,   80,  55,  20,   45,     5,      1, AffixQuality.RARE,      1_170.0D,    0.10D),
+    STAR_6(6,  120,  80,  30,   70,     6,      2, AffixQuality.RARE,      5_500.0D,    0.12D),
+    STAR_7(7,  165, 110,  45,  110,     7,      2, AffixQuality.EPIC,     10_800.0D,    0.14D),
+    STAR_8(8,  240, 160,  75,  180,     9,      3, AffixQuality.EPIC,     15_500.0D,    0.16D),
+    STAR_9(9,  330, 230, 115,  260,    11,      3, AffixQuality.LEGENDARY, 23_400.0D,    0.18D),
+    STAR_10(10, 440, 310, 155,  360,    13,      4, AffixQuality.LEGENDARY, 31_400.0D,    0.20D);
 
     /** 星级数值上界 (10★ 顶级世界 BOSS)。 */
     public static final int MAX_STAR = 10;
@@ -37,8 +43,9 @@ public enum StarRank {
     public static final int MIN_STAR = 1;
 
     /**
-     * 自定义血池启用阈值 (spec 6.2): 6★ 起基础有效 HP 破原版 generic.max_health 1024 上限,
-     * 一律以自定义 double currentHp/maxHp 为权威。1-5★ 基础有效 HP ≤765 < 1024 仍可走 vanilla。
+     * 自定义血池启用阈值 (spec 6.2): 6★ 起一律以自定义 double currentHp/maxHp 为权威。1-5★ 按换算后的有效血
+     * 判定: 未破原版 generic.max_health 1024 走 vanilla, 破线的个体 (如 4-5★ 裸怪 1,050/1,170、巨大化) 同样建池
+     * (ChampionPromoter.requiresBloodPool), 但不算"血池星级", 6★+ 专属的穿甲段分流等规则不覆盖它们。
      */
     public static final int CUSTOM_BLOOD_POOL_MIN_STAR = 6;
 
@@ -118,7 +125,7 @@ public enum StarRank {
         return maxQuality;
     }
 
-    /** 基础有效 HP (生存点几乎全投血量的情形; 6★ 起破 1024)。 */
+    /** 基础有效 HP (生存点几乎全投血量的情形; 4★ 起破 1024, 实际血量经点数换算后再定是否建池)。 */
     public double baseEffectiveHp() {
         return baseEffectiveHp;
     }
@@ -128,7 +135,7 @@ public enum StarRank {
         return baseSingleHitPct;
     }
 
-    /** 是否走自定义血池 (6★+, spec 6.2: 基础有效 HP 破 1024)。 */
+    /** 是否按星级恒走自定义血池 (6★+, spec 6.2); 1-5★ 有效血破 1024 的个体另由 requiresBloodPool 判定建池。 */
     public boolean usesCustomBloodPool() {
         return star >= CUSTOM_BLOOD_POOL_MIN_STAR;
     }

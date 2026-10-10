@@ -26,13 +26,14 @@ import com.miningdim.champion.integration.ChampionTacticalBlinkHandler;
 import com.miningdim.champion.integration.ChampionThunderHandler;
 import com.miningdim.champion.integration.ChampionVisualDisruptionHandler;
 import com.miningdim.champion.integration.PlayerLandingProtection;
-import com.miningdim.champion.reward.ContributionTracker;
 import com.miningdim.core.Subsystem;
 import net.minecraft.world.entity.Entity;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.ModLoadingContext;
+import net.minecraftforge.fml.config.ModConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,7 +51,9 @@ import org.slf4j.LoggerFactory;
  *  - 效果聚合器反泄漏清理: {@link ChampionEffectRegistries.CleanupHandler} 挂 forgeBus。
  *  - 升格 seam: {@link ChampionSpawnSeam#bind} 注入 {@link ChampionPromoter}, 压力子系统 spawnMob 成功后回调。
  *  - 效果 handler 全挂 forgeBus (血池减伤+拦死 / 攻击 on-hit / DoT 秒结算 / 自身被动 / 奖励 / BOSS 血条 / 词条粒子)。
- *  - 生命周期清理: ServerStoppingEvent 清血池/贡献账本/聚合器/seam, 防跨存档脏引用。
+ *  - 服务端配置: miningdim-champion.toml ({@link ChampionConfig}, SERVER 类型, 当前只有奖励 [reward] 段)。
+ *  - 生命周期清理: ServerStoppingEvent 清血池/聚合器/seam, 防跨存档脏引用。贡献账本不在此列: 它挂在冠军
+ *    capability 上随实体 NBT 持久化, 重启/区块卸载不清零, 与影子血同口径。
  */
 public final class ChampionSystem implements Subsystem {
 
@@ -58,6 +61,9 @@ public final class ChampionSystem implements Subsystem {
 
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
+        // 奖励调参旋钮 (奖池表/缩放/近期门槛/特勤加成与门槛): 业务经 ChampionConfig 访问器实时读, 与注册先后无关。
+        ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, ChampionConfig.SPEC, "miningdim-champion.toml");
+
         // 冠军 capability: 注册能力类型 (modBus) + 给每个 Mob 挂 Provider (forgeBus 泛型监听)。
         // 混总线对象不可整体 register (与 entry.EntrySystem 同坑): RegisterCapabilitiesEvent 是 IModBusEvent 走 modBus,
         // AttachCapabilitiesEvent<Entity> 是 forge 泛型事件走 forgeBus.addGenericListener; 整体 register 会在另一类事件抛
@@ -75,7 +81,7 @@ public final class ChampionSystem implements Subsystem {
 
         // 效果 handler 全挂 forgeBus (自研后无条件注册, 不再依赖 Champions 加载)。
         forgeBus.register(new ChampionBloodPoolHandler());   // 净减伤单点 + 血池拦死 + 渲染镜像
-        forgeBus.register(new ChampionRewardHandler());      // 贡献池盖章双门槛 + 经济闸
+        forgeBus.register(new ChampionRewardHandler());      // 贡献记账 (无血池冠军) + 结算瓜分 + 经济闸
         forgeBus.register(new ChampionBossBarHandler());     // 自建 BOSS 血条 (名/星级/词条名)
         forgeBus.register(new ChampionAttackHandler());      // 攻击类 on-hit (即时伤/DoT刷层/易伤/损甲/混沌限频)
         forgeBus.register(new ChampionDotTickHandler());     // DoT 每秒结算 + 寒霜减速
@@ -122,14 +128,13 @@ public final class ChampionSystem implements Subsystem {
         ChampionCommands.register(event.getDispatcher());
     }
 
-    /** 服务端停止: 清纯逻辑层运行态 (血池/贡献账本/聚合器/锁定登记/落地保护与 AOE 缓冲账本) + 解 seam 绑定, 防跨存档/跨重启脏引用。 */
+    /** 服务端停止: 清纯逻辑层运行态 (血池/聚合器/锁定登记/落地保护与 AOE 缓冲账本) + 解 seam 绑定, 防跨存档/跨重启脏引用。 */
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
         BloodPoolRegistry.reset();
         // 共享近场快照 (F020/F100 收口) 持强 ServerLevel/LivingEntity 引用: 与 ChampionAttackHandler.reset 同理,
         // 不清则跨存档泄漏旧服务端实体。
         ChampionProximityScanner.reset();
-        ContributionTracker.reset();
         ChampionEffectRegistries.reset();
         ChampionTargetLocks.reset();
         // 批4 波0 两个静态到期账本: 换存档后 gameTime 从小值重计, 残留旧到期 tick 会被误判仍在窗内 (审查修复)。

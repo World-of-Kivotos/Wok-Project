@@ -21,7 +21,7 @@ import java.util.UUID;
  * 只断言纯逻辑可见缝, 不碰 Champions/世界:
  * - {@link AoeImmunityBuffer#shouldGrantAfterAoeHit} 窗内不续窗不变式 (F102)。
  * - {@link ChampionCaesarSwapPlan#shouldSwap} 拒绝换位落地保护中目标的真值表 (F104)。
- * - {@link ContributionTracker#drain} 按首伤 tick 确定序 + {@link ContributionPool#distribute} 末名下钳不为负 (F103)。
+ * - {@link ContributionTracker#snapshot} 按首伤 tick 确定序 + {@link ContributionPool#distribute} 份额不为负且总和恒等 (F103)。
  *
  * template = "empty", batch = "champion_chain"。
  */
@@ -105,94 +105,81 @@ public final class ChampionScanAndGuardGameTests {
     }
 
     // ============================================================
-    // F103: 贡献 drain 确定序 (按首伤 tick) + ContributionPool 末名下钳不为负
+    // F103: 贡献快照确定序 (按首伤 tick) + ContributionPool 份额不为负且总和恒等
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void contributionDrainIsOrderedByFirstHitTick(GameTestHelper helper) {
-        // 固定 UUID (非 randomUUID): 让 ConcurrentHashMap 内部哈希桶序稳定可复现 (已用 javac/java 独立跑通实际
-        // ContributionTracker/ContributionPool 源码核实: 这三个 UUID 在本 JDK 上的桶序恰是插入序 p1,p2,p3, 与
-        // 期望的首伤序 p2,p3,p1 不同), 从而让"未排序直接吃哈希桶序"的回退在本机每次运行都确定性地被本断言逮到,
-        // 而不是偶发通过。
+        // 固定 UUID (非 randomUUID): 账本底层是 HashMap, 固定 UUID 让桶序稳定可复现; 这三个 UUID 的插入序
+        // p1,p2,p3 与期望的首伤序 p2,p3,p1 不同, 从而让"未排序直接吃哈希桶序"的回退确定性地被本断言逮到。
         UUID p1 = UUID.fromString("11111111-1111-1111-1111-111111111111"); // 插入序第1, 首伤 tick=300 (最晚)
         UUID p2 = UUID.fromString("22222222-2222-2222-2222-222222222222"); // 插入序第2, 首伤 tick=100 (最早)
         UUID p3 = UUID.fromString("33333333-3333-3333-3333-333333333333"); // 插入序第3, 首伤 tick=200 (居中)
-        UUID champ = UUID.randomUUID();
-        try {
-            // (a) 乱序 record: 插入序 (p1,p2,p3) 与首伤序 (p2,p3,p1) 相反。
-            ContributionTracker.record(champ, p1, 10.0D, 300L);
-            ContributionTracker.record(champ, p2, 10.0D, 100L);
-            ContributionTracker.record(champ, p3, 10.0D, 200L);
-            List<DamageContribution> drained = ContributionTracker.drain(champ, id -> true);
-            helper.assertTrue(drained.size() == 3, "drain 应返回全部 3 条贡献记录");
-            helper.assertTrue(drained.get(0).firstHitTick() == 100L && drained.get(0).playerId().equals(p2),
-                    "下标0应是首伤最早的 p2 (tick=100) (F103 钉子: 删排序退回哈希桶序, 本条必挂)");
-            helper.assertTrue(drained.get(1).firstHitTick() == 200L && drained.get(1).playerId().equals(p3),
-                    "下标1应是次早的 p3 (tick=200)");
-            helper.assertTrue(drained.get(2).firstHitTick() == 300L && drained.get(2).playerId().equals(p1),
-                    "下标2应是最晚的 p1 (tick=300)");
-        } finally {
-            ContributionTracker.reset(); // 防跨 test 脏账本 (ChampionGameTests:604-606 同范式)。
-        }
+        // 账本挂在冠军 capability 数据上 (无静态表, 不需要 finally 清理)。
+        MiningChampionData champ = new MiningChampionData();
+        // (a) 乱序 record: 插入序 (p1,p2,p3) 与首伤序 (p2,p3,p1) 相反。
+        ContributionTracker.record(champ, p1, 10.0D, 10.0D, 300L);
+        ContributionTracker.record(champ, p2, 10.0D, 10.0D, 100L);
+        ContributionTracker.record(champ, p3, 10.0D, 10.0D, 200L);
+        List<DamageContribution> drained = ContributionTracker.snapshot(champ, id -> true);
+        helper.assertTrue(drained.size() == 3, "快照应返回全部 3 条贡献记录");
+        helper.assertTrue(drained.get(0).firstHitTick() == 100L && drained.get(0).playerId().equals(p2),
+                "下标0应是首伤最早的 p2 (tick=100) (F103 钉子: 删排序退回哈希桶序, 本条必挂)");
+        helper.assertTrue(drained.get(1).firstHitTick() == 200L && drained.get(1).playerId().equals(p3),
+                "下标1应是次早的 p3 (tick=200)");
+        helper.assertTrue(drained.get(2).firstHitTick() == 300L && drained.get(2).playerId().equals(p1),
+                "下标2应是最晚的 p1 (tick=300)");
 
         // (b) 同 tick 兜底: 两名玩家首伤 tick 都是 500, 按 UUID.compareTo 升序排列。
         UUID t1 = UUID.fromString("44444444-4444-4444-4444-444444444444");
         UUID t2 = UUID.fromString("55555555-5555-5555-5555-555555555555");
         helper.assertTrue(t1.compareTo(t2) < 0, "前提核实: t1 应小于 t2 (compareTo<0), 后续断言基于此确定序");
-        UUID champ2 = UUID.randomUUID();
-        try {
-            // 插入序刻意与预期输出序相反 (先 t2 后 t1), 确认排序结果不是巧合沿用了插入序。
-            ContributionTracker.record(champ2, t2, 5.0D, 500L);
-            ContributionTracker.record(champ2, t1, 5.0D, 500L);
-            List<DamageContribution> drained2 = ContributionTracker.drain(champ2, id -> true);
-            helper.assertTrue(drained2.size() == 2, "同 tick 两条记录均应保留");
-            helper.assertTrue(drained2.get(0).playerId().equals(t1),
-                    "同 tick 兜底: UUID 较小的 t1 排在前 (compareTo 升序)");
-            helper.assertTrue(drained2.get(1).playerId().equals(t2),
-                    "同 tick 兜底: UUID 较大的 t2 排在后");
-        } finally {
-            ContributionTracker.reset();
-        }
+        MiningChampionData champ2 = new MiningChampionData();
+        // 插入序刻意与预期输出序相反 (先 t2 后 t1), 确认排序结果不是巧合沿用了插入序。
+        ContributionTracker.record(champ2, t2, 5.0D, 5.0D, 500L);
+        ContributionTracker.record(champ2, t1, 5.0D, 5.0D, 500L);
+        List<DamageContribution> drained2 = ContributionTracker.snapshot(champ2, id -> true);
+        helper.assertTrue(drained2.size() == 2, "同 tick 两条记录均应保留");
+        helper.assertTrue(drained2.get(0).playerId().equals(t1),
+                "同 tick 兜底: UUID 较小的 t1 排在前 (compareTo 升序)");
+        helper.assertTrue(drained2.get(1).playerId().equals(t2),
+                "同 tick 兜底: UUID 较大的 t2 排在后");
 
-        // (c) 末名份额下钳不为负 (ContributionPool.distribute, F103 后半修复)。
-        // 构造: 9 名合格玩家, 前 8 名有效伤害 100, 末位 1 (权重极小), boss 总有效血取小 (200) 令全员过门槛一
+        // (c) 份额不为负且总和恒等 (ContributionPool.distribute, F103 后半修复; 取整已改最大余数法)。
+        // 构造: 9 名合格玩家, 前 8 名净伤 100, 末位 1 (权重极小), boss 总有效血取小 (200) 令全员过门槛一
         // (0.5% x 200 = 1.0, 末位 1.0 恰好达标), fixedPoolRaw 取 7。
         List<DamageContribution> contribs = new ArrayList<>();
+        UUID largestOfHundreds = null;
         for (int i = 0; i < 8; i++) {
-            contribs.add(new DamageContribution(UUID.randomUUID(), 100.0D, i, true));
+            UUID id = UUID.randomUUID();
+            if (largestOfHundreds == null || id.compareTo(largestOfHundreds) > 0) {
+                largestOfHundreds = id;
+            }
+            contribs.add(new DamageContribution(id, 100.0D, i, true));
         }
-        contribs.add(new DamageContribution(UUID.randomUUID(), 1.0D, 8, true)); // 末位权重极小
+        UUID tiny = UUID.randomUUID();
+        contribs.add(new DamageContribution(tiny, 1.0D, 8, true)); // 末位权重极小
         double bossTotalEffectiveHp = 200.0D;
         long fixedPoolRaw = 7L;
         Map<UUID, Long> payout = ContributionPool.distribute(contribs, bossTotalEffectiveHp, fixedPoolRaw);
         helper.assertTrue(payout.size() == 9, "9 名玩家全部合格入账 (末位 1.0 恰卡在 boss 门槛 1.0 上, >= 达标)");
 
-        // 逐笔累计钳制 (F103 修复后): 前 7 名各占 round(7x100/801)=1 且未撞剩余预算; 第 8 名 (仍是 dmg=100 的
-        // 一员) round 也是 1, 但此时 remaining 已耗尽至 0, 钳到 0; 末位 (dmg=1.0, 权重极小) 吃剩余预算 0。
-        List<Long> shares = new ArrayList<>(payout.values());
-        for (int i = 0; i < 7; i++) {
-            helper.assertTrue(shares.get(i) == 1L,
-                    "前7名各分得 round(7 x 100/801) = 1 且未撞剩余预算 (F103 钉子: 删逐笔 Math.min 钳制会让"
-                            + "这些份额脱离预算校验)");
-        }
-        helper.assertTrue(shares.get(7) == 0L,
-                "第8名 (仍是 dmg=100 的一员) round 结果也是 1, 但此时剩余预算已耗尽为 0, 被逐笔钳制到 0"
-                        + " (F103 钉子: 删 Math.min(raw, remaining) 后此处会发出 1, 总和随之超池)");
-        long lastShare = shares.get(8);
-        helper.assertTrue(lastShare == 0L,
-                "末位 (dmg=1.0 权重极小) 吃剩余预算, 此时剩余预算恰为 0");
-        for (Long share : shares) {
-            helper.assertTrue(share >= 0L, "distribute 返回的每一份额均不得为负");
+        // 最大余数法: 8 名 dmg=100 的配额都是 7 x 100/801 = 0.874, 末位 0.0087, floor 全为 0, 剩 7 个名额按小数
+        // 从大到小发 —— 8 名同配额者平手, 按 UUID 升序前 7 名各得 1, UUID 最大的那名与末位各得 0。
+        for (Map.Entry<UUID, Long> e : payout.entrySet()) {
+            long expected = (e.getKey().equals(tiny) || e.getKey().equals(largestOfHundreds)) ? 0L : 1L;
+            helper.assertTrue(e.getValue() == expected,
+                    "largest remainder: 7 seats go to the 7 smallest-UUID tied 100-dmg players, got "
+                            + e.getValue() + " for " + e.getKey());
+            helper.assertTrue(e.getValue() >= 0L, "distribute 返回的每一份额均不得为负");
         }
 
-        // Σ应得 恒等于 fixedPoolRaw (F103 核心不变式): 逐笔钳制到剩余预算, 既不会因 round 上偏累计超池,
-        // 也不会因末名兜底漏发而少于池。
+        // Σ应得 恒等于 fixedPoolRaw (F103 核心不变式): 既不因取整上偏超池, 也不因兜底漏发而少于池。
         long sum = 0L;
-        for (Long share : shares) {
+        for (Long share : payout.values()) {
             sum += share;
         }
-        helper.assertTrue(sum == fixedPoolRaw,
-                "Σ应得 必须恰等于 fixedPoolRaw=7 (F103 钉子: 删逐笔钳制退回「仅钳末名」会让 Σ=8 超池, 本条必挂)");
+        helper.assertTrue(sum == fixedPoolRaw, "Σ应得 必须恰等于 fixedPoolRaw=7 (F103 钉子)");
 
         helper.succeed();
     }

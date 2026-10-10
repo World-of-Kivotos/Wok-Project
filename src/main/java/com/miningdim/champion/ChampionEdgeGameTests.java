@@ -31,7 +31,7 @@ import java.util.UUID;
  *  - AffixPool 四池 convertsRemainderToBaseStats 取值 (仅技能池 false);
  *  - DotAggregator 恰撞顶/全零边界 + 逐源保序; RetaliationAggregator 5s 窗满后下一窗额度复位;
  *  - PlayerControlAggregator 碎片化控制下无 2s 连续自由窗 (hasMinFreeWindow == false 反例) + clampSlow 恰封顶;
- *  - ContributionPool.distribute 非整除权重下末名吸收 round 余数保总和恒等;
+ *  - ContributionPool.distribute 非整除权重下最大余数法保总和恒等;
  *  - AffixDef 四池静态视图分区完备 (10/10/5/10 = 35 不重不漏且不可变)。
  *
  * 严禁触 Champions 加载路径 (compileOnly 铁律): 全部断言纯逻辑层业务结果, 不引用 top.theillusivec4.champions.*。
@@ -196,11 +196,13 @@ public final class ChampionEdgeGameTests {
         helper.assertTrue(Math.abs(StarRank.ofStar(5).baseSingleHitPct() - 0.10D) < EPS, "5star base hit 10%");
         helper.assertTrue(Math.abs(StarRank.ofStar(10).baseSingleHitPct() - 0.20D) < EPS, "10star base hit 20%");
 
-        // 基础有效 HP 6star 阶跃破 1024 (765 -> 2700)。
-        helper.assertTrue(StarRank.ofStar(5).baseEffectiveHp() < BloodPool.VANILLA_MAX_HEALTH_CLAMP,
-                "5star base HP 765 stays under vanilla 1024 clamp");
+        // 血池星级边界 (2026-09 星表): 4-5star 基础血 1050/1170 已过 1024, 但只按换算后有效血个别建池, 不是强制血池
+        // 星级; 6star 起按星级恒走血池, 基础血 5500 远破 1024。
+        helper.assertTrue(!StarRank.ofStar(5).usesCustomBloodPool(),
+                "5star (base HP 1170) is not a forced blood-pool star");
+        helper.assertTrue(StarRank.ofStar(6).usesCustomBloodPool(), "6star is the first forced blood-pool star");
         helper.assertTrue(StarRank.ofStar(6).baseEffectiveHp() > BloodPool.VANILLA_MAX_HEALTH_CLAMP,
-                "6star base HP 2700 breaks past vanilla 1024 clamp");
+                "6star base HP 5500 breaks past vanilla 1024 clamp");
         helper.succeed();
     }
 
@@ -297,15 +299,17 @@ public final class ChampionEdgeGameTests {
     }
 
     // ============================================================
-    // 贡献瓜分非整除权重: 末名吸收 round 余数保总和恒等 (ContributionPool)
+    // 贡献瓜分非整除权重: 最大余数法保总和恒等 (ContributionPool)
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void contributionDistributionRoundingRemainder(GameTestHelper helper) {
-        // 三玩家等伤 [1,1,1] 瓜分 1000: 各权重 1/3, round(333.33)=333; 末名吸收余数 = 1000-666 = 334。
+        // 三玩家等伤 [1,1,1] 瓜分 1000: 配额各 333.33, 先各 floor 333, 剩 1 个名额; 小数与净伤都平手, 按 UUID
+        // 升序给最小者 -> 334 (与输入序无关)。
         UUID a = UUID.randomUUID();
         UUID b = UUID.randomUUID();
         UUID c = UUID.randomUUID();
+        UUID smallest = a.compareTo(b) < 0 ? (a.compareTo(c) < 0 ? a : c) : (b.compareTo(c) < 0 ? b : c);
         // bossHp=1000 -> 0.5%=5; teamAvg=1, 15%=0.15; 各伤 1>=0.15 走门槛二全合格。
         List<DamageContribution> contribs = List.of(
                 new DamageContribution(a, 1.0D, 1L, true),
@@ -313,9 +317,12 @@ public final class ChampionEdgeGameTests {
                 new DamageContribution(c, 1.0D, 3L, true));
         Map<UUID, Long> payout = ContributionPool.distribute(contribs, 1_000.0D, 1_000L);
         helper.assertTrue(payout.size() == 3, "all three qualify via threshold-two (low team avg)");
-        helper.assertTrue(payout.get(a) == 333L, "first weight round(1000/3) = 333");
-        helper.assertTrue(payout.get(b) == 333L, "second weight round(1000/3) = 333");
-        helper.assertTrue(payout.get(c) == 334L, "last absorbs +1 round remainder (1000-666) = 334");
+        for (UUID id : List.of(a, b, c)) {
+            long expected = id.equals(smallest) ? 334L : 333L;
+            helper.assertTrue(payout.get(id) == expected,
+                    "largest remainder: floor 333 each, the tie-broken smallest UUID gets the leftover +1 -> "
+                            + expected + ", got " + payout.get(id));
+        }
         long total = payout.get(a) + payout.get(b) + payout.get(c);
         helper.assertTrue(total == 1_000L, "non-divisible weights still sum exactly to fixed pool (remainder absorbed)");
 

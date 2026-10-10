@@ -93,9 +93,9 @@ public final class ChampionSelfBuffGameTests {
         helper.assertTrue(!ChampionSelfBuffValues.isOutOfCombat(200L, 101L), "距受伤 99tick != 脱战");
         helper.assertTrue(ChampionSelfBuffValues.isOutOfCombat(200L, Long.MIN_VALUE), "从未受伤 = 脱战");
 
-        // 易燃再生停回窗 30tick: 恰 30 -> 可回; 29 -> 停回。
-        helper.assertTrue(ChampionSelfBuffValues.flammableRegenReady(200L, 170L), "距受伤 30tick = 可回");
-        helper.assertTrue(!ChampionSelfBuffValues.flammableRegenReady(200L, 171L), "距受伤 29tick = 停回");
+        // 易燃再生停回窗 60tick (2026-09 由 30 放宽): 恰 60 -> 可回; 59 -> 停回。
+        helper.assertTrue(ChampionSelfBuffValues.flammableRegenReady(200L, 140L), "距受伤 60tick = 可回");
+        helper.assertTrue(!ChampionSelfBuffValues.flammableRegenReady(200L, 141L), "距受伤 59tick = 停回");
         helper.succeed();
     }
 

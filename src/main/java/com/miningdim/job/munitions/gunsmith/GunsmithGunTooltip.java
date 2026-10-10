@@ -9,6 +9,14 @@ import java.util.Locale;
 
 public final class GunsmithGunTooltip {
 
+    /**
+     * 连发路由的枪上组件射速无效的标注 (参数: 组件射速百分比)。lang 归属方尚未收录该键, 故经
+     * translatableWithFallback 兜底, 键落地前玩家看到的是可读句子而不是裸键。
+     */
+    public static final String FIRE_RATE_BURST_INEFFECTIVE_KEY =
+            "tooltip.miningdim.gunsmith_gun.fire_rate_burst_ineffective";
+    public static final String FIRE_RATE_BURST_INEFFECTIVE_FALLBACK = "%s（连发模式下无效）";
+
     private GunsmithGunTooltip() {
     }
 
@@ -52,11 +60,11 @@ public final class GunsmithGunTooltip {
                         baseValue(formatSeconds(baseStats.adsTime())),
                         modifiedValue(formatSeconds(stats.effectiveAdsTime(baseStats)), stats.adsSpeed()))
                 .withStyle(ChatFormatting.GRAY));
-        if (Math.abs(stats.fireRate() - 1.0D) > 0.0005D
+        double componentFireRate = stats.componentFireRate();
+        if (Math.abs(componentFireRate - 1.0D) > 0.0005D
                 || Math.abs(stats.verticalRecoil() - 1.0D) > 0.0005D) {
             tooltip.add(Component.translatable("tooltip.miningdim.gunsmith_gun.special_gas",
-                            Component.literal(formatPercent(stats.fireRate() - 1.0D))
-                                    .withStyle(stats.fireRate() < 1.0D ? ChatFormatting.RED : ChatFormatting.GREEN),
+                            fireRateValue(stats, componentFireRate),
                             Component.literal(formatPercent(stats.verticalRecoil() - 1.0D))
                                     .withStyle(stats.verticalRecoil() > 1.0D ? ChatFormatting.RED : ChatFormatting.GREEN))
                     .withStyle(ChatFormatting.GRAY));
@@ -92,6 +100,20 @@ public final class GunsmithGunTooltip {
             }
             tooltip.add(row);
         }
+    }
+
+    /**
+     * 射速一格。强制三连发的枪上组件射速照样列出, 但整格标红并注明"连发模式下无效" (E7/E8): TaCZ 的连发节奏
+     * 取 burst_data, 不读 RPM 缓存, 格赫娜高速导气装在连发路由的枪上只剩后坐与散布代价。
+     */
+    private static Component fireRateValue(GunsmithGunStats stats, double componentFireRate) {
+        String percent = formatPercent(componentFireRate - 1.0D);
+        if (stats.forcesBurstFireMode() && Math.abs(componentFireRate - 1.0D) > 0.0005D) {
+            return Component.translatableWithFallback(FIRE_RATE_BURST_INEFFECTIVE_KEY,
+                    FIRE_RATE_BURST_INEFFECTIVE_FALLBACK, percent).withStyle(ChatFormatting.RED);
+        }
+        return Component.literal(percent)
+                .withStyle(componentFireRate < 1.0D ? ChatFormatting.RED : ChatFormatting.GREEN);
     }
 
     private static Component partComponent(GunsmithGunStats.PartSummary part) {

@@ -56,7 +56,21 @@ AR 是特殊组件最集中的平台，当前已注册四个非基础型号。�
 两条只属于 AR 的额外规则：
 
 - 圣三一精密刻度枪管在特殊倍率之外，还把成品枪的最大耐久乘以 `0.70`；同名的狙击版本没有这项代价。
-- AR三连发枪机会把装配输出改指向 `miningdim:{templateId}_gunsmith_burst` 替代枪数据，并强制成品射击模式为纯 `burst`。完整分支规则见[枪匠图纸射击模式策略](Gunsmith_Blueprint_Fire_Mode_Policy.md)“三连发枪机例外”一节。
+- AR三连发枪机会把装配输出改指向 `miningdim:{templateId}_gunsmith_burst` 替代枪数据，并强制成品射击模式为纯 `burst`。完整分支规则见[枪匠图纸射击模式策略](Gunsmith_Blueprint_Fire_Mode_Policy.md)“三连发枪机例外”一节。连发节奏取替代枪数据的 `burst_data`，不读射速缓存；与格赫娜高速导气同装时射速加成作废，成品 tooltip 的射速一格标红注明"连发模式下无效"。
+
+## TaCZ 配件标签
+
+TaCZ 按成品枪自己的 gunId 查 `allow_attachments` 标签，标签为空时一律不许装配件。三连发替代枪与旧 M4 模板成品的 gunId 都在 `miningdim` 命名空间，源枪的标签覆盖不到，因此枪匠枪包在 `custom/miningdim_gunsmith/data/miningdim/tacz_tags/attachments/allow_attachments/` 下为每个 id 各备一份，内容照抄 TaCZ 1.1.8 默认枪包里对应源枪的标签：
+
+| 成品 gunId | 照抄的源枪标签 |
+| --- | --- |
+| `miningdim:m4a1_gunsmith` | `tacz:m4a1` |
+| `miningdim:m4a1_gunsmith_burst` | `tacz:m4a1` |
+| `miningdim:m16a1_gunsmith_burst` | `tacz:m16a1` |
+| `miningdim:m16a4_gunsmith_burst` | `tacz:m16a4` |
+| `miningdim:hk416d_gunsmith_burst` | `tacz:hk416d` |
+
+服务器若另用枪包改过源枪的配件标签，须同步改这五份。GameTest `everyGunsmithGunIdCarriesItsSourceGunAttachmentTags` 核对枪包 `index/guns` 里登记的每个 id 都有标签且与源枪一致，新增替代枪 id 时必须同步。
 
 ## 图纸绑定
 

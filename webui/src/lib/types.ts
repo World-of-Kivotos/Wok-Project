@@ -1313,6 +1313,145 @@ export interface BlueprintsResult {
 }
 
 // ============================================================
+// job.munitions.shop / job.munitions.buy — com.miningdim.job.munitions.MunitionsWebUiActions (SHOP / BUY)
+// 判定、扣费、发货真源: com.miningdim.job.munitions.MunitionsShop (Munitions_Job_DesignSpec 6.4 系统采购)
+// (Gson serializeNulls: 非图纸行的四个图纸字段、非军火台行的 maxEffectiveLevel 都是显式 null, 键不会缺席)
+// ============================================================
+
+/** job.munitions.shop 入参 —— 不读 payload 任何字段。 */
+export type MunitionsShopPayload = EmptyPayload
+
+/** 采购条目的种类 (MunitionsShop.Kind.id)。 */
+export type MunitionsShopKind = 'bench' | 'press' | 'assembly' | 'blueprint'
+
+/**
+ * "此刻买不了"的原因 = job.munitions.buy 被拒时的 errorCode (同一个判定函数 MunitionsShop.evaluate 给出,
+ * 灰按钮与提交被拒是同一句话)。判定顺序即优先级, 一行只报第一条:
+ *   SHOP_ITEM_UNAVAILABLE  系统此刻不卖 (细分见 unavailableReason)
+ *   PURCHASE_LEVEL_LOCKED  军火商等级不到 requiredLevel
+ *   PURCHASE_CAP_REACHED   军火台拥有数 (已放置 + 背包里未放置) 已达等级上限
+ *   ALREADY_OWNED          背包里已有这张图纸 (装配不消耗图纸)
+ *   ECONOMY_OFFLINE        经济子系统未就绪 (收费条目)
+ *   INSUFFICIENT_FUNDS     信用点不够
+ *   INVENTORY_FULL         主背包没有空位 (服务端选择拒绝, 不掉在脚下)
+ */
+export type MunitionsShopReasonCode =
+  | 'SHOP_ITEM_UNAVAILABLE'
+  | 'PURCHASE_LEVEL_LOCKED'
+  | 'PURCHASE_CAP_REACHED'
+  | 'ALREADY_OWNED'
+  | 'ECONOMY_OFFLINE'
+  | 'INSUFFICIENT_FUNDS'
+  | 'INVENTORY_FULL'
+
+/** SHOP_ITEM_UNAVAILABLE 的细分: 枪匠链总开关关着 / 图纸所需的第三方枪包没加载。 */
+export type MunitionsShopUnavailableReason = 'gunsmith_disabled' | 'gun_pack_missing'
+
+/** 目录里的一行 (可购条目)。 */
+export interface MunitionsShopEntry {
+  /**
+   * 稳定 id, 下单时原样回传。台子是方块注册名 ('munitions_bench_medium' / 'gunsmith_press' /
+   * 'gunsmith_assembly_bench'), 图纸是 'blueprint/' + templateId (如 'blueprint/m4a1')。
+   */
+  entryId: string
+  kind: MunitionsShopKind
+  /** 发给玩家的物品 id (图纸恒 'miningdim:gunsmith_blueprint', 靠 NBT 区分是哪一张)。 */
+  itemId: string
+  /** 翻译键。台子是方块键; 图纸是套壳键 'item.miningdim.gunsmith_blueprint.name' (一个 %s, 实参是 gunNameKey)。 */
+  nameKey: string
+  /** 图纸: 枪名键 (属 TACZ/枪包的 lang, 未装时解不出, 前端退回 gunId); 非图纸为 null。 */
+  gunNameKey: string | null
+  /** 图纸: GunsmithBlueprint.templateId (与 job.blueprints 的 blueprintId 同一口径); 非图纸为 null。 */
+  blueprintId: string | null
+  /** 图纸: 成品枪 id (如 'tacz:m4a1' / 'hare:ksg'); 非图纸为 null。 */
+  gunId: string | null
+  /** 图纸: 这把枪吃的军火台口径 (MunitionsCaliber 枚举名小写, 与 job.munitions.state 的 caliberId 同口径); 非图纸为 null。 */
+  caliberId: string | null
+  /** 军火台: 这一档的有效等级上限 (台主等级超过它的部分不再加产能); 非军火台为 null。 */
+  maxEffectiveLevel: number | null
+  /** 采购等级门 (军火商等级)。推导规则见 Munitions_Job_DesignSpec 6.4, 不是配置键。 */
+  requiredLevel: number
+  /** 售价 (信用点, 实时读配置; 0 = 免费)。 */
+  price: number
+  /** 等级是否已够 (与其它原因无关)。 */
+  unlocked: boolean
+  /** 系统此刻是否出售 (与玩家无关); false 时 unavailableReason 非 null。 */
+  available: boolean
+  unavailableReason: MunitionsShopUnavailableReason | null
+  /** 余额是否够 (免费条目恒 true; 经济未就绪时收费条目恒 false)。 */
+  affordable: boolean
+  /** 图纸: 背包 (主背包/副手) 里是否已有同一张 (旧 M4 装配模板按 M4A1 算); 非图纸恒 false。 */
+  owned: boolean
+  /** 现在点购买会不会成交 (= reasonCode 为 null)。只是展示, 服务端下单时重新判一遍。 */
+  purchasable: boolean
+  reasonCode: MunitionsShopReasonCode | null
+}
+
+/** job.munitions.shop 回执。只读 (进 system.batch 白名单), 定长表不分页。 */
+export interface MunitionsShopResult {
+  /** 军火商职业等级。 */
+  level: number
+  /** 恒 'CREDIT' (系统采购只收信用点)。 */
+  currency: WebUiCurrency
+  economyOnline: boolean
+  /** 信用点余额; 经济未就绪时为 null (未知, 不是 0)。 */
+  balance: number | null
+  /** 枪匠链总开关 (与 job.munitions.state 同一个 config 值)。 */
+  gunsmithEnabled: boolean
+  /** 该等级允许拥有的军火台总数 (MunitionsLevels.tableCount)。 */
+  benchCap: number
+  /** 已放置 (MunitionsSavedData, 与放置门控同一份计数)。 */
+  benchesPlaced: number
+  /** 主背包与副手里还没放下的军火台 (任一档); 拥有数 = benchesPlaced + benchesHeld。 */
+  benchesHeld: number
+  /** 顺序恒定: 军火台按采购等级从低到高 (旧全档台垫底), 冲压机, 装配台, 图纸 (枚举声明序)。 */
+  entries: MunitionsShopEntry[]
+  /** = entries.length。 */
+  entryCount: number
+}
+
+/** job.munitions.buy 入参。 */
+export interface MunitionsBuyPayload {
+  /** 必填, MunitionsShopEntry.entryId。 */
+  entryId: string
+  /**
+   * 必填, 标准格式 UUID, 客户端生成的幂等键: 同一玩家同一 id 只成交一次, 重复到达回放第一次的回执
+   * (replayed=true, 不扣费不发货)。网络超时后重试必须沿用原 id; 业务拒绝后换新 id。
+   * 同一个 id 拿去买别的条目会被 INVALID_REQUEST(field=purchaseId) 拒绝。
+   */
+  purchaseId: string
+}
+
+/** job.munitions.buy 回执 (成交或回放)。 */
+export interface MunitionsBuyResult {
+  purchaseId: string
+  entryId: string
+  kind: MunitionsShopKind
+  itemId: string
+  nameKey: string
+  gunNameKey: string | null
+  blueprintId: string | null
+  gunId: string | null
+  caliberId: string | null
+  /** 发出的件数 (恒 1)。 */
+  count: number
+  currency: WebUiCurrency
+  /** **实扣额** (取成交那一刻的价, 回放时不随后来改的配置变)。 */
+  price: number
+  /** 扣后余额; 经济未就绪 (只可能出现在免费条目上) 时为 null。 */
+  balanceAfter: number | null
+  /** true = 这是同一 purchaseId 的重复到达, 本次没有扣费也没有发货。 */
+  replayed: boolean
+}
+
+/**
+ * job.munitions.buy 的业务拒绝码 (全部 retrySameOpeningId=false: 拒绝发生在扣费前, 或已原额退款):
+ *   INVALID_REQUEST        entryId/purchaseId 缺失或非法, 或 purchaseId 已用于另一条目 (params.field)
+ *   其余                   同 MunitionsShopReasonCode, params 见 WebUiErrorCodes 各码注释
+ */
+export type MunitionsBuyErrorCode = 'INVALID_REQUEST' | MunitionsShopReasonCode
+
+// ============================================================
 // job.engineer.state — com.miningdim.job.engineer.EngineerWebUiActions
 // (默认 Gson: 回执里没有任何 null 值, 两个"仅闪耀档存在"的字段是缺席键, 故一律 `?:` 不用 `| null`)
 // ============================================================

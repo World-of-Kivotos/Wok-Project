@@ -30,7 +30,7 @@
 | `wok-job-tarot` | WOK-塔罗师模块 | 56 | 67 | `TarotSystem` | 核心、职业框架、矿区、经济、战斗框架、精英怪、WebUI |
 | `wok-job-munitions` | WOK-军火商模块 | 55 | 103 | `MunitionsSystem` | 核心、职业框架、经济、电力、WebUI；TaCZ 可选 |
 | `wok-job-agent` | WOK-特勤干员模块 | 30 | 79 | `AgentSystem` | 核心、职业框架、精英怪、经济、WebUI；Champions 可选 |
-| `wok-champion` | WOK-精英怪模块 | 124 | 336 | `ChampionSystem` | 核心、经济、WebUI；Champions 可选 |
+| `wok-champion` | WOK-精英怪模块 | 124 | 336 | `ChampionSystem` | 核心、经济、WebUI；Champions、TaCZ 可选 |
 | `wok-marriage` | WOK-婚姻社交模块 | 21 | 35 | `MarriageSystem` | 核心、经济、WebUI |
 | `wok-case-opening` | WOK-开箱模块 | 25 | 24 | `CaseOpeningSystem` | 核心、存储、经济、WebUI；TaCZ、SQLite 可选 |
 | `wok-stacking` | WOK-实体堆叠模块 | 11 | 33 | `StackingSystem` | 核心、精英怪 |

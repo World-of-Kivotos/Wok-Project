@@ -27,11 +27,11 @@ public final class ChampionHpConversionGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void noSurvivalAffixesKeepsFullBaseHp(GameTestHelper helper) {
-        // 无词条 = 星表满额 (remFrac=1 -> frac 恒 1.0), 7★ = 6000。
+        // 无词条 = 星表满额 (remFrac=1 -> frac 恒 1.0), 7★ = 10800。
         helper.assertTrue(Math.abs(ChampionHpConversion.hpFraction(StarRank.STAR_7, Map.of()) - 1.0D) < EPS,
                 "无生存词条 hpFraction = 1.0");
-        helper.assertTrue(Math.abs(ChampionHpConversion.convertedEffectiveHp(StarRank.STAR_7, Map.of()) - 6000.0D) < EPS,
-                "7★ 裸怪换算后仍 6000");
+        helper.assertTrue(Math.abs(ChampionHpConversion.convertedEffectiveHp(StarRank.STAR_7, Map.of()) - 10800.0D) < EPS,
+                "7★ 裸怪换算后仍 10800");
         helper.succeed();
     }
 
@@ -65,8 +65,8 @@ public final class ChampionHpConversionGameTests {
         helper.assertTrue(Math.abs(frac - 0.5107154D) < 1e-4D, "hpFraction ~ 0.5107 (手算逐位核对)");
 
         double hp = ChampionHpConversion.convertedEffectiveHp(StarRank.STAR_7, defensive);
-        helper.assertTrue(Math.abs(hp - 6000.0D * expected) < EPS, "换算后血 = 6000 x hpFraction");
-        helper.assertTrue(hp > 3063.0D && hp < 3065.0D, "7★ 全防御 build 血量落在 3064 附近 (原满额 6000)");
+        helper.assertTrue(Math.abs(hp - 10800.0D * expected) < EPS, "换算后血 = 10800 x hpFraction");
+        helper.assertTrue(hp > 5515.0D && hp < 5517.0D, "7★ 全防御 build 血量落在 5516 附近 (原满额 10800)");
         helper.succeed();
     }
 
@@ -86,7 +86,7 @@ public final class ChampionHpConversionGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void gigantismMultipliesFullBaseWithoutConversionPenalty(GameTestHelper helper) {
-        // 5★ 巨大化 RARE: 体型词条点数豁免换血惩罚 (倒挂修复) -> frac 恒 1.0, 血 = 765 x 1.8 = 1377 (破 1024
+        // 5★ 巨大化 RARE: 体型词条点数豁免换血惩罚 (倒挂修复) -> frac 恒 1.0, 血 = 1170 x 1.8 = 2106 (破 1024
         // 走 effectiveHp>1024 血池分支)。账面花费仍 30 (占预算挤其它词条槽)。
         Map<AffixDef, AffixQuality> gig = Map.of(AffixDef.GIGANTISM, AffixQuality.RARE);
         helper.assertTrue(ChampionHpConversion.survivalSpent(gig) == 30, "巨大化 RARE 账面花费 ceil(12x2.5)=30");
@@ -95,14 +95,14 @@ public final class ChampionHpConversionGameTests {
         helper.assertTrue(Math.abs(ChampionHpConversion.sizeMultiplier(gig) - 1.8D) < EPS,
                 "巨大化 RARE 体型乘数 = 1.8");
         double hp = ChampionHpConversion.convertedEffectiveHp(StarRank.STAR_5, gig);
-        helper.assertTrue(Math.abs(hp - 1377.0D) < EPS, "5★ 巨大化 RARE = 765 x 1.8 = 1377 (破 1024 入血池)");
+        helper.assertTrue(Math.abs(hp - 2106.0D) < EPS, "5★ 巨大化 RARE = 1170 x 1.8 = 2106 (破 1024 入血池)");
         helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void gigantismNetPositiveAtUnlockStar(GameTestHelper helper) {
-        // 倒挂回归钉死 (对抗审查 major): 3★ 巨大化任一可取档换算后血必须 > 裸怪 360 —— 若体型点数重新计入
-        // 换血惩罚, COMMON 326/UNCOMMON 288 < 360 ("+血量词条"净减血), 本断言必挂。
+        // 倒挂回归钉死 (对抗审查 major): 3★ 巨大化任一可取档换算后血必须 > 裸怪 920 —— 若体型点数重新计入
+        // 换血惩罚, COMMON 833/UNCOMMON 735 < 920 ("+血量词条"净减血), 本断言必挂。
         double bare = ChampionHpConversion.convertedEffectiveHp(StarRank.STAR_3, Map.of());
         double common = ChampionHpConversion.convertedEffectiveHp(
                 StarRank.STAR_3, Map.of(AffixDef.GIGANTISM, AffixQuality.COMMON));
@@ -110,7 +110,7 @@ public final class ChampionHpConversionGameTests {
                 StarRank.STAR_3, Map.of(AffixDef.GIGANTISM, AffixQuality.UNCOMMON));
         helper.assertTrue(common > bare, "3★ 巨大化 COMMON 须净增血: " + common + " > " + bare);
         helper.assertTrue(uncommon > common, "巨大化品质越高血越多 (不再倒挂): " + uncommon + " > " + common);
-        helper.assertTrue(Math.abs(common - 360.0D * 1.30D) < EPS, "3★ 巨大化 COMMON = 名义 +30% = 468");
+        helper.assertTrue(Math.abs(common - 920.0D * 1.30D) < EPS, "3★ 巨大化 COMMON = 名义 +30% = 1196");
         helper.succeed();
     }
 
@@ -128,7 +128,7 @@ public final class ChampionHpConversionGameTests {
         helper.assertTrue(Math.abs(ChampionHpConversion.sizeMultiplier(mini) - 0.75D) < EPS,
                 "缩小化 COMMON 体型乘数 = 0.75");
         double hp = ChampionHpConversion.convertedEffectiveHp(StarRank.STAR_3, mini);
-        helper.assertTrue(Math.abs(hp - 270.0D) < EPS, "3★ 缩小化 = 360 x 0.75 = 270 (恰名义惩罚)");
+        helper.assertTrue(Math.abs(hp - 690.0D) < EPS, "3★ 缩小化 = 920 x 0.75 = 690 (恰名义惩罚)");
         helper.succeed();
     }
 

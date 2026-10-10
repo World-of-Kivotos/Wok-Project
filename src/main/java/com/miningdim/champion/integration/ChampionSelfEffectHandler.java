@@ -25,6 +25,8 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
@@ -35,6 +37,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -43,17 +47,19 @@ import java.util.UUID;
  * 冠军【自身被动词条】(Stage2 批1+批2) 效果施加 (Champions 集成层; ChampionStarAffix spec 7.1 再生组织/易燃再生/
  * 反震 + 7.3 高速移动/超速移动)。五类自效果:
  *  - 再生组织 REGEN_TISSUE: 脱战 (5s 无伤) 每秒回 %maxHP (惩罚脱离/翻盘)。
- *  - 易燃再生 FLAMMABLE_REGEN: 距上次受伤 ≥1.5s 每秒回 FLAT HP (受伤停回 off-switch)。
+ *  - 易燃再生 FLAMMABLE_REGEN: 距上次受伤 ≥3s 每秒回 FLAT HP (受伤停回 off-switch)。
  *  - 高速移动 SPRINT: 挂 MOVEMENT_SPEED 瞬态 modifier (+移速%; 幂等按 UUID 只挂一次)。
  *  - 超速移动 OVERDRIVE (批2): {@link OverdriveCycle} 力竭窗状态机 —— 有攻击目标时 加速4s(+25~85%) ->
  *    力竭5s(-50%, 反击窗) -> 常态3s 循环, 相位换挡 modifier + 相位粒子; 与 SPRINT 同挂 (命令调试) 时超速优先。
- *  - 反震 THORNS: 被玩家击中时按攻击者 maxHP% 反伤打回攻击者 (内 CD ≥3s + 经 {@link RetaliationAggregator} 30%/s
- *    多源封顶); 击退/AOE-对周围/高亮前摇属后续批 (需 KnockbackSafetyGuard, 批1只做对攻击者反伤)。
+ *  - 反震 THORNS: 被 5 格内 (到碰撞箱外沿) 的玩家击中时按攻击者 maxHP% 反伤打回攻击者 (内 CD ≥3s + 经
+ *    {@link RetaliationAggregator} 30%/s 多源封顶; 超距不反也不耗 CD); 击退/AOE-对周围/高亮前摇属后续批 (需
+ *    KnockbackSafetyGuard, 批1只做对攻击者反伤)。
  *
  * 两个入口:
  *  - {@link #onServerTick} (END, 每 {@value #SCAN_INTERVAL_TICKS}tick=1s): 按玩家 AABB 扫近处冠军 (与
  *    {@code ChampionParticleHandler}/{@code ChampionBossBarHandler} 同范式, 覆盖命令召唤 + 自然刷两种来源),
- *    对每只施回血 (血池/vanilla) + 维护移速 modifier。1s 扫一次即施一整秒名义回血。
+ *    对每只施回血 (血池/vanilla) + 维护移速 modifier。1s 扫一次即施一整秒名义回血。扫描范围外受过伤、未满血、
+ *    状态仍在 TTL 内的冠军另按 UUID 补结算 ({@link #settleUnscannedChampions}), 回血口径与格内一致。
  *  - {@link #onChampionHurt} (HIGH, 早于血池 LOWEST 取消): 记录 lastHurtTick (回血门槛) + 施反震反伤。
  *
  * 血池权威 (spec 6.2): 6★+ 冠军回血走影子血池 {@link BloodPool#heal} (vanilla 血条由 {@code ChampionBloodPoolHandler}
@@ -94,14 +100,14 @@ public final class ChampionSelfEffectHandler {
 
     /**
      * 状态条目 TTL (tick): 5min 未被触达 (未受击/未被扫描) 即回收。丢态语义安全: 回收后视为"从未受伤/未在循环",
-     * 而回血门槛窗仅 5s/1.5s、反震 CD 3s、超速锚点本就有 10s 脱战重置 —— 5min 未触达的冠军必然远离玩家,
-     * 回收不改变任何可观测行为, 只兜内存。
+     * 而回血门槛窗仅 5s/3s、反震 CD 3s、超速锚点本就有 10s 脱战重置 —— 5min 未触达的冠军必然远离玩家,
+     * 回收不改变任何可观测行为, 只兜内存。同一时限也约束扫描外补结算 ({@link #settleUnscannedChampions})。
      */
-    private static final long STATE_TTL_TICKS = 6000L;
+    private static final long STATE_TTL_TICKS = ChampionSelfBuffValues.SELF_STATE_TTL_TICKS;
 
     /**
      * 每秒扫近玩家冠军施回血 + 维护移速。按玩家 AABB 扫 + Champions capability 检出冠军 (命令召唤 + 自然刷一视同仁),
-     * 多玩家同时看同一冠军本轮只结算一次。
+     * 多玩家同时看同一冠军本轮只结算一次; 扫描外的受伤冠军随后补结算一次。
      */
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
@@ -113,17 +119,77 @@ public final class ChampionSelfEffectHandler {
             return;
         }
         long nowTick = server.overworld().getGameTime();
+        Set<UUID> scanned = new HashSet<>();
         for (ChampionProximityScanner.Sighting sighting : ChampionProximityScanner.sightings(server)) {
             if (!sighting.entity().isAlive()) {
                 continue; // 快照按 tick 复用, 同 tick 更早的 handler 可能已致死: 存活性逐条重查。
             }
+            scanned.add(sighting.entity().getUUID());
             applySelfTick(sighting.entity(), nowTick);
         }
+        settleUnscannedChampions(server, scanned, nowTick);
 
         // TTL 清扫 (despawn/卸载不发死亡事件的泄漏兜底): 低频回收长期未触达的状态条目。
         if (server.getTickCount() % STATE_SWEEP_INTERVAL_TICKS == 0) {
             sweepStaleStates(nowTick);
         }
+    }
+
+    /**
+     * 扫描外补结算 (2026-09): 近场扫描覆盖玩家 {@value ChampionProximityScanner#VIEW_RANGE} 格内的冠军;
+     * 本轮未被扫到、但满足 {@link ChampionSelfBuffValues#settlesOutsideScan} (受过伤 + 未满血 + TTL 内) 的冠军按
+     * UUID 在各维度取实体 (只取得到已加载的实体) 后照常 {@link #applySelfTick}, 与格内同一口径。
+     *
+     * @param server  当前服务端
+     * @param scanned 本轮已由近场扫描结算过的冠军 UUID (不重复结算)
+     * @param nowTick 当前 gameTime tick
+     * @return 本轮补结算的冠军数 (诊断/测试用)
+     */
+    public int settleUnscannedChampions(MinecraftServer server, Set<UUID> scanned, long nowTick) {
+        if (stateByChampion.isEmpty()) {
+            return 0;
+        }
+        int settled = 0;
+        // 快照键集: applySelfTick 内的超速分支会 computeIfAbsent 同一键 (已存在不改结构), 仍按快照遍历防并发修改。
+        for (UUID id : List.copyOf(stateByChampion.keySet())) {
+            if (scanned.contains(id)) {
+                continue;
+            }
+            SelfState state = stateByChampion.get(id);
+            if (state == null || state.lastHurtTick == Long.MIN_VALUE) {
+                continue; // 从未受伤 (只有超速扫描建过状态): 格外无事可结算。
+            }
+            LivingEntity entity = findLoadedChampion(server, id);
+            if (entity == null) {
+                continue; // 已卸载/已移除: 取不到实体, 交 TTL 清扫回收。
+            }
+            if (!ChampionSelfBuffValues.settlesOutsideScan(nowTick, state.lastHurtTick, state.lastTouchedTick,
+                    belowMaxHp(entity))) {
+                continue;
+            }
+            applySelfTick(entity, nowTick);
+            settled++;
+        }
+        return settled;
+    }
+
+    /** 在各维度按 UUID 取存活实体 (只返回已加载在世的 LivingEntity; 冠军可能被命令传到别的维度)。 */
+    private static LivingEntity findLoadedChampion(MinecraftServer server, UUID id) {
+        for (ServerLevel level : server.getAllLevels()) {
+            if (level.getEntity(id) instanceof LivingEntity living) {
+                return living.isAlive() ? living : null;
+            }
+        }
+        return null;
+    }
+
+    /** 是否未满血: 血池冠军按影子血池, 其余按 vanilla 血量。 */
+    private static boolean belowMaxHp(LivingEntity entity) {
+        BloodPool pool = BloodPoolRegistry.get(entity.getUUID());
+        if (pool != null) {
+            return pool.currentHp() < pool.maxHp();
+        }
+        return entity.getHealth() < entity.getMaxHealth();
     }
 
     /** 回收 TTL 内未被触达 (未受击/未被超速扫描) 的状态条目 (语义安全性见 {@link #STATE_TTL_TICKS})。 */
@@ -216,13 +282,22 @@ public final class ChampionSelfEffectHandler {
     }
 
     /**
-     * 反震反伤: 攻击者是玩家 + 过内 CD 时, 按攻击者 maxHP% 折名义反伤, 经该攻击者 {@link RetaliationAggregator}
-     * 30%/s + 40%/窗 多源封顶夹断后打回攻击者 (THORNS 伤害类型; {@code ChampionAttackHandler} 已守卫不对其再触 on-hit 词条)。
+     * 反震反伤: 攻击者是玩家 + 在反震半径内 + 过内 CD 时, 按攻击者 maxHP% 折名义反伤, 经该攻击者
+     * {@link RetaliationAggregator} 30%/s + 40%/窗 多源封顶夹断后打回攻击者 (THORNS 伤害类型;
+     * {@code ChampionAttackHandler} 已守卫不对其再触 on-hit 词条)。半径按攻击者眼睛到冠军碰撞箱外沿计
+     * ({@link ChampionSelfBuffValues#THORNS_RADIUS_BLOCKS}), 超距直接放行: 不反伤、不占聚合器额度、不消耗内 CD。
      */
     private void applyThorns(LivingHurtEvent event, LivingEntity victim, AffixQuality thornsQuality,
                              long nowTick, SelfState state) {
         if (!(event.getSource().getEntity() instanceof ServerPlayer attacker)) {
             return; // 非玩家来源 (环境/召唤物): 不反伤。
+        }
+        Vec3 eye = attacker.getEyePosition();
+        AABB box = victim.getBoundingBox();
+        double distance = ChampionSelfBuffValues.distanceToBox(eye.x, eye.y, eye.z,
+                box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ);
+        if (!ChampionSelfBuffValues.thornsInRange(distance)) {
+            return; // 超出反震半径 (远程枪手): 不反伤, 也不消耗内 CD。
         }
         if (!ChampionSelfBuffValues.thornsReady(nowTick, state.lastThornsTick)) {
             return; // 内 CD 内: 本次不反伤 (限频)。

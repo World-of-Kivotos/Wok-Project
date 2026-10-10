@@ -85,11 +85,11 @@
 
 ## 配置文件登记表
 
-代码共注册 13 份配置文件（注册点即 `ModLoadingContext.registerConfig` 的调用处）。除 `miningdim-client.toml` 是 CLIENT 类型外，其余都是 SERVER 类型，落在存档的 `serverconfig` 目录下。服主拿到一份 toml 要先能查到它归哪个模块、参数写在哪，所以这张表按文件名而不是按模块排。
+代码共注册 14 份配置文件（注册点即 `ModLoadingContext.registerConfig` 的调用处）。除 `miningdim-client.toml` 是 CLIENT 类型外，其余都是 SERVER 类型，落在存档的 `serverconfig` 目录下。服主拿到一份 toml 要先能查到它归哪个模块、参数写在哪，所以这张表按文件名而不是按模块排。
 
 | 配置文件 | 归属模块 | 注册点 | 可对照的文档 |
 | --- | --- | --- | --- |
-| `miningdim-server.toml` | `wok-core` | `config/ConfigSystem` | [`../MiningDimension_Mod_DesignSpec.md`](../MiningDimension_Mod_DesignSpec.md) |
+| `miningdim-server.toml` | `wok-core` | `config/ConfigSystem` | [`../MiningDimension_Mod_DesignSpec.md`](../MiningDimension_Mod_DesignSpec.md)；其中 `[player]` 段（`baseMaxHealth`，玩家基础最大生命，默认 80，范围 20..1024）的读取方是 `wok-combat-core` 的 `combat/PlayerBaseHealthHandler`，语义见该规格 16.2 的覆盖范围说明 |
 | `miningdim-client.toml`（CLIENT） | `wok-core` | `config/ConfigSystem` | [`../MiningDimension_Mod_DesignSpec.md`](../MiningDimension_Mod_DesignSpec.md) |
 | `miningdim-power.toml` | `wok-power` | `power/PowerSystem` | [`../Power_Generator_DesignSpec.md`](../Power_Generator_DesignSpec.md) |
 | `miningdim-quest.toml` | `wok-quest` | `quest/QuestSystem` | 无；仅 [`../Economy_BalanceSheet_DesignSpec.md`](../Economy_BalanceSheet_DesignSpec.md) 提到 `dailyCost`/`weeklyCost` 两个键 |
@@ -101,6 +101,7 @@
 | `miningdim-fishing.toml` | `wok-job-fisher` | `job/fisher/FishingSystem` | [`../Ore_Fish_And_Soup.md`](../Ore_Fish_And_Soup.md) |
 | `miningdim-brewer.toml` | `wok-job-brewer` | `job/brewer/BrewerSystem` | [`../Brewer_Job_DesignSpec.md`](../Brewer_Job_DesignSpec.md) |
 | `miningdim-tarot.toml` | `wok-job-tarot` | `job/tarot/TarotSystem` | [`../TarotReader_Mod_DesignSpec.md`](../TarotReader_Mod_DesignSpec.md) 第七、八章（gacha 与 craft 两段出率） |
-| `miningdim-munitions.toml` | `wok-job-munitions` | `job/munitions/MunitionsSystem` | [`../Munitions_Job_DesignSpec.md`](../Munitions_Job_DesignSpec.md) |
+| `miningdim-munitions.toml` | `wok-job-munitions` | `job/munitions/MunitionsSystem` | [`../Munitions_Job_DesignSpec.md`](../Munitions_Job_DesignSpec.md)（`[shop]` 与 `[shop.blueprints]` 两段是系统采购价，键表、默认值与出处见 6.4；等级门不在该文件里配，由台档、品质、装配/维修与口径等级推导；`[explosion]` 段是 TaCZ 子弹爆炸平衡，见 3C） |
+| `miningdim-champion.toml` | `wok-champion` | `champion/ChampionSystem`（SPEC 在 `champion/ChampionConfig`） | [`../ChampionStarAffix_System_DesignSpec.md`](../ChampionStarAffix_System_DesignSpec.md) 第十一章（`[reward]` 段七个键：奖池表、缩放、近期门槛、特勤加成系数与占比门槛）；`agent*` 四个键另见 [`../SpecialAgent_Job_DesignSpec.md`](../SpecialAgent_Job_DesignSpec.md) 7.1 |
 
 这张表也是本文「文档所有权与子 README」第 2 条的判定依据：新增一份配置文件而不在这里登记，等同于交付了一组服主调不明白的旋钮。

@@ -286,6 +286,14 @@ public final class GunsmithAssemblyBenchBlockEntity extends BlockEntity implemen
                 return false;
             }
         }
+        // 互斥组件 (E6) 必须在造枪之前拒, 并把原因告诉玩家: 放到后面会先撞上"TaCZ 数据缺失"一类无关提示,
+        // 而 assemble 的硬校验只会抛异常, 玩家看不到是哪两件冲突。拒绝帧不扣工费、不吞零件。
+        GunsmithAssemblyRecipe.VariantConflict conflict =
+                GunsmithAssemblyRecipe.findVariantConflict(blueprint, parts);
+        if (conflict != null) {
+            player.displayClientMessage(conflict.message(), true);
+            return false;
+        }
         ItemStack baseGun = Objects.requireNonNull(gunFactory.apply(blueprintStack, parts),
                 "gunFactory returned null for " + blueprint.gunId());
         if (baseGun.isEmpty()) {

@@ -3,6 +3,8 @@ package com.miningdim.champion;
 import com.miningdim.core.Difficulty;
 import net.minecraft.util.RandomSource;
 
+import java.util.function.IntSupplier;
+
 /**
  * 精英怪生成策略纯逻辑 (ChampionStarAffix spec 第十二章生成接入 + 第十三章 PENDING 难度->星级分布)。
  *
@@ -16,6 +18,11 @@ import net.minecraft.util.RandomSource;
  *   MEDIUM : 升格率 10%, 星级 [3, 6]
  *   HARD   : 升格率 15%, 星级 [5, 10]
  * 区间相邻档有重叠 (难度梯度平滑, 非硬跳)。一旦 ConfigSystem 暴露 champion.* 键应改为读配置 (留待接线)。
+ *
+ * 世界 BOSS 同时存活上限 (2026-09): ≥{@value #WORLD_BOSS_MIN_STAR}★ 每个矿区同时最多
+ * {@value #MAX_ALIVE_WORLD_BOSS_PER_INSTANCE} 只。此前 HARD 在 [5,10] 均匀掷星且不设上限, 约 3 分钟后玩家近身
+ * 名额会被打不动的 8-10★ 占满, 刷新随之停摆。掷出 ≥8★ 而本矿区已满额时, 在 [难度下界, 7] 内重掷
+ * ({@link #rollStar(Difficulty, RandomSource, IntSupplier)}); 存活计数由集成层 ChampionPromoter 提供。
  *
  * 概率/区间硬值落本类 (非 EconomyConstants/ChampionRedlines): 它们是生成接入的策略量, 不是红线阈值,
  * 与八红线 (封顶) 语义不同, 故独立成表。
@@ -44,6 +51,19 @@ public final class ChampionSpawnPolicy {
     public static final int MEDIUM_MAX_STAR = 6;
     public static final int HARD_MIN_STAR = 5;
     public static final int HARD_MAX_STAR = 10;
+
+    // ---- 世界 BOSS 同时存活上限 ----
+
+    /** 世界 BOSS 星级下界 (spec 第一章定位: 8-10★ 世界 BOSS)。 */
+    public static final int WORLD_BOSS_MIN_STAR = 8;
+
+    /** 每个矿区 (实例 region) 同时存活的世界 BOSS 上限。 */
+    public static final int MAX_ALIVE_WORLD_BOSS_PER_INSTANCE = 1;
+
+    /** 该星级是否世界 BOSS (≥{@value #WORLD_BOSS_MIN_STAR}★)。 */
+    public static boolean isWorldBossStar(int star) {
+        return star >= WORLD_BOSS_MIN_STAR;
+    }
 
     /** 某难度档的升格概率 [0,1]。 */
     public static double promoteChance(Difficulty difficulty) {
@@ -108,6 +128,34 @@ public final class ChampionSpawnPolicy {
         }
         int lo = minStar(difficulty);
         int hi = maxStar(difficulty);
+        return lo + rng.nextInt(hi - lo + 1);
+    }
+
+    /**
+     * 掷星并执行世界 BOSS 同时存活上限: 先按 {@link #rollStar(Difficulty, RandomSource)} 均匀掷; 掷出
+     * ≥{@value #WORLD_BOSS_MIN_STAR}★ 时才向 aliveWorldBosses 取本矿区当前存活数 (惰性, 普通掷星不付计数成本),
+     * 已达 {@value #MAX_ALIVE_WORLD_BOSS_PER_INSTANCE} 只则在 [难度下界, 7] 内重掷 (7 = WORLD_BOSS_MIN_STAR - 1)。
+     * 被改掷的份额均匀摊到该区间, HARD 下 5-7★ 密度随之上升 (方案预期)。
+     *
+     * @param difficulty       矿洞难度
+     * @param rng              随机源
+     * @param aliveWorldBosses 本矿区当前存活的世界 BOSS 数 (只在掷出 ≥8★ 时调用)
+     * @return 星级 (∈ [minStar, maxStar]; 满额时 &lt; {@value #WORLD_BOSS_MIN_STAR})
+     */
+    public static int rollStar(Difficulty difficulty, RandomSource rng, IntSupplier aliveWorldBosses) {
+        if (aliveWorldBosses == null) {
+            throw new IllegalArgumentException("aliveWorldBosses must not be null");
+        }
+        int star = rollStar(difficulty, rng);
+        if (!isWorldBossStar(star) || aliveWorldBosses.getAsInt() < MAX_ALIVE_WORLD_BOSS_PER_INSTANCE) {
+            return star;
+        }
+        int lo = minStar(difficulty);
+        int hi = Math.min(maxStar(difficulty), WORLD_BOSS_MIN_STAR - 1);
+        if (hi < lo) {
+            // 现行三档下界都 < 8, 不可达; 真有人把下界调到 ≥8 时不静默放出第二只世界 BOSS。
+            throw new IllegalStateException("difficulty " + difficulty + " has no star below world boss range to reroll into");
+        }
         return lo + rng.nextInt(hi - lo + 1);
     }
 }

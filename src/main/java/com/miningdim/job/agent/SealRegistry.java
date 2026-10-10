@@ -16,7 +16,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * (1 槽 / 8★+ 2 槽), 槽满后第二人封印被拒 (槽已占), 绝不因人数增多延长窗口或多封词条。已占槽到期恢复后释放,
  * 可再被任意干员争抢 (先到先得)。
  *
- * 纯逻辑账本 (范式对齐 {@link com.miningdim.champion.reward.ContributionTracker}): 只持 UUID + tick + 词条
+ * 纯逻辑静态账本: 只持 UUID + tick + 词条
  * 标识 (String affixId, 与集成层 IAffix 注册名同口径), 不碰 ServerPlayer/IChampion/世界, dev GameTest 触达安全。
  * 真封印执行 (setAffixes 移除/恢复) 由集成层据本账本的 active/expired 裁决调用; 本层只做槽位 + 窗口 + 不叠加
  * 的纯账目裁决。
@@ -263,7 +263,7 @@ public final class SealRegistry {
         }
     }
 
-    /** 服务端停止清空 (含封印态 + CD 账本), 防跨存档脏引用 (范式对齐 ContributionTracker.reset)。 */
+    /** 服务端停止清空 (含封印态 + CD 账本), 防跨存档脏引用。 */
     public static void reset() {
         LEDGER.clear();
         COOLDOWNS.clear();

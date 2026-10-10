@@ -160,6 +160,13 @@ import type {
   MiningLeaveResult,
   MiningMyStatusResult,
   MiningOverviewResult,
+  MunitionsBuyPayload,
+  MunitionsBuyResult,
+  MunitionsShopEntry,
+  MunitionsShopKind,
+  MunitionsShopReasonCode,
+  MunitionsShopResult,
+  MunitionsShopUnavailableReason,
   MunitionsStateResult,
   MunitionsStation,
   NanoRepairUnit,
@@ -417,6 +424,37 @@ const MOCK_ITEMS: readonly MockItemDef[] = [
     top: 'gear',
     sub: null,
   },
+  /*
+   * 军火商系统采购的九件货 (六档军火台 + 冲压机 + 装配台 + 图纸): 登记理由同上面的卡包与戒指 ——
+   * job.munitions.buy 会把**实物**发进背包, depositToInventory 要查得到它们。图纸 21 张共用一个 itemId,
+   * 靠 NBT 区分是哪一张 (与枪匠零件同一形态)。
+   */
+  ...[
+    'munitions_bench',
+    'munitions_bench_medium',
+    'munitions_bench_high',
+    'munitions_bench_superior',
+    'munitions_bench_transcendent',
+    'munitions_bench_radiant',
+    'gunsmith_press',
+    'gunsmith_assembly_bench',
+  ].map(
+    (path): MockItemDef => ({
+      itemId: `miningdim:${path}`,
+      registered: true,
+      // BlockItem 的翻译键就是方块的键 (BlockItem.getDescriptionId 直接转交方块)。
+      descriptionId: `block.miningdim.${path}`,
+      top: 'other',
+      sub: null,
+    }),
+  ),
+  {
+    itemId: 'miningdim:gunsmith_blueprint',
+    registered: true,
+    descriptionId: 'item.miningdim.gunsmith_blueprint',
+    top: 'other',
+    sub: null,
+  },
   {
     itemId: 'removedmod:ghost_item',
     registered: false,
@@ -592,6 +630,21 @@ const I18N_NAMES: Readonly<Record<string, string>> = {
   'difficulty.miningdim.medium': '普通',
   'difficulty.miningdim.hard': '困难',
   'block.miningdim.munitions_bench_high': '高级军火台',
+  // 系统采购目录的其余五档军火台 (逐字抄自 lang/zh_cn.json)。
+  'block.miningdim.munitions_bench': '军火台',
+  'block.miningdim.munitions_bench_medium': '中级军火台',
+  'block.miningdim.munitions_bench_superior': '极品军火台',
+  'block.miningdim.munitions_bench_transcendent': '超凡军火台',
+  'block.miningdim.munitions_bench_radiant': '闪耀军火台',
+  // 采购目录里图纸行用到的口径名 (逐字抄自 lang/zh_cn.json 的 munitions.caliber.*)。
+  'munitions.caliber.pistol': '手枪/冲锋枪',
+  'munitions.caliber.rifle': '步枪',
+  'munitions.caliber.shotgun': '霰弹',
+  'munitions.caliber.rifle_556': '步枪 5.56',
+  'munitions.caliber.pistol_45acp': '手枪/冲锋枪 .45 ACP',
+  'munitions.caliber.sniper_3006': '狙击 .30-06',
+  'munitions.caliber.sniper_792': '狙击 7.92x57',
+  'munitions.caliber.sniper_303': '狙击 .303 英制',
   'block.miningdim.gunsmith_press': '机械冲压机',
   'block.miningdim.gunsmith_assembly_bench': '枪械组装台',
   'item.miningdim.gunsmith_blueprint.name': '%s 图纸',
@@ -3187,6 +3240,16 @@ const MUNITIONS_SEARCH_RADIUS_BLOCKS = 64
 const MUNITIONS_ASSEMBLY_DURATION_TICKS = 160
 
 /**
+ * MunitionsConfig.GUNSMITH_ENABLED 的默认值 (false)。job.munitions.state / job.blueprints / job.munitions.shop
+ * 三条回执读的是同一个 config 值, 故收成一个常量 —— 三处各写一个字面量, 改一处就会做出服务端不可能出现的
+ * "状态页说关着、采购页说开着"。不改成 true: 面板必须先把"枪匠链默认关闭"这件事讲清楚。
+ */
+const MOCK_GUNSMITH_ENABLED = false
+
+/** 与 mockMunitionsState 的 benchesPlaced 同一个数 (两条回执读的是同一份 MunitionsSavedData)。 */
+const MOCK_BENCHES_PLACED = 3
+
+/**
  * 三台机器。三行刻意各走一条不同的形态, 因为它们在面板上是三种完全不同的画法:
  *   军火台   扫到了且在跑 —— progressTicks 是 20 的倍数 (ContainerData 按秒过线, 还原不到逐 tick),
  *            outputItemId 为 null 而缓冲照涨 (TACZ 未装时的真形态, 产出权威看 bufferedRounds)
@@ -3249,10 +3312,9 @@ function mockMunitionsState(): MunitionsStateResult {
     level,
     benchCap: requireAt(MUNITIONS_BENCH_CAP, clampJobLevel(level) - 1, '军火台数量表'),
     // 全局已放置数 (与 stations 里扫到几台无关): 取 benchCap 之下的一个数, 好让"还能再造几台"有意义。
-    benchesPlaced: 3,
+    benchesPlaced: MOCK_BENCHES_PLACED,
     searchRadiusBlocks: MUNITIONS_SEARCH_RADIUS_BLOCKS,
-    // MunitionsConfig.GUNSMITH_ENABLED 的默认值就是 false, 不改成 true —— 面板必须先把这件事讲清楚。
-    gunsmithEnabled: false,
+    gunsmithEnabled: MOCK_GUNSMITH_ENABLED,
     stations: munitionsStations(),
   }
 }
@@ -3321,8 +3383,255 @@ function mockBlueprints(): BlueprintsResult {
     partItemId: 'miningdim:gunsmith_part',
     partDescriptionId: 'item.miningdim.gunsmith_part',
     // 与 job.munitions.state 的同名字段读同一个 config 值, 两处不许分叉。
-    gunsmithEnabled: false,
+    gunsmithEnabled: MOCK_GUNSMITH_ENABLED,
   }
+}
+
+// ============================================================
+// job.munitions.shop / job.munitions.buy
+// (MunitionsConfig [shop] 段默认价 + 默认配置下 MunitionsShop 推出来的等级门, 照抄即真值)
+// ============================================================
+
+/**
+ * 台子与设备: [entryId, kind, maxEffectiveLevel, requiredLevel, price]。
+ * 等级门是默认配置下的推导结果 (军火台 = 低一档上限 + 1, 冲压机 = 最低品质门, 装配台 = min(装配 5, 维修 4)),
+ * 不是在 mock 里复刻推导规则 —— 服务端改了台档或解锁等级, 这里跟着改表。
+ */
+const MUNITIONS_SHOP_STATION_ROWS: readonly (readonly [string, MunitionsShopKind, number | null, number, number])[] = [
+  ['munitions_bench_medium', 'bench', 4, 1, 15_000],
+  ['munitions_bench_high', 'bench', 6, 5, 55_000],
+  ['munitions_bench_superior', 'bench', 8, 7, 70_000],
+  ['munitions_bench_transcendent', 'bench', 9, 9, 80_000],
+  ['munitions_bench_radiant', 'bench', 10, 10, 90_000],
+  ['munitions_bench', 'bench', 10, 10, 90_000],
+  ['gunsmith_press', 'press', null, 1, 20_000],
+  ['gunsmith_assembly_bench', 'assembly', null, 4, 50_000],
+]
+
+/**
+ * 图纸: [templateId, 枪命名空间, 枪名键, caliberId, requiredLevel, price], GunsmithBlueprint 声明序全 21 张。
+ * 门槛 = max(装配 5, 口径解锁等级), 故只有三张狙击 (口径 L6) 是 6; 价格按 8.3 枪价中值以口径归档。
+ */
+const MUNITIONS_SHOP_BLUEPRINT_ROWS: readonly (readonly [string, string, string, string, number, number])[] = [
+  ['m4a1', 'tacz', 'tacz.gun.m4a1.name', 'rifle_556', 5, 115_000],
+  ['m16a1', 'tacz', 'tacz.gun.m16a1.name', 'rifle_556', 5, 115_000],
+  ['m16a4', 'tacz', 'tacz.gun.m16a4.name', 'rifle_556', 5, 115_000],
+  ['hk416d', 'tacz', 'tacz.gun.hk416d.name', 'rifle_556', 5, 115_000],
+  ['spr15hb', 'tacz', 'tacz.gun.spr15hb.name', 'rifle_556', 5, 115_000],
+  ['ak47', 'tacz', 'tacz.gun.ak47.name', 'rifle', 5, 115_000],
+  ['rpk', 'tacz', 'tacz.gun.rpk.name', 'rifle', 5, 115_000],
+  ['type_81', 'tacz', 'tacz.gun.type_81.name', 'rifle', 5, 115_000],
+  ['m1911', 'tacz', 'tacz.gun.m1911.name', 'pistol_45acp', 5, 35_000],
+  ['m870', 'tacz', 'tacz.gun.m870.name', 'shotgun', 5, 160_000],
+  ['m1887_long', 'ccrp', 'ccrp.gun.m1887_long.name', 'shotgun', 5, 160_000],
+  ['ksg', 'hare', 'hare.gun.ksg.name', 'shotgun', 5, 160_000],
+  ['m1014', 'tacz', 'tacz.gun.m1014.name', 'shotgun', 5, 160_000],
+  ['uzi', 'tacz', 'tacz.gun.uzi.name', 'pistol', 5, 35_000],
+  ['ump45', 'tacz', 'tacz.gun.ump45.name', 'pistol_45acp', 5, 35_000],
+  ['hk_mp5a5', 'tacz', 'tacz.gun.hk_mp5a5.name', 'pistol', 5, 35_000],
+  ['stl', 'wyyc1991', 'wyyc.stl.name', 'pistol', 5, 35_000],
+  ['mpx', 'ccrp', 'ccrp.gun.mpx.name', 'pistol', 5, 35_000],
+  ['kar98', 'tacz', 'tacz.gun.kar98.name', 'sniper_792', 6, 325_000],
+  ['smle_iii', 'lavender', 'lavender.gun.smle_iii.name', 'sniper_303', 6, 325_000],
+  ['m700', 'tacz', 'tacz.gun.m700.name', 'sniper_3006', 6, 325_000],
+]
+
+/**
+ * mock 假定服务器只装了 TaCZ 默认枪包: 命名空间不是 tacz 的五张图纸判"缺枪包"。这是**一处刻意的近似**
+ * (真服按 TaCZ 枪械索引逐把查, 装了哪些第三方枪包 mock 不知道), 只为让"缺枪包"这一态在假数据里看得见;
+ * 枪匠开关关着时它被 gunsmith_disabled 盖住, 与服务端判定顺序一致。
+ */
+const MOCK_INSTALLED_GUN_PACKS: ReadonlySet<string> = new Set(['tacz'])
+
+/** 同一 purchaseId 的成交回执 (回放用)。只记成交, 与服务端 MunitionsShop 的回执簿同一口径。 */
+const munitionsShopReceipts = new Map<string, MunitionsBuyResult>()
+
+/** 背包里未放置的军火台 (任一档) 件数 —— 与服务端 benchesHeld 同一口径 (mock 背包没有副手, 只数主背包)。 */
+function mockBenchesHeld(): number {
+  return inventory
+    .filter((item) => item.itemId.startsWith('miningdim:munitions_bench'))
+    .reduce((sum, item) => sum + item.count, 0)
+}
+
+/** mock 背包能否再收一件 (同 itemId 已有一堆就合并; mock 不模拟堆叠上限, 与 depositToInventory 同口径)。 */
+function mockHasRoomFor(itemId: string): boolean {
+  return inventory.some((item) => item.itemId === itemId) || inventory.length < INVENTORY_SIZE
+}
+
+function mockMunitionsShopEntries(level: number): MunitionsShopEntry[] {
+  const benchCap = requireAt(MUNITIONS_BENCH_CAP, clampJobLevel(level) - 1, '军火台数量表')
+  const benchesOwned = MOCK_BENCHES_PLACED + mockBenchesHeld()
+
+  const decide = (
+    kind: MunitionsShopKind,
+    itemId: string,
+    requiredLevel: number,
+    price: number,
+    unavailableReason: MunitionsShopUnavailableReason | null,
+  ): MunitionsShopReasonCode | null => {
+    // 判定顺序与 MunitionsShop.evaluate 逐条对齐: 不可售 > 等级 > 台数上限 > 余额 > 背包。
+    if (unavailableReason !== null) {
+      return 'SHOP_ITEM_UNAVAILABLE'
+    }
+    if (level < requiredLevel) {
+      return 'PURCHASE_LEVEL_LOCKED'
+    }
+    if (kind === 'bench' && benchesOwned >= benchCap) {
+      return 'PURCHASE_CAP_REACHED'
+    }
+    if (price > 0 && wallet.credit < price) {
+      return 'INSUFFICIENT_FUNDS'
+    }
+    return mockHasRoomFor(itemId) ? null : 'INVENTORY_FULL'
+  }
+
+  const stations = MUNITIONS_SHOP_STATION_ROWS.map(
+    ([entryId, kind, maxEffectiveLevel, requiredLevel, price]): MunitionsShopEntry => {
+      const unavailableReason: MunitionsShopUnavailableReason | null =
+        kind !== 'bench' && !MOCK_GUNSMITH_ENABLED ? 'gunsmith_disabled' : null
+      const itemId = `miningdim:${entryId}`
+      const reasonCode = decide(kind, itemId, requiredLevel, price, unavailableReason)
+      return {
+        entryId,
+        kind,
+        itemId,
+        nameKey: `block.miningdim.${entryId}`,
+        gunNameKey: null,
+        blueprintId: null,
+        gunId: null,
+        caliberId: null,
+        maxEffectiveLevel,
+        requiredLevel,
+        price,
+        unlocked: level >= requiredLevel,
+        available: unavailableReason === null,
+        unavailableReason,
+        affordable: price <= 0 || wallet.credit >= price,
+        owned: false,
+        purchasable: reasonCode === null,
+        reasonCode,
+      }
+    },
+  )
+
+  const blueprints = MUNITIONS_SHOP_BLUEPRINT_ROWS.map(
+    ([templateId, namespace, gunNameKey, caliberId, requiredLevel, price]): MunitionsShopEntry => {
+      const unavailableReason: MunitionsShopUnavailableReason | null = !MOCK_GUNSMITH_ENABLED
+        ? 'gunsmith_disabled'
+        : MOCK_INSTALLED_GUN_PACKS.has(namespace)
+          ? null
+          : 'gun_pack_missing'
+      const itemId = 'miningdim:gunsmith_blueprint'
+      const reasonCode = decide('blueprint', itemId, requiredLevel, price, unavailableReason)
+      return {
+        entryId: `blueprint/${templateId}`,
+        kind: 'blueprint',
+        itemId,
+        nameKey: 'item.miningdim.gunsmith_blueprint.name',
+        gunNameKey,
+        blueprintId: templateId,
+        gunId: `${namespace}:${templateId}`,
+        caliberId,
+        maxEffectiveLevel: null,
+        requiredLevel,
+        price,
+        unlocked: level >= requiredLevel,
+        available: unavailableReason === null,
+        unavailableReason,
+        affordable: price <= 0 || wallet.credit >= price,
+        // mock 背包不带 NBT, 分不出是哪一张图纸, 故"已持有"这一态造不出来 (ALREADY_OWNED 只在真服出现)。
+        owned: false,
+        purchasable: reasonCode === null,
+        reasonCode,
+      }
+    },
+  )
+
+  return [...stations, ...blueprints]
+}
+
+function mockMunitionsShop(): MunitionsShopResult {
+  const level = mockJobLevel('munitions')
+  const entries = mockMunitionsShopEntries(level)
+  return {
+    level,
+    currency: 'CREDIT',
+    economyOnline: true,
+    balance: wallet.credit,
+    gunsmithEnabled: MOCK_GUNSMITH_ENABLED,
+    benchCap: requireAt(MUNITIONS_BENCH_CAP, clampJobLevel(level) - 1, '军火台数量表'),
+    benchesPlaced: MOCK_BENCHES_PLACED,
+    benchesHeld: mockBenchesHeld(),
+    entries,
+    entryCount: entries.length,
+  }
+}
+
+/** 下单: 形状与拒绝码对齐 MunitionsWebUiActions.BUY; 判定顺序同目录 (二者出自同一个 decide)。 */
+function mockMunitionsBuy(payload: MunitionsBuyPayload): MunitionsBuyResult {
+  if (typeof payload.entryId !== 'string') {
+    throw businessFailure('job.munitions.buy', 'INVALID_REQUEST', '缺少必填字段 entryId', false, {
+      field: 'entryId',
+    })
+  }
+  const level = mockJobLevel('munitions')
+  const entry = mockMunitionsShopEntries(level).find((candidate) => candidate.entryId === payload.entryId)
+  if (entry === undefined) {
+    throw businessFailure('job.munitions.buy', 'INVALID_REQUEST', `没有这个采购条目: ${payload.entryId}`, false, {
+      field: 'entryId',
+      value: truncateValue(payload.entryId),
+    })
+  }
+  if (typeof payload.purchaseId !== 'string' || !UUID_PATTERN.test(payload.purchaseId)) {
+    throw businessFailure('job.munitions.buy', 'INVALID_REQUEST', 'purchaseId 必须是标准格式的 UUID', false, {
+      field: 'purchaseId',
+      value: truncateValue(String(payload.purchaseId)),
+    })
+  }
+  const previous = munitionsShopReceipts.get(payload.purchaseId)
+  if (previous !== undefined) {
+    if (previous.entryId !== entry.entryId) {
+      throw businessFailure('job.munitions.buy', 'INVALID_REQUEST', '该 purchaseId 已用于另一条目', false, {
+        field: 'purchaseId',
+        value: truncateValue(payload.purchaseId),
+      })
+    }
+    return { ...previous, replayed: true }
+  }
+  if (entry.reasonCode !== null) {
+    throw businessFailure('job.munitions.buy', entry.reasonCode, `mock 拒绝: ${entry.reasonCode}`, false, {
+      entryId: entry.entryId,
+      ...(entry.reasonCode === 'PURCHASE_LEVEL_LOCKED'
+        ? { job: 'munitions', requiredLevel: String(entry.requiredLevel), currentLevel: String(level) }
+        : {}),
+      ...(entry.reasonCode === 'SHOP_ITEM_UNAVAILABLE' && entry.unavailableReason !== null
+        ? { reason: entry.unavailableReason }
+        : {}),
+      ...(entry.reasonCode === 'INSUFFICIENT_FUNDS'
+        ? { currency: 'CREDIT', totalPrice: String(entry.price), balance: String(wallet.credit) }
+        : {}),
+    })
+  }
+  wallet.credit -= entry.price
+  depositToInventory('job.munitions.buy', entry.itemId, 1)
+  const receipt: MunitionsBuyResult = {
+    purchaseId: payload.purchaseId,
+    entryId: entry.entryId,
+    kind: entry.kind,
+    itemId: entry.itemId,
+    nameKey: entry.nameKey,
+    gunNameKey: entry.gunNameKey,
+    blueprintId: entry.blueprintId,
+    gunId: entry.gunId,
+    caliberId: entry.caliberId,
+    count: 1,
+    currency: 'CREDIT',
+    price: entry.price,
+    balanceAfter: wallet.credit,
+    replayed: false,
+  }
+  munitionsShopReceipts.set(payload.purchaseId, receipt)
+  return receipt
 }
 
 // ============================================================
@@ -5367,6 +5676,10 @@ function resolveMock(action: WebUiActionName, payload: unknown): unknown {
       return mockMunitionsState()
     case 'job.blueprints':
       return mockBlueprints()
+    case 'job.munitions.shop':
+      return mockMunitionsShop()
+    case 'job.munitions.buy':
+      return mockMunitionsBuy(payload as MunitionsBuyPayload)
     case 'job.engineer.state':
       return mockEngineerState()
     case 'market.list':

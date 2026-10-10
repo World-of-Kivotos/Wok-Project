@@ -26,7 +26,7 @@
 | WOK-职业框架模块 | `wok-job-core` | `job` 根目录中的框架类 | `JobId`、职业轨道处理器、等级曲线、每日衰减、职业命令、职业同步和旧存档适配 |
 | WOK-矿区副本模块 | `wok-mining` | `worldgen`、`instance`、`chunk`、`reset`、`spawn`、`ore`、`trap`、`pressure`、`rules`、`entrance`、`persistence`、`command` | 矿区维度、实例分配、生成、矿物、陷阱、压力刷怪、重置、入离场 |
 | WOK-经济模块 | `wok-economy` | `economy` | 双货币、收支闸门、审计与反通胀接口，不持有具体交易 UI |
-| WOK-战斗框架模块 | `wok-combat-core` | `combat` | 玩家受击结算与各职业共享的命名减伤源注册，不持有具体职业或精英词条 |
+| WOK-战斗框架模块 | `wok-combat-core` | `combat` | 玩家受击结算与各职业共享的命名减伤源注册，以及玩家基础最大生命（默认 80）的落地，不持有具体职业或精英词条 |
 | WOK-WebUI 模块 | `wok-webui` | `webui`、`client/webui` | 服务端动作派发、客户端 MCEF 外壳、页面路由；不得持有经济或职业业务规则 |
 
 ### 3.2 职业玩法模块

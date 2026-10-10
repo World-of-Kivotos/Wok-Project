@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
+import com.miningdim.economy.Currency;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.munitions.block.GunsmithAssemblyBenchBlockEntity;
@@ -17,6 +18,9 @@ import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartVariant;
 import com.miningdim.job.munitions.gunsmith.GunsmithPlatform;
 import com.miningdim.job.munitions.gunsmith.GunsmithPressPart;
+import com.miningdim.webui.server.WebUiBusinessException;
+import com.miningdim.webui.server.WebUiErrorCodes;
+import com.miningdim.webui.server.WebUiPayloads;
 import com.miningdim.webui.server.WebUiServerDispatcher;
 import com.miningdim.webui.server.WebUiServerDispatcher.WebUiAction;
 import net.minecraft.core.BlockPos;
@@ -31,11 +35,19 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraftforge.registries.ForgeRegistries;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.regex.Pattern;
+
 /**
- * 军火商面板的两条 WebUiAction: job.munitions.state (三台机器的远程只读镜像) 与 job.blueprints (图纸静态表)。
+ * 军火商面板的四条 WebUiAction: job.munitions.state (三台机器的远程只读镜像)、job.blueprints (图纸静态表)、
+ * job.munitions.shop (系统采购目录, 只读) 与 job.munitions.buy (系统采购下单, 本面板唯一的写动作)。
+ * 采购的判定、扣费与发货全部在 {@link MunitionsShop}, 本类只做入参校验、错误码映射与 JSON 化 (与塔罗买卡包同一分工)。
  *
  * <h2>只读纪律</h2>
- * 两条都不写任何状态。特别是 job.munitions.state <b>绝不</b>调 {@link MunitionsBenchBlockEntity#onAccess}
+ * 前三条都不写任何状态。特别是 job.munitions.state <b>绝不</b>调 {@link MunitionsBenchBlockEntity#onAccess}
  * 或 settleForOwner —— 那条路径会扣工费、扣料、发经验。面板刷新是玩家每隔几秒就会触发一次的读操作, 把结算
  * 挂在它上面等于让"开着面板"变成一种产能加速器, 且远程结算绕开了 "GUI 打开帧 / tick 帧" 这两个本就受
  * 主人在线约束的结算时机。数值一律经各 BE 的 {@link ContainerData} 读 —— 与原生 GUI 同一份权威快照, 不新开取数路径。
@@ -127,10 +139,12 @@ public final class MunitionsWebUiActions {
     private MunitionsWebUiActions() {
     }
 
-    /** 把两条 action 注册进派发器 (由 {@link MunitionsSystem#register} 调用一次)。 */
+    /** 把四条 action 注册进派发器 (由 {@link MunitionsSystem#register} 调用一次)。 */
     public static void registerAll() {
         WebUiServerDispatcher.register("job.munitions.state", STATE);
         WebUiServerDispatcher.register("job.blueprints", BLUEPRINTS);
+        WebUiServerDispatcher.register("job.munitions.shop", SHOP);
+        WebUiServerDispatcher.register("job.munitions.buy", BUY);
     }
 
     // ============================================================
@@ -362,6 +376,214 @@ public final class MunitionsWebUiActions {
         result.addProperty("gunsmithEnabled", MunitionsConfig.GUNSMITH_ENABLED.get());
         return GSON.toJson(result);
     };
+
+    // ============================================================
+    // job.munitions.shop: {} -> 系统采购目录 (只读)
+    // ============================================================
+
+    /**
+     * 系统采购目录: 六档军火台 + 冲压机 + 装配台 + 全部枪匠图纸, 每行带等级门、售价与"此刻能不能买"。
+     *
+     * 只读: 不扣费、不发货、不记回执, 故进得了 system.batch 白名单。每行的 reasonCode 与 job.munitions.buy 被拒时的
+     * errorCode 是同一个值、出自同一个判定函数 ({@link MunitionsShop#evaluate}), 灰按钮与提交被拒不会说两套话。
+     * 行数 = {@link MunitionsShop#entries()} 的定长表 (编译期由台档注册与图纸枚举决定), 不分页; 体积由
+     * {@code MunitionsShopGameTests} 的下行余量断言守住。
+     */
+    static final WebUiAction SHOP = (sender, payload) -> {
+        MunitionsShop.Snapshot snapshot = MunitionsShop.Snapshot.of(sender);
+
+        JsonObject result = new JsonObject();
+        result.addProperty("level", snapshot.level());
+        result.addProperty("currency", Currency.CREDIT.name());
+        result.addProperty("economyOnline", snapshot.economyOnline());
+        // 经济未就绪时余额是未知而不是 0: 发 0 会让面板写出一句"余额 0"的假话。
+        if (snapshot.economyOnline()) {
+            result.addProperty("balance", snapshot.balance());
+        } else {
+            result.add("balance", JsonNull.INSTANCE);
+        }
+        result.addProperty("gunsmithEnabled", snapshot.gunsmithEnabled());
+        result.addProperty("benchCap", snapshot.benchCap());
+        result.addProperty("benchesPlaced", snapshot.benchesPlaced());
+        result.addProperty("benchesHeld", snapshot.benchesHeld());
+
+        JsonArray entries = new JsonArray();
+        for (MunitionsShop.Entry entry : MunitionsShop.entries()) {
+            entries.add(shopEntryJson(sender, entry, snapshot));
+        }
+        result.add("entries", entries);
+        result.addProperty("entryCount", entries.size());
+        return GSON.toJson(result);
+    };
+
+    private static JsonObject shopEntryJson(ServerPlayer sender, MunitionsShop.Entry entry,
+                                            MunitionsShop.Snapshot snapshot) {
+        MunitionsShop.Verdict verdict = MunitionsShop.evaluate(sender, entry, snapshot);
+        MunitionsShop.Unavailable unavailable = MunitionsShop.unavailability(entry, snapshot);
+        GunsmithBlueprint blueprint = entry.blueprint();
+        MunitionsBenchBlock bench = entry.bench();
+        int requiredLevel = entry.requiredLevel();
+
+        JsonObject row = new JsonObject();
+        row.addProperty("entryId", entry.id());
+        row.addProperty("kind", entry.kind().id());
+        row.addProperty("itemId", entry.itemId());
+        row.addProperty("nameKey", entry.nameKey());
+        putBlueprintFields(row, blueprint);
+        if (bench == null) {
+            row.add("maxEffectiveLevel", JsonNull.INSTANCE);
+        } else {
+            // 前端要靠它讲清"这一档台最高按几级算产能" —— 买之前就该知道升到几级得再换台。
+            row.addProperty("maxEffectiveLevel", bench.maxEffectiveLevel());
+        }
+        row.addProperty("requiredLevel", requiredLevel);
+        row.addProperty("price", entry.price());
+        row.addProperty("unlocked", snapshot.level() >= requiredLevel);
+        row.addProperty("available", unavailable == null);
+        if (unavailable == null) {
+            row.add("unavailableReason", JsonNull.INSTANCE);
+        } else {
+            row.addProperty("unavailableReason", unavailable.id());
+        }
+        row.addProperty("affordable", MunitionsShop.affordable(entry, snapshot));
+        row.addProperty("owned", blueprint != null && MunitionsShop.holdsBlueprint(sender, blueprint));
+        row.addProperty("purchasable", verdict.purchasable());
+        if (verdict.purchasable()) {
+            row.add("reasonCode", JsonNull.INSTANCE);
+        } else {
+            row.addProperty("reasonCode", errorCodeOf(Objects.requireNonNull(verdict.reason(), "reason")));
+        }
+        return row;
+    }
+
+    /** 图纸行的四个专有字段; 非图纸行四键都在、值为 null (前端契约是 {@code T | null}, 不许整键缺席)。 */
+    private static void putBlueprintFields(JsonObject row, @Nullable GunsmithBlueprint blueprint) {
+        if (blueprint == null) {
+            row.add("gunNameKey", JsonNull.INSTANCE);
+            row.add("blueprintId", JsonNull.INSTANCE);
+            row.add("gunId", JsonNull.INSTANCE);
+            row.add("caliberId", JsonNull.INSTANCE);
+            return;
+        }
+        row.addProperty("gunNameKey", blueprint.nameKey());
+        row.addProperty("blueprintId", blueprint.templateId());
+        row.addProperty("gunId", blueprint.gunId().toString());
+        // 与 job.munitions.state 的 caliberId 同一口径 (枚举名小写), 前端可复用同一张口径名表。
+        row.addProperty("caliberId", blueprint.ammoCaliber().name().toLowerCase(Locale.ROOT));
+    }
+
+    // ============================================================
+    // job.munitions.buy: {entryId, purchaseId} -> 成交回执 (写动作)
+    // ============================================================
+
+    /** 客户端幂等键的形状: 标准 8-4-4-4-12 十六进制 UUID (UUID.fromString 会放过 "1-1-1-1-1" 这类非规范写法)。 */
+    private static final Pattern UUID_PATTERN =
+            Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
+
+    /**
+     * 系统采购下单。服务端权威: 等级、台数上限、余额、背包空位全部在 {@link MunitionsShop#purchase} 里重新判一遍,
+     * 前端回执里的 purchasable 只是展示。写动作, 不进 system.batch (批内没有防重放)。
+     *
+     * 幂等: 同一玩家同一 purchaseId 只成交一次, 重复到达回放第一次的回执 (replayed=true, 不扣费不发货)。
+     * 前端在网络超时后重试必须沿用原 id; 业务拒绝 (本类抛的 WebUiBusinessException) 一律发生在扣费之前或已原额退款,
+     * 拿新 id 重试是安全的 —— 故 retrySameOpeningId 恒 false。
+     */
+    static final WebUiAction BUY = (sender, payload) -> {
+        String entryId = WebUiPayloads.requiredString(payload, "entryId");
+        MunitionsShop.Entry entry = MunitionsShop.find(entryId).orElseThrow(() ->
+                WebUiPayloads.illegalValue("entryId", entryId, "没有这个采购条目: " + entryId));
+        String rawPurchaseId = WebUiPayloads.requiredString(payload, "purchaseId");
+        if (!UUID_PATTERN.matcher(rawPurchaseId).matches()) {
+            throw WebUiPayloads.illegalValue("purchaseId", rawPurchaseId, "purchaseId 必须是标准格式的 UUID");
+        }
+        UUID purchaseId = UUID.fromString(rawPurchaseId);
+
+        MunitionsShop.Purchase purchase = MunitionsShop.purchase(sender, entry, purchaseId);
+        return switch (purchase.status()) {
+            case COMPLETED -> GSON.toJson(receiptJson(entry, Objects.requireNonNull(purchase.receipt()), false));
+            case REPLAYED -> GSON.toJson(receiptJson(entry, Objects.requireNonNull(purchase.receipt()), true));
+            case PURCHASE_ID_CONFLICT -> throw WebUiPayloads.illegalValue("purchaseId", rawPurchaseId,
+                    "该 purchaseId 已用于购买 " + Objects.requireNonNull(purchase.receipt()).entryId()
+                            + ", 不能再拿来买 " + entry.id());
+            case REJECTED -> throw shopRejection(entry, Objects.requireNonNull(purchase.verdict()),
+                    Objects.requireNonNull(purchase.snapshot()));
+        };
+    };
+
+    private static JsonObject receiptJson(MunitionsShop.Entry entry, MunitionsShop.Receipt receipt,
+                                          boolean replayed) {
+        JsonObject result = new JsonObject();
+        result.addProperty("purchaseId", receipt.purchaseId().toString());
+        result.addProperty("entryId", entry.id());
+        result.addProperty("kind", entry.kind().id());
+        result.addProperty("itemId", entry.itemId());
+        result.addProperty("nameKey", entry.nameKey());
+        putBlueprintFields(result, entry.blueprint());
+        result.addProperty("count", entry.createStack().getCount());
+        result.addProperty("currency", Currency.CREDIT.name());
+        // 实扣额取回执而不是当前配置: 回放时运营可能已经改了价, 那次成交扣的仍是当时的数。
+        result.addProperty("price", receipt.price());
+        if (receipt.balanceAfter() == null) {
+            result.add("balanceAfter", JsonNull.INSTANCE);
+        } else {
+            result.addProperty("balanceAfter", receipt.balanceAfter());
+        }
+        result.addProperty("replayed", replayed);
+        return result;
+    }
+
+    /** 判定原因 -> 对外稳定错误码 (目录行 reasonCode 与下单拒绝的 errorCode 共用这一张映射)。 */
+    static String errorCodeOf(MunitionsShop.Reason reason) {
+        return switch (reason) {
+            case UNAVAILABLE -> WebUiErrorCodes.SHOP_ITEM_UNAVAILABLE;
+            case LEVEL_LOCKED -> WebUiErrorCodes.PURCHASE_LEVEL_LOCKED;
+            case CAP_REACHED -> WebUiErrorCodes.PURCHASE_CAP_REACHED;
+            case ALREADY_OWNED -> WebUiErrorCodes.ALREADY_OWNED;
+            case ECONOMY_OFFLINE -> WebUiErrorCodes.ECONOMY_OFFLINE;
+            case INSUFFICIENT_FUNDS -> WebUiErrorCodes.INSUFFICIENT_FUNDS;
+            case INVENTORY_FULL -> WebUiErrorCodes.INVENTORY_FULL;
+        };
+    }
+
+    /** 下单被拒: 错误码 + 服务端原文 + 占位符实参 (数字一律字符串化, 契约见 WebUiBusinessException)。 */
+    private static WebUiBusinessException shopRejection(MunitionsShop.Entry entry, MunitionsShop.Verdict verdict,
+                                                        MunitionsShop.Snapshot snapshot) {
+        MunitionsShop.Reason reason = Objects.requireNonNull(verdict.reason(), "reason");
+        String code = errorCodeOf(reason);
+        return switch (reason) {
+            case UNAVAILABLE -> {
+                MunitionsShop.Unavailable unavailable = Objects.requireNonNull(verdict.unavailable(), "unavailable");
+                yield new WebUiBusinessException(code, unavailable == MunitionsShop.Unavailable.GUNSMITH_DISABLED
+                        ? "枪匠系统尚未开放, 冲压机、装配台与图纸暂不出售"
+                        : "服务器没有加载这张图纸所需的枪包, 暂不出售", false,
+                        Map.of("entryId", entry.id(), "reason", unavailable.id()));
+            }
+            case LEVEL_LOCKED -> new WebUiBusinessException(code,
+                    "需要军火商 " + entry.requiredLevel() + " 级才能购买 (当前 " + snapshot.level() + " 级)", false,
+                    Map.of("entryId", entry.id(), "job", "munitions",
+                            "requiredLevel", Integer.toString(entry.requiredLevel()),
+                            "currentLevel", Integer.toString(snapshot.level())));
+            case CAP_REACHED -> new WebUiBusinessException(code,
+                    "军火台已达当前等级的拥有上限 " + snapshot.benchCap() + " 台 (已放置 " + snapshot.benchesPlaced()
+                            + ", 背包里 " + snapshot.benchesHeld() + ")", false,
+                    Map.of("entryId", entry.id(), "cap", Integer.toString(snapshot.benchCap()),
+                            "placed", Integer.toString(snapshot.benchesPlaced()),
+                            "held", Integer.toString(snapshot.benchesHeld())));
+            case ALREADY_OWNED -> new WebUiBusinessException(code,
+                    "背包里已经有这张图纸了 (装配不消耗图纸, 不必重复购买)", false,
+                    Map.of("entryId", entry.id()));
+            case ECONOMY_OFFLINE -> new WebUiBusinessException(code,
+                    "经济子系统未就绪, 本次未扣款也未发货", false);
+            case INSUFFICIENT_FUNDS -> new WebUiBusinessException(code,
+                    "信用点不足, 需要 " + entry.price() + ", 当前 " + snapshot.balance(), false,
+                    Map.of("entryId", entry.id(), "currency", Currency.CREDIT.name(),
+                            "totalPrice", Long.toString(entry.price()),
+                            "balance", Long.toString(snapshot.balance())));
+            case INVENTORY_FULL -> new WebUiBusinessException(code,
+                    "背包已满, 腾出一格再买 (本次未扣款)", false,
+                    Map.of("entryId", entry.id()));
+        };
+    }
 
     private static String itemId(Item item) {
         return ForgeRegistries.ITEMS.getKey(item).toString();

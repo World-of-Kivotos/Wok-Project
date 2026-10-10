@@ -55,7 +55,7 @@ import java.util.UUID;
  *       {@value #SCAN_INTERVAL_TICKS}tick(1s) 按玩家 AABB 扫近处冠军检出到达背水血线的小男孩冠军起手
  *       (与 {@code ChampionBlinkHandler}/{@code ChampionDeathMarkHandler} 同扫描范式)。</li>
  *   <li>{@link #onChampionHurtDuringCharge} (LOWEST + receiveCanceled): 蓄力期本怪受【玩家直接/弹射】伤害累计进度
- *       (名义入伤口径, 与 {@code ContributionTracker}/{@code ChampionDeathMarkHandler} 采样同口径 —— 见方法注释)。</li>
+ *       (名义入伤口径, 与 {@code ChampionDeathMarkHandler} 采样同口径; 奖励账本记净伤, 不同口径 —— 见方法注释)。</li>
  *   <li>{@link #onChampionDeath} (LivingDeathEvent): 蓄力期冠军死亡摘状态自然终止 (无引爆)。</li>
  * </ul>
  *
@@ -215,9 +215,10 @@ public final class ChampionLittleBoyHandler {
     /**
      * 蓄力期本怪受【玩家直接/弹射】伤害累计打断进度。LOWEST + receiveCanceled: Forge 无 Bukkit 式 MONITOR, LOWEST 即
      * 事件链末端相位; 小男孩恒 7★+ 有血池, {@code ChampionBloodPoolHandler} (亦 LOWEST) 只 cancel 不 setAmount, 故此处
-     * {@code event.getAmount()} = 名义入伤 (与 {@code ContributionTracker}/{@code ChampionDeathMarkHandler} 采样同口径)。
+     * {@code event.getAmount()} = 名义入伤 (与 {@code ChampionDeathMarkHandler} 采样同口径; 奖励账本
+     * {@code ContributionTracker} 自方案 D1 起改记净伤, 与本处刻意不同口径)。
      *
-     * 用名义入伤而非净伤累计 (对齐全库"有效伤害"口径): 若按净伤 (经血池减伤), 重装甲冠军减伤达 75% 时打断门槛几乎不可达,
+     * 用名义入伤而非净伤累计: 若按净伤 (经血池减伤), 重装甲冠军减伤达 75% 时打断门槛几乎不可达,
      * 违"打出 X 伤害可打断"的可预期反制语义; 名义口径即玩家伤害面板所见的输出, 门槛可达。只计玩家来源
      * ({@code source.getEntity()} 是玩家: 近战=玩家本体, 弹射=射手玩家), 环境/其它怪伤害不计。
      */

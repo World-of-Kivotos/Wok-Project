@@ -25,7 +25,8 @@ public enum AffixDef {
     /**
      * 复合装甲 (同源适应, 2026-07-07 用户定向加强): 减伤上限 35/45/55/65/75%; 按【伤害类别】(子弹/近战/爆炸/其它)
      * 分桶各自 ramp, 每受同类击 +上限/5, 受其它类别伤害即清空全部他桶 (装甲适应当前威胁、忘掉旧威胁) ——
-     * 玩家换武器/丢雷 = 真重置 (原版 adaptable 式反制); 3s 无伤全重置。并入净减伤 75% 钳制。
+     * 玩家换武器/丢雷 = 真重置 (原版 adaptable 式反制); 3s 无伤全重置。并入净减伤 75% 钳制。同一 tick 同一类别只叠
+     * 1 层; 6★+ 的 TaCZ 穿甲段不吃本词条也不叠层 (2026-09, 见 ChampionDamageReduction#ARMOR_PIERCE_AFFIX_BYPASS)。
      */
     COMPOSITE_ARMOR(AffixPool.SURVIVAL, 8, 1, false,
             new double[]{0.35, 0.45, 0.55, 0.65, 0.75}, null, MutexFlag.NONE),
@@ -46,7 +47,7 @@ public enum AffixDef {
     REGEN_TISSUE(AffixPool.SURVIVAL, 6, 1, false,
             new double[]{0.03, 0.04, 0.05, 0.06, 0.08}, null, MutexFlag.NONE),
 
-    /** 易燃再生: 战斗回 FLAT 8/15/30/60/90 HP/s; 受任意伤害停回 1.5s。 */
+    /** 易燃再生: 战斗回 FLAT 8/15/30/60/90 HP/s; 受任意伤害停回 3s (2026-09 由 1.5s 放宽, 盖过换弹空窗)。 */
     FLAMMABLE_REGEN(AffixPool.SURVIVAL, 10, 3, false,
             new double[]{8.0, 15.0, 30.0, 60.0, 90.0}, null, MutexFlag.NONE),
 
@@ -61,7 +62,7 @@ public enum AffixDef {
     FORTITUDE_SHIELD(AffixPool.SURVIVAL, 22, 6, false,
             new double[]{0.0, 0.0, 120.0, 80.0, 50.0}, null, MutexFlag.FORTITUDE),
 
-    /** 反震: 受击对周围 2/3.5/5/7/10% maxHP + 击退; 内 CD ≥3s; 半径 3-5; 反伤分量并入红线 2 多源封顶。 */
+    /** 反震: 受击对周围 2/3.5/5/7/10% maxHP + 击退; 内 CD ≥3s; 半径 5 (到碰撞箱外沿, 超距不反); 反伤分量并入红线 2 多源封顶。 */
     THORNS(AffixPool.SURVIVAL, 9, 2, false,
             new double[]{0.02, 0.035, 0.05, 0.07, 0.10}, null, MutexFlag.NONE),
 

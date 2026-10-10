@@ -75,6 +75,8 @@ public final class MunitionsWebUiGameTests {
 
     private static final String STATE_ACTION = "job.munitions.state";
     private static final String BLUEPRINTS_ACTION = "job.blueprints";
+    private static final String SHOP_ACTION = "job.munitions.shop";
+    private static final String BUY_ACTION = "job.munitions.buy";
 
     private static final String STATION_BENCH = "munitions_bench";
     private static final String STATION_PRESS = "gunsmith_press";
@@ -543,15 +545,27 @@ public final class MunitionsWebUiGameTests {
     // 5. 注册名
     // ============================================================
 
+    /**
+     * 军火商页的契约名。系统采购 (Munitions_Job_DesignSpec 6.4) 起由两条扩成四条: 原有的只读镜像与图纸表之外,
+     * 新增 job.munitions.shop (采购目录, 只读) 与 job.munitions.buy (下单, 本页唯一写动作)。
+     * 别名断言照旧保留并补上采购侧最容易被随手起的几个名字 —— 前端 SERVER_ACTIONS 里只有这四条。
+     */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void munitionsActionsAreRegisteredUnderTheContractNames(GameTestHelper helper) {
         ensureRegistered();
         helper.assertTrue(WebUiServerDispatcher.resolve(STATE_ACTION) != null
-                        && WebUiServerDispatcher.resolve(BLUEPRINTS_ACTION) != null,
-                "两条 action 必须由 MunitionsWebUiActions.registerAll 注册进派发器");
+                        && WebUiServerDispatcher.resolve(BLUEPRINTS_ACTION) != null
+                        && WebUiServerDispatcher.resolve(SHOP_ACTION) != null
+                        && WebUiServerDispatcher.resolve(BUY_ACTION) != null,
+                "四条 action 必须由 MunitionsWebUiActions.registerAll 注册进派发器");
         helper.assertTrue(WebUiServerDispatcher.resolve("munitions.state") == null
-                        && WebUiServerDispatcher.resolve("job.munitions.blueprints") == null,
-                "军火商页只有 job.munitions.state 与 job.blueprints 两条, 不得另注册别名");
+                        && WebUiServerDispatcher.resolve("job.munitions.blueprints") == null
+                        && WebUiServerDispatcher.resolve("job.munitions.catalog") == null
+                        && WebUiServerDispatcher.resolve("job.munitions.purchase") == null
+                        && WebUiServerDispatcher.resolve("munitions.shop") == null
+                        && WebUiServerDispatcher.resolve("munitions.buy") == null,
+                "军火商页只有 job.munitions.state / job.blueprints / job.munitions.shop / job.munitions.buy 四条,"
+                        + " 不得另注册别名");
         helper.succeed();
     }
 

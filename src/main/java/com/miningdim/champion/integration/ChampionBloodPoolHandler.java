@@ -130,20 +130,17 @@ public final class ChampionBloodPoolHandler {
         }
 
         if (pool.wouldDieFrom(netDamage)) {
+            // 贡献记净伤 (方案 D1): 本 handler 是血池冠军唯一记账点, 致死击按扣血前剩余影子血截断 (溢出不计)。
+            ChampionRewardHandler.recordBloodPoolHit(victim, event.getSource(), incoming, netDamage, pool.currentHp());
             // 影子血池致死 (6.2 #3 拦死单一判据): 扣到 0, 取消本次 vanilla 伤害, 摘池放行。
             pool.applyDamage(netDamage);
             flushCurrentHp(victim, pool);
             event.setCanceled(true);
 
-            // 不预记贡献 (F101 修复): LivingEntity.hurt() 的 setHealth(0) 之后紧跟
-            // `else if (this.isDeadOrDying()) return false;` (LivingEntity.java:1064) —— 本次 setHealth(0) 已使
-            // isDeadOrDying 为真, 若本 handler 再调 kill() (即 hurt(genericKill, MAX_VALUE)) 必在这条分支恒 no-op,
-            // 不会重入 LivingHurtEvent。真正致死是外层 vanilla hurt 尾部的
-            // `if (this.isDeadOrDying()) ... this.die(source);` (LivingEntity.java:1175-1182), 它在 actuallyHurt
-            // 返回、即本次 LivingHurtEvent 全部监听器 (含 LOWEST 的本 handler) 跑完【之后】才执行。故
-            // ChampionRewardHandler.onChampionHurt (同为 LOWEST, receiveCanceled=true, 注册序在本 handler 之后
-            // 故 FIFO 后跑) 必然先按常规入伤口径记完这笔致命击, 才轮到 die() 触发 onChampionDeath 去 drain ——
-            // 常规记账已独占这笔账, 这里再记一次就是把致命击算两遍。
+            // 致死击只在上面记这一次 (F101: 曾因此处预记 + 奖励 handler 常规记账而算两遍)。不调 kill(): 本次
+            // setHealth(0) 已使 isDeadOrDying 为真, kill() 走 LivingEntity.hurt() 的 `else if (isDeadOrDying())
+            // return false;` 恒 no-op。真正致死是外层 vanilla hurt 尾部的 die() (LivingEntity.java:1175-1182),
+            // 在本次 LivingHurtEvent 全部监听器跑完之后才执行, 结算读到的账本已含这笔致死击。
 
             // 摘池 (放行 vanilla 真死路径): 摘除后本次 event 循环内不会再有本 handler 的重入 (受击已在处理中),
             // 摘池是为了让任何后续/嵌套受击 (若外部 mod 在更高优先级另触发一次) 找不到池而放行走 vanilla。
@@ -153,6 +150,7 @@ public final class ChampionBloodPoolHandler {
         }
 
         // 未致死: 影子血池扣净伤, 取消 vanilla 本次伤害 (影子血权威, vanilla 不重复扣其 ≤1024 血)。
+        ChampionRewardHandler.recordBloodPoolHit(victim, event.getSource(), incoming, netDamage, pool.currentHp());
         pool.applyDamage(netDamage);
         flushCurrentHp(victim, pool);
         event.setCanceled(true);
@@ -190,9 +188,14 @@ public final class ChampionBloodPoolHandler {
         boolean bullet = isBulletDamage(source);
         boolean meleeOrExplosion = isMeleeOrExplosionDamage(source);
         ChampionDamageReduction.DamageCategory category = categorize(source, bullet);
+        // 6★+ 穿甲段分流 (2026-09): TaCZ 穿甲段 (tacz:*_ignore_armor) 按旋钮豁免复合/超高分子/重型三项护甲类减伤,
+        // 且不叠复合层; 偏斜/缩小化/刚毅封顶/keep 帽照旧。1-5★ 走原版护甲, 穿甲本就生效, 不改。
+        boolean pierceBypass = ChampionDamageReduction.armorPierceBypassApplies(
+                champ.star(), isArmorPierceSegment(source));
 
         for (Map.Entry<AffixDef, AffixQuality> entry : champ.affixes().entrySet()) {
-            collectAffixReduction(entry.getKey(), entry.getValue(), bullet, meleeOrExplosion, category, victim, plan);
+            collectAffixReduction(entry.getKey(), entry.getValue(), bullet, meleeOrExplosion, category,
+                    pierceBypass, victim, plan);
         }
         plan.meleeOrExplosion = meleeOrExplosion;
         plan.category = category;
@@ -201,29 +204,35 @@ public final class ChampionBloodPoolHandler {
 
     /**
      * 单条减伤词条折算 (按词条分派): 比例源 add 进 rates; FLAT 源写 plan.fortitudeCap/heavyThreshold。子弹专属源
-     * (超高分子/重型子弹抗/偏斜 EV) 仅子弹伤害纳入; 复合 ramp/缩小化对全伤害类型生效。
+     * (超高分子/重型子弹抗/偏斜 EV) 仅子弹伤害纳入; 复合 ramp/缩小化对全伤害类型生效。pierceBypass 为真 (6★+ 穿甲段)
+     * 时三项护甲类率按 {@link ChampionDamageReduction#pierceBypassedRate} 折算, 复合装甲只读现有层数不叠层。
      */
     private void collectAffixReduction(AffixDef def, AffixQuality quality,
                                        boolean bullet, boolean meleeOrExplosion,
-                                       ChampionDamageReduction.DamageCategory category, LivingEntity victim,
-                                       ReductionPlan plan) {
+                                       ChampionDamageReduction.DamageCategory category, boolean pierceBypass,
+                                       LivingEntity victim, ReductionPlan plan) {
         switch (def) {
             case COMPOSITE_ARMOR: {
-                // 同源适应: per-冠军按伤害类别分桶爬升 (换类别双向清零 + 3s 无伤全重置), 当前类别层数折率进 rates。
+                // 同源适应: per-冠军按伤害类别分桶爬升 (换类别双向清零 + 3s 无伤全重置 + 同 tick 同类别只叠 1 层),
+                // 当前类别层数折率进 rates。穿甲段不调 onHit (不叠层、不清他桶), 只按现有层数折率再乘豁免余量。
                 CompositeArmorRampTracker tracker =
                         compositeRamps.computeIfAbsent(victim.getUUID(), id -> new CompositeArmorRampTracker());
-                int hits = tracker.onHit(category, victim.level().getGameTime());
-                addRate(plan, ChampionDamageReduction.compositeRampRate(quality, hits));
+                long nowTick = victim.level().getGameTime();
+                int hits = pierceBypass ? tracker.peek(category, nowTick) : tracker.onHit(category, nowTick);
+                addRate(plan, ChampionDamageReduction.pierceBypassedRate(
+                        ChampionDamageReduction.compositeRampRate(quality, hits), pierceBypass));
                 break;
             }
             case UHMWPE_ARMOR:
                 if (bullet) {
-                    addRate(plan, ChampionDamageReduction.uhmwpeBulletRate(quality));
+                    addRate(plan, ChampionDamageReduction.pierceBypassedRate(
+                            ChampionDamageReduction.uhmwpeBulletRate(quality), pierceBypass));
                 }
                 break;
             case HEAVY_ARMOR:
                 if (bullet) {
-                    addRate(plan, ChampionDamageReduction.heavyArmorBulletRate(quality));
+                    addRate(plan, ChampionDamageReduction.pierceBypassedRate(
+                            ChampionDamageReduction.heavyArmorBulletRate(quality), pierceBypass));
                 }
                 // 近战/爆炸 <T 免疫阈值 (FLAT, 后置削顶); 取 max 防多重型词条 (实际不会, 防御性)。
                 if (meleeOrExplosion) {
@@ -285,22 +294,32 @@ public final class ChampionBloodPoolHandler {
     }
 
     /**
-     * 伤害类别折算 (复合装甲同源适应分桶维度): 子弹 (tacz:bullet*) / 爆炸 (IS_EXPLOSION, 先于近战判防爆炸型近战误归) /
-     * 近战 (MOB/PLAYER_ATTACK) / 其余 OTHER。bullet 已由调用方算好传入 (免二次解析 type id)。
+     * 是否 TACZ 子弹的穿甲段 (tacz:*_ignore_armor; 兜底认 bypasses_armor 标签, 仅限 TACZ 子弹范围), 交纯逻辑
+     * {@link ChampionDamageReduction#isArmorPierceSegment} 判。typeHolder 未绑 ResourceKey 时归非穿甲段 (保守)。
+     */
+    private static boolean isArmorPierceSegment(DamageSource source) {
+        Optional<ResourceKey<DamageType>> key = source.typeHolder().unwrapKey();
+        if (key.isEmpty()) {
+            return false;
+        }
+        ResourceLocation id = key.get().location();
+        return ChampionDamageReduction.isArmorPierceSegment(
+                id.getNamespace(), id.getPath(), source.is(DamageTypeTags.BYPASSES_ARMOR));
+    }
+
+    /**
+     * 伤害类别折算 (复合装甲同源适应分桶维度), 规则见纯逻辑 {@link ChampionDamageReduction#categorize}: 子弹
+     * (tacz:bullet*) / 配件开启的子弹爆炸 (归子弹桶, 由 {@link TaczAttachmentExplosionProbe} 判定, 未装 TaCZ 恒否) /
+     * 其余爆炸 (IS_EXPLOSION) / 近战 (MOB/PLAYER_ATTACK) / 其余 OTHER。bullet 已由调用方算好传入 (免二次解析 type id)。
      */
     private static ChampionDamageReduction.DamageCategory categorize(DamageSource source, boolean bullet) {
-        if (bullet) {
-            return ChampionDamageReduction.DamageCategory.BULLET;
-        }
-        if (source.is(DamageTypeTags.IS_EXPLOSION)) {
-            return ChampionDamageReduction.DamageCategory.EXPLOSION;
-        }
-        if (source.is(DamageTypes.MOB_ATTACK)
+        boolean explosion = source.is(DamageTypeTags.IS_EXPLOSION);
+        boolean attachmentBulletExplosion = explosion
+                && TaczAttachmentExplosionProbe.isAttachmentBulletExplosion(source);
+        boolean melee = source.is(DamageTypes.MOB_ATTACK)
                 || source.is(DamageTypes.MOB_ATTACK_NO_AGGRO)
-                || source.is(DamageTypes.PLAYER_ATTACK)) {
-            return ChampionDamageReduction.DamageCategory.MELEE;
-        }
-        return ChampionDamageReduction.DamageCategory.OTHER;
+                || source.is(DamageTypes.PLAYER_ATTACK);
+        return ChampionDamageReduction.categorize(bullet, explosion, attachmentBulletExplosion, melee);
     }
 
     /**

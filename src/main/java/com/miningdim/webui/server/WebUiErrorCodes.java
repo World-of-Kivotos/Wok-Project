@@ -72,6 +72,8 @@ public final class WebUiErrorCodes {
      *
      * 与装配缺陷分开成业务码的理由: 卖菜路径本就把"经济没起来"当作正常短路 (不扣物不发币直接返回), 而不是
      * 抛异常; 前端必须能把它与"卖成功了但发币 0"区分开来。
+     *
+     * job.tarot.buyPack 与 job.munitions.buy 在"本次真会扣款而经济未就绪"时同样抛它 (未扣款也未发货)。
      */
     public static final String ECONOMY_OFFLINE = "ECONOMY_OFFLINE";
 
@@ -94,13 +96,51 @@ public final class WebUiErrorCodes {
      */
     public static final String SELL_LEVEL_TOO_LOW = "SELL_LEVEL_TOO_LOW";
 
+    /**
+     * 系统采购被职业等级门拒绝。抛出点: {@code MunitionsWebUiActions} 的 job.munitions.buy handler
+     * (判定真源 {@code MunitionsShop.evaluate})。params: {@code entryId} / {@code job} / {@code requiredLevel} /
+     * {@code currentLevel}。job.munitions.shop 目录行的 reasonCode 回的是同一个值但<b>不抛</b> —— 灰按钮与提交被拒
+     * 共用一句文案。
+     *
+     * 不复用 {@link #SELL_LEVEL_TOO_LOW}: 那条的文案说的是"卖不了", 这里是"买不了"; 不带 MUNITIONS_ 前缀的理由
+     * 同 {@link #SKILL_LOCKED}, 别的职业的系统采购由 params.job 区分。
+     */
+    public static final String PURCHASE_LEVEL_LOCKED = "PURCHASE_LEVEL_LOCKED";
+
+    /**
+     * 系统采购撞上拥有数上限 (当前只有军火台: 已放置 + 背包里未放置的台数达到等级对应的台数上限)。
+     * 抛出点同 {@link #PURCHASE_LEVEL_LOCKED}。params: {@code entryId} / {@code cap} / {@code placed} / {@code held}。
+     */
+    public static final String PURCHASE_CAP_REACHED = "PURCHASE_CAP_REACHED";
+
+    /**
+     * 系统此刻不卖这一件 (与玩家无关)。抛出点同 {@link #PURCHASE_LEVEL_LOCKED}。params: {@code entryId} /
+     * {@code reason} ({@code gunsmith_disabled} 枪匠链总开关关着 / {@code gun_pack_missing} 图纸所需的第三方枪包未加载)。
+     */
+    public static final String SHOP_ITEM_UNAVAILABLE = "SHOP_ITEM_UNAVAILABLE";
+
+    /**
+     * 背包里已经有同一件不会被消耗的物品, 拒绝重复购买 (当前只有枪匠图纸: 装配不消耗图纸)。
+     * 抛出点同 {@link #PURCHASE_LEVEL_LOCKED}。params: {@code entryId}。
+     */
+    public static final String ALREADY_OWNED = "ALREADY_OWNED";
+
+    /**
+     * 主背包没有空位放下这件货, 本次未扣款。抛出点同 {@link #PURCHASE_LEVEL_LOCKED} (含"扣费后发货失败、已原额退款"
+     * 那条兜底分支)。params: {@code entryId}。系统采购选择拒绝而不是掉在脚下, 理由见 {@code MunitionsShop} 类注释。
+     */
+    public static final String INVENTORY_FULL = "INVENTORY_FULL";
+
     /** 任务系统已被配置关闭。抛出点: 所有 {@code quest.*} action 的统一前置门。 */
     public static final String QUEST_DISABLED = "QUEST_DISABLED";
 
     /** 开箱系统已关闭, 或 TaCZ / 武器箱资源包未就绪。抛出点: {@code CaseOpeningService.open}。 */
     public static final String CASE_DISABLED = "CASE_DISABLED";
 
-    /** 余额不足 (信用点或青辉石)。抛出点: {@code CaseOpeningService.open}。 */
+    /**
+     * 余额不足 (信用点或青辉石)。抛出点: {@code CaseOpeningService.open}; 另有 job.tarot.buyPack 与
+     * job.munitions.buy (后者 params: {@code entryId} / {@code currency} / {@code totalPrice} / {@code balance})。
+     */
     public static final String INSUFFICIENT_FUNDS = "INSUFFICIENT_FUNDS";
 
     /** TaCZ 或武器箱资源包未就绪, 无法应用枪械皮肤。抛出点: {@code CaseOpeningService.apply}。 */

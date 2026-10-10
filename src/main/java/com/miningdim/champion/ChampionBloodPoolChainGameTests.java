@@ -73,9 +73,9 @@ public final class ChampionBloodPoolChainGameTests {
         zombie.hurt(src, 500.0F);
         helper.assertTrue(Math.abs(BloodPoolRegistry.get(championId).currentHp() - 1_500.0D) < EPS,
                 "hit1 (500 net dmg on 2000 pool, keep=1.0/no flat caps) -> pool currentHp = 1500");
-        helper.assertTrue(ContributionTracker.hasLedger(championId), "hit1 opens a contribution ledger for this champion");
+        helper.assertTrue(ContributionTracker.hasLedger(champ), "hit1 opens a contribution ledger for this champion");
 
-        // 死亡探针: HIGHEST 优先级, 早于默认优先级的 ChampionRewardHandler.onChampionDeath 抢先 drain 账本,
+        // 死亡探针: HIGHEST 优先级, 早于默认优先级的 ChampionRewardHandler.onChampionDeath 结算清账,
         // 既做"死亡真触发"的判据 (F101 安全网), 又原地取到结算前的贡献快照 (省去依赖 EconomyServices 才能验的结算路径)。
         boolean[] deathFired = {false};
         AtomicReference<List<DamageContribution>> captured = new AtomicReference<>();
@@ -83,16 +83,16 @@ public final class ChampionBloodPoolChainGameTests {
             @SubscribeEvent(priority = EventPriority.HIGHEST)
             public void onChampionDeathProbe(LivingDeathEvent event) {
                 if (event.getEntity() == zombie) {
-                    captured.set(ContributionTracker.drain(championId, id -> true));
+                    captured.set(ContributionTracker.snapshot(champ, id -> true));
                     deathFired[0] = true;
                 }
             }
         };
         MinecraftForge.EVENT_BUS.register(deathProbe);
         try {
-            // 第 2 发 (致死 5000): 拦死分支扣池到 0 + setHealth(0), 不预记贡献 (F101 修复点)。真死由外层
-            // vanilla hurt() 尾部的 die() 驱动, 在本次 LivingHurtEvent 全部监听器 (含 ChampionRewardHandler.
-            // onChampionHurt 的常规记账) 跑完之后才触发, 故死亡探针读到的账本必须已含这笔常规记账。
+            // 第 2 发 (致死 5000): 拦死分支先记账 (按剩余影子血 1500 截断) 再扣池到 0 + setHealth(0)。真死由外层
+            // vanilla hurt() 尾部的 die() 驱动, 在本次 LivingHurtEvent 全部监听器跑完之后才触发, 故死亡探针读到的
+            // 账本必须已含这笔致死击。
             zombie.invulnerableTime = 0;
             zombie.hurt(src, 5_000.0F);
 
@@ -101,26 +101,27 @@ public final class ChampionBloodPoolChainGameTests {
             helper.assertTrue(deathFired[0], "lethal hit triggers real vanilla death (LivingDeathEvent fires)");
 
             List<DamageContribution> drained = captured.get();
-            // (b) 同一玩家两次命中只累计成 ContributionTracker 里的一条 Accum (per-player 累加), 不是两条记录。
+            // (b) 同一玩家两次命中只累计成账本里的一条 (per-player 累加), 不是两条记录。
             helper.assertTrue(drained != null && drained.size() == 1,
                     "exactly one ledger entry for the sole attacking player, got "
                             + (drained == null ? "null" : String.valueOf(drained.size())));
             helper.assertTrue(drained.get(0).playerId().equals(player.getUUID()),
                     "the single ledger entry belongs to the mock attacking player");
 
-            // (c) F101 钉子: 若 ChampionBloodPoolHandler 拦死分支还留着"预记贡献"那段 ContributionTracker.record,
-            //     致命一击会被记两次 -> 500 + 5000(常规) + 5000(预记) = 10500, 本断言必挂。
-            helper.assertTrue(Math.abs(drained.get(0).effectiveDamage() - 5_500.0D) < EPS,
-                    "lethal hit counted exactly once: 500 (hit1) + 5000 (hit2) = 5500, got "
+            // (c) F101 钉子 + 净伤口径 (方案 D1): 致死击按剩余影子血截断, 净伤 = 500 + 1500 = 2000 = 池上限;
+            //     任何一处重复记账都会让它超过 2000。毛伤仍按名义入伤累计 500 + 5000 = 5500 (仅诊断)。
+            helper.assertTrue(Math.abs(drained.get(0).effectiveDamage() - 2_000.0D) < EPS,
+                    "lethal hit counted exactly once and capped at remaining pool: 500 + 1500 = 2000, got "
                             + drained.get(0).effectiveDamage());
+            helper.assertTrue(Math.abs(drained.get(0).grossDamage() - 5_500.0D) < EPS,
+                    "gross (diagnostic) keeps the nominal 500 + 5000 = 5500, got " + drained.get(0).grossDamage());
 
             // (d) 拦死分支摘池 + onLivingDeath 回收 (双保险, 幂等): 血池权威表不留死冠军的残留条目。
             helper.assertFalse(BloodPoolRegistry.has(championId), "blood pool entry recycled after lethal death chain");
         } finally {
-            // 断言失败也不留脏静态态 (照 ChampionAttackGameTests:310-312 与 ChampionGameTests:604-606 的反泄漏写法):
-            // 探针必须先摘, 再清账本/血池, 顺序颠倒不影响正确性但保持与其它用例一致的书写习惯。
+            // 断言失败也不留脏静态态 (照 ChampionAttackGameTests:310-312 的反泄漏写法): 探针必须先摘, 再清血池。
+            // 贡献账本挂在实体 capability 上, 随实体消失, 无需清理。
             MinecraftForge.EVENT_BUS.unregister(deathProbe);
-            ContributionTracker.reset();
             BloodPoolRegistry.remove(championId);
         }
         helper.succeed();
@@ -151,8 +152,7 @@ public final class ChampionBloodPoolChainGameTests {
 
         try {
             // F040 落账点: 受击非致死伤经 ChampionBloodPoolHandler.flushCurrentHp 把血池当前血写回 capability。
-            // (注: zombie.hurt 全链路真事件分发也会经 ChampionRewardHandler.onChampionHurt 在 ContributionTracker
-            // 开一条本冠军的贡献账本; 本用例不断言贡献, 但 finally 仍须 discard 掉它防跨 test 脏账本。)
+            // (注: 同一次受击也会在本冠军 capability 上记一笔贡献; 本用例不断言贡献, 账本随实体消失无需清理。)
             // 删掉该 flushCurrentHp 调用则 capability 停在 promote 时的满血 2000, 本断言必挂。
             zombie.invulnerableTime = 0;
             zombie.hurt(src, 700.0F);
@@ -195,7 +195,6 @@ public final class ChampionBloodPoolChainGameTests {
         } finally {
             BloodPoolRegistry.remove(championId);
             BloodPoolRegistry.remove(sentinelId);
-            ContributionTracker.discard(championId);
         }
         helper.succeed();
     }

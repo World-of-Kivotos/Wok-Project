@@ -49,7 +49,9 @@ AK 当前已注册两个非基础型号，均出自红冬。稀有度取自 `Gun
 | 红冬高压导气 | `red_east_high_pressure_gas` | 特种级（`SPECIAL`） | 红冬 | CORE | 10101-10105 | [热更新规则](Gunsmith_Component_Hot_Reload_Rules.md)第四节 |
 | 赤雪-A枪机 | `red_winter_chixue_a_bolt` | 特种级（`SPECIAL`） | 红冬 | BOLT | 10701-10705 | [热更新规则](Gunsmith_Component_Hot_Reload_Rules.md)第十一节 |
 
-两者的取舍方向相反又互补：红冬高压导气以射速、有效射程、散布与后坐为代价换逐档递增的伤害；赤雪-A 枪机以穿甲下降和后坐上升为代价换全档恒定的伤害提升。五档倍率由服务端 datapack `data/miningdim/gunsmith/components/<variant>.json` 管理并可热更新；平台、槽位、稀有度、势力与 CMD 属于代码与资源维度，不受 datapack 影响。
+两者的取舍方向相反又互补：红冬高压导气以射速、有效射程、散布与后坐为代价换逐档递增的伤害；赤雪-A 枪机以穿甲下降和后坐上升为代价换逐档递增的伤害提升（传奇档 +25%）。五档倍率由服务端 datapack `data/miningdim/gunsmith/components/<variant>.json` 管理并可热更新；平台、槽位、稀有度、势力与 CMD 属于代码与资源维度，不受 datapack 影响。
+
+两者互斥，不能装在同一把 AK 上：两件加伤连乘会越过或贴近整枪伤害总帽，越帽部分白给而代价照吃。装配台与装配预览都拒绝这套组合并提示原因；互斥落地前已经装出来的双加伤 AK 照常可用，伤害仍被总帽钳住。规则见[热更新规则](Gunsmith_Component_Hot_Reload_Rules.md)第十四节。
 
 AK 平台没有强制射击模式类组件，成品的射击模式列表一律按普通装配路径逐项保留源枪数据。
 

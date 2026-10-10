@@ -92,8 +92,11 @@ public final class TaczRecipeFilterGameTests {
      * data/tacz/data/guns/*_data.json; 第三方枪查测试端枪包 (ClassicRCCRP 的 ccrp:m1887_long/mpx, HareTactics 的
      * hare:ksg, sxgunpack 的 wyyc1991:stl, lavender_converted 的 lavender:smle_iii)。枪匠自建的 miningdim 连发变体
      * 同样吃 tacz:556x45。新增图纸必须在这里补一行, 否则下面的覆盖断言会先红。
+     *
+     * 包内可见: MunitionsShopGameTests 拿它当独立真源, 核对 {@code GunsmithBlueprint.ammoCaliber()} 这张生产侧映射
+     * (系统采购的图纸等级门就按它定) 与枪数据文件逐张一致。
      */
-    private static final Map<GunsmithBlueprint, String> BLUEPRINT_AMMO = Map.ofEntries(
+    static final Map<GunsmithBlueprint, String> BLUEPRINT_AMMO = Map.ofEntries(
             Map.entry(GunsmithBlueprint.M4A1, "tacz:556x45"),
             Map.entry(GunsmithBlueprint.M16A1, "tacz:556x45"),
             Map.entry(GunsmithBlueprint.M16A4, "tacz:556x45"),

@@ -122,6 +122,9 @@ public final class MiningServerConfig {
     // ---- 运维项 (不属 16.2 表, 与 maxGenWorkers 同性质): 移动校验 (movement) ----
     public static final ForgeConfigSpec.IntValue CREATIVE_FLIGHT_MAX_BLOCKS_PER_TICK;
 
+    // ---- 玩家基础最大生命 (player; 不属 16.2 表, 由战斗框架 combat.PlayerBaseHealthHandler 读取) ----
+    public static final ForgeConfigSpec.DoubleValue PLAYER_BASE_MAX_HEALTH;
+
     /** 16.2.1 instance.overflowPolicy 枚举值 (REJECT 拒绝 / QUEUE 排队)。 */
     public enum OverflowPolicy {
         REJECT,
@@ -327,6 +330,20 @@ public final class MiningServerConfig {
                         "Default 280 = roughly 5x the 54 blocks/tick measured at /flyspeed's 50x ceiling (flyingSpeed",
                         "2.5), so the whole range the script can produce stays clear of the check with margin to spare.")
                 .defineInRange("creativeFlightMaxBlocksPerTick", 280, 10, 2048);
+        b.pop();
+
+        // 全服战斗数值按玩家 80 血建模; 写 MAX_HEALTH 的基础值而非修饰 (金酒 +10%/层与额外生命全局帽都以 base 为锚)。
+        b.push("player");
+        PLAYER_BASE_MAX_HEALTH = b.comment(
+                        "Base value of generic.max_health enforced on every player (vanilla default is 20). Applied on",
+                        "login, respawn, clone, dimension change and every 100 ticks. Raise-only: a base that is already",
+                        "higher (e.g. a KubeJS test script's 500, or a value raised under an earlier higher setting) is",
+                        "never lowered, so lowering this does not shrink existing players until they die and respawn.",
+                        "The first raise to a new level adds the difference to current health (20/20 -> 80/80); death",
+                        "respawn refills to full; the End exit keeps the health the player left the End with.",
+                        "Written as the attribute BASE value, not a modifier: brewer gin (+10% per layer) and the",
+                        "cross-job bonus max-health cap are both computed from the base.")
+                .defineInRange("baseMaxHealth", 80.0, 20.0, 1024.0);
         b.pop();
 
         SPEC = b.build();

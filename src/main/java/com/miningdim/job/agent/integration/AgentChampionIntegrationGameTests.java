@@ -2,17 +2,22 @@ package com.miningdim.job.agent.integration;
 
 import com.miningdim.champion.AffixDef;
 import com.miningdim.champion.AffixQuality;
+import com.miningdim.champion.ChampionConfig;
 import com.miningdim.champion.MiningChampionData;
 import com.miningdim.champion.MiningChampions;
 import com.miningdim.champion.integration.ChampionPromoter;
 import com.miningdim.champion.reward.ChampionReward;
+import com.miningdim.champion.reward.ContributionPool;
 import com.miningdim.champion.reward.ContributionTracker;
+import com.miningdim.champion.reward.DamageContribution;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.economy.EconomyServices;
 import com.miningdim.entry.MiningCapabilities;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.agent.AgentBountySavedData;
+import com.miningdim.job.agent.AgentEnhancedReward;
+import com.miningdim.job.agent.AgentSkillTable;
 import com.miningdim.job.agent.SealCategory;
 import com.miningdim.job.agent.SealRegistry;
 import com.miningdim.job.agent.panel.AgentScanEntry;
@@ -34,6 +39,7 @@ import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -45,7 +51,7 @@ import java.util.UUID;
  * 里全程装桩不解绑, 走接缝会受批次顺序影响)。全部断言直接命中集成层与自研冠军 capability 本身, 不经 WebUI
  * 派发器。
  *
- * 七条主线 (删掉被测那段生产逻辑必挂):
+ * 八条主线 (删掉被测那段生产逻辑必挂):
  *  1. F024 扫描: {@link AgentScanProbe#buildSnapshot} 必须读自研 {@link MiningChampions} 而非某个恒 null 的
  *     第三方桩; 生存池 (纯防御) 词条不进候选表; 技能池词条归类为 {@link SealCategory#MECHANIC}。
  *  2. F024 封印: {@link AgentSealHandler#requestSeal} 必须真从 capability 移除目标词条并置位入职标志; 重复
@@ -53,12 +59,14 @@ import java.util.UUID;
  *  3. F077 到期恢复 (本轮最关键的回归): 恢复必须按封印当刻记下的维度定位实体, 不得写死矿洞维度; 且只增量
  *     补回"被封的那几条", 不得整份覆盖吞掉窗口内已被别处消耗的一次性技能词条。
  *  4. F077 召唤物身份: 恢复流程必须保留 {@code isSummonedByAffix}, 否则支援召唤物会变成可反复召唤的发奖冠军。
- *  5. F112 召唤物整池不发: {@link AgentRewardHandler#onChampionDeath} 必须在召唤物身上短路整池, 且账本被
- *     discard 而非结算后清空。
+ *  5. F112 召唤物整池不发: {@link AgentRewardHandler#onChampionDeath} 必须在召唤物身上短路整池, 且账本整笔
+ *     作废而非参与结算。
  *  6. F016 死锁解开: 经验入账不得再共用入职标志门, 否则新号永远打不到 L3 (SEAL_UNLOCK_LEVEL) 去封印、去入职。
  *  7. F024 复核 (SPRINT/OVERDRIVE 移速常驻 modifier): 封印必须真摘除 champion.integration 侧挂在实体上的常驻
  *     MOVEMENT_SPEED {@link AttributeModifier}, 只清 capability 不够 —— 否则封印对这两条词条是纯观感 (面板回
  *     OK, 移速一格未变)。
+ *  8. 方案 D4/D5 接线: {@link AgentRewardHandler} 循环里的特勤占比门槛与"按本人池份额折算"的加成数额, 经真实
+ *     死亡事件端到端钉住 —— 删门槛、或把数额换回固定池/星级定额, 纯函数单测照样全绿, 只有本条会挂。
  */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -234,8 +242,10 @@ public final class AgentChampionIntegrationGameTests {
         ChampionPromoter.applyChampion(summoned, 3, new EnumMap<>(AffixDef.class));
         MiningChampions.get(summoned).orElseThrow().markSummonedByAffix();
 
-        ContributionTracker.record(normal.getUUID(), player.getUUID(), 60.0D, nowTick);
-        ContributionTracker.record(summoned.getUUID(), player.getUUID(), 60.0D, nowTick);
+        MiningChampionData normalData = MiningChampions.get(normal).orElseThrow();
+        MiningChampionData summonedData = MiningChampions.get(summoned).orElseThrow();
+        ContributionTracker.record(normalData, player.getUUID(), 60.0D, 60.0D, nowTick);
+        ContributionTracker.record(summonedData, player.getUUID(), 60.0D, 60.0D, nowTick);
 
         DamageSource src = helper.getLevel().damageSources().generic();
 
@@ -248,16 +258,16 @@ public final class AgentChampionIntegrationGameTests {
 
         helper.assertTrue(creditAfterNormal > creditBeforeNormal,
                 "单人独占贡献的普通精英死亡必须真发钱, 实得增量 " + (creditAfterNormal - creditBeforeNormal));
-        helper.assertTrue(!ContributionTracker.hasLedger(normal.getUUID()),
-                "正常结算后账本必须被 drain 清空");
+        helper.assertTrue(!ContributionTracker.hasLedger(normalData),
+                "正常结算后账本必须被主结算清空 (防重复死亡事件二次发奖)");
 
         MinecraftForge.EVENT_BUS.post(new LivingDeathEvent(summoned, src));
         long creditAfterSummoned = EconomyServices.economyService().creditBalance(player);
 
         helper.assertTrue(creditAfterSummoned == creditAfterNormal,
                 "支援召唤物死亡必须整池不发 (一分不变), 实得增量 " + (creditAfterSummoned - creditAfterNormal));
-        helper.assertTrue(!ContributionTracker.hasLedger(summoned.getUUID()),
-                "召唤物账本必须被 discard 清空 (防泄漏), 而不是结算后清空");
+        helper.assertTrue(!ContributionTracker.hasLedger(summonedData),
+                "召唤物账本必须整笔作废清空, 不参与结算");
 
         helper.succeed();
     }
@@ -286,8 +296,9 @@ public final class AgentChampionIntegrationGameTests {
 
         long nowTick = helper.getLevel().getGameTime();
         // 两人都远超盖章门槛 (个人有效伤害 >= 总有效血 0.5%), 权重 3:1。
-        ContributionTracker.record(champion.getUUID(), heavy.getUUID(), effectiveHp * 0.6D, nowTick);
-        ContributionTracker.record(champion.getUUID(), light.getUUID(), effectiveHp * 0.2D, nowTick);
+        MiningChampionData championData = MiningChampions.get(champion).orElseThrow();
+        ContributionTracker.record(championData, heavy.getUUID(), effectiveHp * 0.6D, effectiveHp * 0.6D, nowTick);
+        ContributionTracker.record(championData, light.getUUID(), effectiveHp * 0.2D, effectiveHp * 0.2D, nowTick);
 
         long heavyBefore = EconomyServices.economyService().heartstoneBalance(heavy);
         long lightBefore = EconomyServices.economyService().heartstoneBalance(light);
@@ -324,7 +335,8 @@ public final class AgentChampionIntegrationGameTests {
         ChampionPromoter.applyChampion(champion, 4, new EnumMap<>(AffixDef.class));
         long nowTick = helper.getLevel().getGameTime();
         // 单人独占贡献 (payout 全归他), 让信用点增量可对 creditPoolRaw(4) 精确反推。
-        ContributionTracker.record(champion.getUUID(), rookie.getUUID(), 100.0D, nowTick);
+        ContributionTracker.record(MiningChampions.get(champion).orElseThrow(), rookie.getUUID(), 100.0D, 100.0D,
+                nowTick);
 
         long xpBefore = JobServices.jobService().totalXp(rookie, JobId.AGENT);
         long creditBefore = EconomyServices.economyService().creditBalance(rookie);
@@ -339,9 +351,9 @@ public final class AgentChampionIntegrationGameTests {
                         + "去入职, 死锁重现。实得 xpBefore=" + xpBefore + " xpAfter=" + xpAfter);
 
         long creditAfter = EconomyServices.economyService().creditBalance(rookie);
-        // 单人独占贡献时贡献池瓜分函数把整池 (无 round 损耗) 全给该玩家; 新号首次入账当日毛收入 0, 2400 远小于
+        // 单人独占贡献时贡献池瓜分函数把整池 (无取整损耗) 全给该玩家; 新号首次入账当日毛收入 0, 2400 远小于
         // 60000 一档主闸, 衰减系数恒为 1.0 —— 故 CREDIT 增量必须精确等于整池, 不含加强奖励 (加强奖励额外走
-        // AgentEnhancedReward.extraCreditRaw, 仅对已入职者叠发)。
+        // AgentEnhancedReward.extraCreditRaw, 仅对已入职且过特勤占比门槛者叠发)。
         long expectedCreditRaw = ChampionReward.creditPoolRaw(4);
         helper.assertTrue(creditAfter - creditBefore == expectedCreditRaw,
                 "未入职玩家的 CREDIT 增量必须恰好等于贡献池瓜分额 (不含加强奖励那一笔), 期望 " + expectedCreditRaw
@@ -400,6 +412,95 @@ public final class AgentChampionIntegrationGameTests {
         helper.assertTrue(!hasModifierNamed(overdriveSpeed, "champion_overdrive"),
                 "封印 OVERDRIVE 后常驻 MOVEMENT_SPEED modifier 必须被真摘除, 否则若封印发生在 SURGE 相位, 加速"
                         + "修饰会冻结在封印当刻的值直到窗口结束 (封印反而是净增益; F024 复核发现)");
+
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 8. 方案 D4/D5 接线: 加成按本人池份额折算 + 蹭枪者过不了特勤占比门槛 (经真实事件总线)
+    // ============================================================
+
+    /**
+     * {@link AgentRewardHandler} 循环里特勤加成的两处接线: 占比门槛 ({@code meetsAgentShareThreshold}) 与加成数额
+     * (按本人池份额 {@code entry.getValue()} 折算)。两处的纯函数已在 ChampionRewardBalanceGameTests /
+     * AgentGameTests 单测过, 但把门槛条件删掉、或把数额换回 fixedPoolRaw / 星级定额, 那些单测照样全绿 —— 只有走完
+     * 一次真实死亡事件才钉得住。
+     *
+     * 放在本类而不是本组新建的 ChampionRewardBalanceGameTests: 后者在 wok-champion 模块, 不能反向依赖 job.agent
+     * (入职标志、干员等级、加成公式都在这边)。
+     *
+     * 场景: 8★, 两名同为 L10 的已入职干员, 净伤 497 : 3。主力占 99.4%; 蹭枪者占 0.6%, 过奖池盖章门槛
+     * (≥ 有效血 0.5%) 能分到池份额, 但不足 1% 不计入 N, 于是 N=1、特勤门槛 T=25%, 拿不到加成。
+     * 两人都是新号, 当日毛收入从 0 起, 两笔合计远低于 60,000 一档主闸, 衰减系数 1.0, 增量可精确断言。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void agentBonusFollowsPoolShareAndLeechBelowShareThresholdGetsNone(GameTestHelper helper) {
+        int star = 8;
+        int agentLevel = 10;
+        ServerPlayer main = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        ServerPlayer leech = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        setAgentLevel(main, agentLevel);
+        setAgentLevel(leech, agentLevel);
+        AgentBountySavedData bounty = AgentBountySavedData.get(helper.getLevel().getServer().overworld());
+        bounty.markActiveAgent(main.getUUID());
+        bounty.markActiveAgent(leech.getUUID());
+        helper.assertTrue(JobServices.jobService().level(main, JobId.AGENT) == agentLevel
+                        && JobServices.jobService().level(leech, JobId.AGENT) == agentLevel,
+                "前提校验: 两人都必须是 L" + agentLevel + " 干员");
+
+        Zombie champion = helper.spawn(EntityType.ZOMBIE, new BlockPos(0, 1, 0));
+        ChampionPromoter.applyChampion(champion, star, new EnumMap<>(AffixDef.class));
+        MiningChampionData champ = MiningChampions.get(champion).orElseThrow();
+        double effectiveHp = champ.effectiveHp();
+        helper.assertTrue(effectiveHp > 0.0D, "前提: 盖章必须写入有效血 (盖章门槛一的分母)");
+
+        long nowTick = helper.getLevel().getGameTime();
+        double unit = effectiveHp / 500.0D; // 总净伤 = 有效血, 主力 497 份、蹭枪者 3 份
+        ContributionTracker.record(champ, main.getUUID(), unit * 497.0D, unit * 497.0D, nowTick);
+        ContributionTracker.record(champ, leech.getUUID(), unit * 3.0D, unit * 3.0D, nowTick);
+
+        // 前提: 场景确实落在"进了奖池、但过不了特勤门槛"那一格。
+        List<DamageContribution> contributions = ContributionTracker.snapshot(champ,
+                playerId -> helper.getLevel().getServer().getPlayerList().getPlayer(playerId) != null);
+        double leechRatio = ContributionPool.effectiveShare(leech.getUUID(), contributions);
+        helper.assertTrue(leechRatio >= ContributionPool.STAMP_THRESHOLD_BOSS_HP_RATIO
+                        && leechRatio < ContributionPool.AGENT_PARTICIPANT_MIN_SHARE,
+                "前提: 蹭枪者占比须在 [0.5%, 1%) 之间, 实得 " + leechRatio);
+        helper.assertTrue(ContributionPool.agentParticipantCount(contributions) == 1,
+                "前提: 蹭枪者不足 1% 不计入 N, N 必须为 1 (门槛 T=25%)");
+
+        // 期望池份额: 与主结算同一个 distribute、同一组参数。死亡事件后账本即被清, 故先算。
+        long pool = ChampionReward.creditPoolRaw(star);
+        Map<UUID, Long> shares = ContributionPool.distribute(contributions, effectiveHp, pool, nowTick,
+                ChampionConfig.contributionRecencyTicks());
+        long mainShare = shares.getOrDefault(main.getUUID(), 0L);
+        long leechShare = shares.getOrDefault(leech.getUUID(), 0L);
+        helper.assertTrue(mainShare > 0L && leechShare > 0L && mainShare + leechShare == pool,
+                "前提: 两人都进奖池且份额合计恰为一池 " + pool + ", 实得 " + mainShare + " + " + leechShare);
+
+        long mainBefore = EconomyServices.economyService().creditBalance(main);
+        long leechBefore = EconomyServices.economyService().creditBalance(leech);
+        MinecraftForge.EVENT_BUS.post(new LivingDeathEvent(champion, helper.getLevel().damageSources().generic()));
+        long mainDelta = EconomyServices.economyService().creditBalance(main) - mainBefore;
+        long leechDelta = EconomyServices.economyService().creditBalance(leech) - leechBefore;
+
+        long mainBonus = AgentEnhancedReward.extraCreditRaw(agentLevel, mainShare, ChampionConfig.agentBonusRate());
+        helper.assertTrue(mainBonus > 0L, "前提: 主力的加成必须为正, 实得 " + mainBonus);
+        helper.assertTrue(mainDelta == mainShare + mainBonus,
+                "主力增量必须 = 池份额 " + mainShare + " + floor(池份额 × agentBonusRate × 等级倍率) " + mainBonus
+                        + " = " + (mainShare + mainBonus) + " (数额若换回整池或星级定额会偏离), 实得 " + mainDelta);
+        helper.assertTrue(leechDelta == leechShare,
+                "蹭枪者 (占比 " + String.format("%.4f", leechRatio) + " < 特勤门槛 25%) 只能拿池份额 " + leechShare
+                        + ", 不得有特勤加成 (门槛条件被删时会多出 "
+                        + AgentEnhancedReward.extraCreditRaw(agentLevel, leechShare, ChampionConfig.agentBonusRate())
+                        + "), 实得 " + leechDelta);
+
+        // 对照值: 星 × 600 × 等级倍率。加成必须来自本人池份额, 两人的增量都不得等于 池份额 + 对照值。
+        long oldFixedBonus = (long) Math.floor(star * ChampionReward.CREDIT_POOL_PER_STAR
+                * AgentSkillTable.enhancedRewardMultiplier(agentLevel));
+        helper.assertTrue(mainDelta != mainShare + oldFixedBonus && leechDelta != leechShare + oldFixedBonus,
+                "两人的增量都不得等于 池份额 + 星 × 600 × 等级倍率 (" + oldFixedBonus + "), 实得 "
+                        + mainDelta + " / " + leechDelta);
 
         helper.succeed();
     }

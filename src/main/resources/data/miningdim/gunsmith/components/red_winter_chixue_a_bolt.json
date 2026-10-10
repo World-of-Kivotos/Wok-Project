@@ -1,9 +1,9 @@
 {
   "damage": {
-    "common": 1.25,
-    "improved": 1.25,
-    "milspec": 1.25,
-    "precision": 1.25,
+    "common": 1.05,
+    "improved": 1.1,
+    "milspec": 1.15,
+    "precision": 1.2,
     "legendary": 1.25
   },
   "headshot": {

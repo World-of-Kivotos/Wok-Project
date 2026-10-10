@@ -1,10 +1,10 @@
 {
   "damage": {
-    "common": 1.2,
-    "improved": 1.4,
-    "milspec": 1.6,
-    "precision": 1.8,
-    "legendary": 2.0
+    "common": 1.36,
+    "improved": 1.42,
+    "milspec": 1.48,
+    "precision": 1.54,
+    "legendary": 1.6
   },
   "headshot": {
     "common": 1.0,
@@ -23,11 +23,11 @@
   "effective_range": {
     "operation": "multiply",
     "values": {
-      "common": 0.6,
-      "improved": 0.6,
-      "milspec": 0.6,
-      "precision": 0.6,
-      "legendary": 0.6
+      "common": 0.75,
+      "improved": 0.75,
+      "milspec": 0.75,
+      "precision": 0.75,
+      "legendary": 0.75
     }
   },
   "ammo_speed": {
@@ -45,11 +45,11 @@
     "legendary": 1.0
   },
   "spread": {
-    "common": 1.2,
-    "improved": 1.35,
-    "milspec": 1.5,
-    "precision": 1.65,
-    "legendary": 1.8
+    "common": 1.1,
+    "improved": 1.15,
+    "milspec": 1.2,
+    "precision": 1.25,
+    "legendary": 1.3
   },
   "recoil": {
     "common": 2.0,
@@ -59,11 +59,11 @@
     "legendary": 2.0
   },
   "vertical_recoil": {
-    "common": 3.0,
-    "improved": 3.0,
-    "milspec": 3.0,
-    "precision": 3.0,
-    "legendary": 3.0
+    "common": 2.0,
+    "improved": 2.0,
+    "milspec": 2.0,
+    "precision": 2.0,
+    "legendary": 2.0
   },
   "ads_speed": {
     "common": 1.0,

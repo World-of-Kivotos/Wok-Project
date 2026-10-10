@@ -276,10 +276,11 @@ public final class PlayerWebUiW1GameTests {
         helper.assertTrue(Double.compare(horizontalRecoil.get("value").getAsDouble(),
                         1.0D / 1.08D - 1.0D) == 0,
                 "horizontalRecoil = 枪托 IMPROVED 系数 1.08 的逆, 实得 " + horizontalRecoil.get("value"));
+        // 散布与 TaCZ 实际写入同口径 (平衡方案 E8): 护木与握把写进的是同一份散布缓存, 两路控制都要乘上。
         JsonObject inaccuracy = requiredAttribute(helper, detail, "inaccuracy");
         helper.assertTrue(Double.compare(inaccuracy.get("value").getAsDouble(),
-                        1.0D / 1.30D - 1.0D) == 0,
-                "inaccuracy = 护木 PRECISION 系数 1.30 的逆, 实得 " + inaccuracy.get("value"));
+                        1.0D / 1.30D * 1.0D * (1.0D / 1.40D) - 1.0D) == 0,
+                "inaccuracy = 护木 PRECISION 1.30 的逆 x 握把 LEGENDARY 1.40 的逆, 实得 " + inaccuracy.get("value"));
 
         JsonObject partCount = requiredAttribute(helper, detail, "partCount");
         helper.assertTrue(partCount.get("value").getAsInt() == 6,
@@ -302,9 +303,9 @@ public final class PlayerWebUiW1GameTests {
      * 断言"两轴等于同一个表达式"就是同源假绿: 把垂直那行改成 {@code recoilChange()} 也照样绿, 而真机上
      * 红东高压导气的 +300% 垂直后坐会被显示成 +33%。本条用一把真的两轴不等的枪把这条路堵死。
      *
-     * 期望值全部按零件系数手算: 枪托传奇系数 1.50, 红东高压导气在传奇档的全向后坐 2.00 / 额外垂直 3.00 /
-     * 散布惩罚 1.80, 护木 1.30。伤害那行不在本条断言范围内 —— 它要过整枪伤害总帽, 期望值随 config 走,
-     * 由军械组的用例守。
+     * 期望值全部按零件系数手算: 枪托传奇系数 1.50, 红东高压导气在传奇档的全向后坐 2.00 / 额外垂直 2.00 /
+     * 散布惩罚 1.30 (平衡方案 E4), 护木 1.30, 握把 1.40。伤害那行不在本条断言范围内 —— 它要过整枪伤害总帽,
+     * 期望值随 config 走, 由军械组的用例守。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void itemDetailSplitsVerticalAndHorizontalRecoilOnAFactionGun(GameTestHelper helper) {
@@ -322,16 +323,16 @@ public final class PlayerWebUiW1GameTests {
                         1.0D / 1.50D * 2.00D - 1.0D) == 0,
                 "水平后坐 = 枪托控制的逆 x 全向后坐惩罚 2.00, 实得 " + horizontal.get("value"));
         helper.assertTrue(Double.compare(vertical.get("value").getAsDouble(),
-                        1.0D / 1.50D * 2.00D * 3.00D - 1.0D) == 0,
-                "垂直后坐 = 水平那一路再乘组件的额外垂直乘子 3.00, 实得 " + vertical.get("value"));
+                        1.0D / 1.50D * 2.00D * 2.00D - 1.0D) == 0,
+                "垂直后坐 = 水平那一路再乘组件的额外垂直乘子 2.00, 实得 " + vertical.get("value"));
         helper.assertTrue(Double.compare(vertical.get("value").getAsDouble(),
                         horizontal.get("value").getAsDouble()) != 0,
                 "红东高压导气枪上两轴必须不等; 相等说明垂直那行漏掉了组件的额外垂直乘子");
 
         JsonObject inaccuracy = requiredAttribute(helper, detail, "inaccuracy");
         helper.assertTrue(Double.compare(inaccuracy.get("value").getAsDouble(),
-                        1.0D / 1.30D * 1.80D - 1.0D) == 0,
-                "散布 = 护木控制的逆 x 组件散布惩罚 1.80, 实得 " + inaccuracy.get("value"));
+                        1.0D / 1.30D * 1.30D * (1.0D / 1.40D) - 1.0D) == 0,
+                "散布 = 护木控制的逆 x 组件散布惩罚 1.30 x 握把控制的逆, 实得 " + inaccuracy.get("value"));
         helper.assertTrue(!hasTag(detail, "data.unreadable:gun"),
                 "带势力组件的枪读得出来, 不得带降级标记");
         helper.succeed();
@@ -694,15 +695,15 @@ public final class PlayerWebUiW1GameTests {
                         requiredAttribute(helper, detail, "fireRate").get("value").getAsDouble(), 0.0D) == 0,
                 "v1 的射速增减量恒 0 (1.0 - 1.0), 实得 "
                         + requiredAttribute(helper, detail, "fireRate").get("value").getAsDouble());
-        // 期望值同样手算成常量: v1 的后坐由枪托部件反查 (1.08), 散布读缓存 (1.30), 伤害读缓存 (1.20)。
+        // 期望值同样手算成常量: v1 的后坐由枪托部件反查 (1.08), 散布读缓存 (护木 1.30 x 握把 1.40), 伤害读缓存 (1.20)。
         helper.assertTrue(Double.compare(
                         requiredAttribute(helper, detail, "verticalRecoil").get("value").getAsDouble(),
                         1.0D / 1.08D - 1.0D) == 0,
                 "v1 的 verticalRecoil 走枪托系数 1.08 的逆 (缓存里根本没有这一项)");
         helper.assertTrue(Double.compare(
                         requiredAttribute(helper, detail, "inaccuracy").get("value").getAsDouble(),
-                        1.0D / 1.30D - 1.0D) == 0,
-                "v1 的 inaccuracy 走缓存里的散布系数 1.30 的逆");
+                        1.0D / 1.30D * 1.0D * (1.0D / 1.40D) - 1.0D) == 0,
+                "v1 的 inaccuracy 走缓存里的散布系数 1.30 与操控系数 1.40 的逆");
         helper.assertTrue(Double.compare(
                         requiredAttribute(helper, detail, "damage").get("value").getAsDouble(),
                         1.20D - 1.0D) == 0,

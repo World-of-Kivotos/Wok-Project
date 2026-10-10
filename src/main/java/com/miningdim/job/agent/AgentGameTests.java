@@ -1,6 +1,5 @@
 package com.miningdim.job.agent;
 
-import com.miningdim.champion.StarRank;
 import com.miningdim.champion.reward.ChampionReward;
 import com.miningdim.champion.reward.ContributionPool;
 import com.miningdim.champion.reward.DamageContribution;
@@ -197,26 +196,28 @@ public final class AgentGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void enhancedRewardCreditOnly(GameTestHelper helper) {
-        // raw = floor(star * 600 * multiplier). L1 (x1.0), 5★: 5*600*1.0 = 3000。
-        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(1, 5) == 3_000L,
-                "L1 kill of 5star: 5*600*1.0 = 3000 credit raw");
-        // L10 (x3.0), 10★: 10*600*3.0 = 18000。
-        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(10, 10) == 18_000L,
-                "L10 kill of 10star: 10*600*3.0 = 18000 credit raw");
-        // L5 (x2.0), 3★: 3*600*2.0 = 3600。
-        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(5, 3) == 3_600L,
-                "L5 kill of 3star: 3*600*2.0 = 3600 credit raw");
-        // 底值与精英怪固定池每星基数同源 (600/星), 防漂移。
-        helper.assertTrue(AgentEnhancedReward.CREDIT_BASE_PER_STAR == ChampionReward.CREDIT_POOL_PER_STAR,
-                "enhanced reward base per star reuses ChampionReward.CREDIT_POOL_PER_STAR (600)");
-        // 同一初始星级下, raw 随干员等级单调递增 (倍率递增)。
+        // 方案 D4: raw = floor(本人池份额 × 加成系数 × 等级倍率), 默认系数 0.2。
+        double rate = ChampionReward.DEFAULT_AGENT_BONUS_RATE;
+        helper.assertTrue(Math.abs(rate - 0.2D) < 1e-12, "default agent bonus rate is 0.2");
+        // 单人 5★ (独得池 3000), L1 (x1.0): 3000*0.2*1.0 = 600。
+        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(1, 3_000L, rate) == 600L,
+                "L1 solo 5star (payout 3000): 3000*0.2*1.0 = 600 credit raw");
+        // 4 人均分 10★ 池 45000 (每人 11250), L10 (x3.0): 11250*0.2*3.0 = 6750。
+        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(10, 11_250L, rate) == 6_750L,
+                "L10 with a quarter of the 10star pool (11250): 11250*0.2*3.0 = 6750 credit raw");
+        // L3 (x1.5) 同一份额: 11250*0.2*1.5 = 3375。
+        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(3, 11_250L, rate) == 3_375L,
+                "L3 with a quarter of the 10star pool: 11250*0.2*1.5 = 3375 credit raw");
+        // 同一份额下, raw 随干员等级单调递增 (倍率递增)。
         for (int lv = 2; lv <= 10; lv++) {
-            helper.assertTrue(AgentEnhancedReward.extraCreditRaw(lv, 6) > AgentEnhancedReward.extraCreditRaw(lv - 1, 6),
-                    "fixed 6star: enhanced credit strictly increases with agent level at L" + lv);
+            helper.assertTrue(AgentEnhancedReward.extraCreditRaw(lv, 4_200L, rate)
+                            > AgentEnhancedReward.extraCreditRaw(lv - 1, 4_200L, rate),
+                    "fixed payout: enhanced credit strictly increases with agent level at L" + lv);
         }
-        // x3.0 峰值仅 L10 (L9 同星严格更少)。
-        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(10, 8) > AgentEnhancedReward.extraCreditRaw(9, 8),
-                "x3.0 peak applies only at L10 (L9 of same star yields strictly less)");
+        // x3.0 峰值仅 L10 (L9 同份额严格更少)。
+        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(10, 16_500L, rate)
+                        > AgentEnhancedReward.extraCreditRaw(9, 16_500L, rate),
+                "x3.0 peak applies only at L10 (L9 with the same payout yields strictly less)");
         helper.succeed();
     }
 
@@ -740,46 +741,53 @@ public final class AgentGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void enhancedRewardStarArgumentValidation(GameTestHelper helper) {
-        // raw = floor(star * 600 * mult). 边界星级 1★/10★ 在 L1/L10 精确。
-        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(1, 1) == 600L, "L1 kill of 1star: 1*600*1.0 = 600");
-        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(10, 1) == 1_800L, "L10 kill of 1star: 1*600*3.0 = 1800");
-        // 中级倍率落 .x5 时按初始星级折算 floor (无浮点尾差): L4 (x1.75), 7★ = 7*600*1.75 = 7350 (整)。
-        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(4, 7) == 7_350L, "L4 kill of 7star: 7*600*1.75 = 7350");
-        // L8 (x2.7), 3★ = 3*600*2.7 = 4860 (整, 无 floor 损失)。
-        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(8, 3) == 4_860L, "L8 kill of 3star: 3*600*2.7 = 4860");
-        // 越界星级 (0 / 11) 抛 IllegalArgumentException 自然冒泡 (不掩盖)。
-        boolean threwLow = false;
+    public static void enhancedRewardArgumentValidation(GameTestHelper helper) {
+        // raw = floor(payout * rate * mult). 中级倍率落 .x5 时 floor 无浮点尾差: L4 (x1.75), 份额 2000 = 2000*0.2*1.75 = 700。
+        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(4, 2_000L, 0.2D) == 700L,
+                "L4 payout 2000: 2000*0.2*1.75 = 700");
+        // L8 (x2.7), 份额 4500 = 4500*0.2*2.7 = 2430 (0.2 与 2.7 都无精确二进制表示, 整数结果不得被 floor 少 1)。
+        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(8, 4_500L, 0.2D) == 2_430L,
+                "L8 payout 4500: 4500*0.2*2.7 = 2430 (no floor loss from binary representation)");
+        // 份额 0 (合格但取整后没分到) -> 0, 由调用方短路不发。
+        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(10, 0L, 0.2D) == 0L, "zero payout -> zero bonus");
+        // 负份额 / 负系数 / NaN 系数抛 IllegalArgumentException 自然冒泡 (不掩盖)。
+        boolean threwPayout = false;
         try {
-            AgentEnhancedReward.extraCreditRaw(5, 0);
+            AgentEnhancedReward.extraCreditRaw(5, -1L, 0.2D);
         } catch (IllegalArgumentException expected) {
-            threwLow = true;
+            threwPayout = true;
         }
-        helper.assertTrue(threwLow, "extraCreditRaw with star 0 throws (star out of [1,10])");
-        boolean threwHigh = false;
+        helper.assertTrue(threwPayout, "extraCreditRaw with negative payout throws");
+        boolean threwRate = false;
         try {
-            AgentEnhancedReward.extraCreditRaw(5, 11);
+            AgentEnhancedReward.extraCreditRaw(5, 1_000L, -0.1D);
         } catch (IllegalArgumentException expected) {
-            threwHigh = true;
+            threwRate = true;
         }
-        helper.assertTrue(threwHigh, "extraCreditRaw with star 11 throws (star out of [1,10])");
+        helper.assertTrue(threwRate, "extraCreditRaw with negative rate throws");
+        boolean threwNan = false;
+        try {
+            AgentEnhancedReward.extraCreditRaw(5, 1_000L, Double.NaN);
+        } catch (IllegalArgumentException expected) {
+            threwNan = true;
+        }
+        helper.assertTrue(threwNan, "extraCreditRaw with NaN rate throws");
         helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void enhancedRewardScalesByInitialStarOneToThree(GameTestHelper helper) {
-        // 加强奖励倍率按初始星级 ×1->×3 的语义: 固定 L10 倍率 ×3.0, raw 严格按初始星级线性放大 (1★->10★)。
-        long oneStar = AgentEnhancedReward.extraCreditRaw(10, 1);   // 1*600*3.0 = 1800
-        long tenStar = AgentEnhancedReward.extraCreditRaw(10, 10);  // 10*600*3.0 = 18000
-        helper.assertTrue(oneStar == 1_800L, "L10 1star enhanced credit = 1800");
-        helper.assertTrue(tenStar == 18_000L, "L10 10star enhanced credit = 18000");
-        // 10★ 恰为 1★ 的 10 倍 (raw 按初始星级线性, 高星更多, 低星点缀)。
-        helper.assertTrue(tenStar == oneStar * 10L, "enhanced credit scales linearly by initial star (10star = 10x 1star)");
-        // 同等级下逐星严格递增 (高星初始更值钱)。
-        for (int star = 2; star <= 10; star++) {
-            helper.assertTrue(AgentEnhancedReward.extraCreditRaw(7, star) > AgentEnhancedReward.extraCreditRaw(7, star - 1),
-                    "fixed L7: enhanced credit strictly increases with initial star at " + star + "star");
-        }
+    public static void enhancedRewardScalesWithActualPayout(GameTestHelper helper) {
+        // 方案 D4: 加成按本人实际分到的池份额线性折算 —— 蹭枪者份额近 0 则加成近 0, 且每只怪全队加成总额恒
+        // ≤ 系数 × 3.0 × 池, 与人数无关。
+        long quarter = AgentEnhancedReward.extraCreditRaw(10, 11_250L, 0.2D);  // 11250*0.2*3.0 = 6750
+        long whole = AgentEnhancedReward.extraCreditRaw(10, 45_000L, 0.2D);    // 45000*0.2*3.0 = 27000
+        helper.assertTrue(whole == quarter * 4L, "4x payout -> exactly 4x bonus (linear in actual payout)");
+        helper.assertTrue(whole == 27_000L, "a full 10star pool at L10 caps the whole squad's bonus at 0.6 x 45000");
+        // 按人头拆细不增总额: 16 人各 1/16 的份额 (2812) 加成之和不超过整池一人。
+        long sixteenth = AgentEnhancedReward.extraCreditRaw(10, 45_000L / 16L, 0.2D);
+        helper.assertTrue(sixteenth * 16L <= whole, "splitting the pool across 16 heads never raises the total bonus");
+        // 微量蹭枪份额 (9 CP) -> 加成 5 (加成门槛另见 ContributionPool)。
+        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(10, 9L, 0.2D) == 5L, "a 9 CP leech share yields 9*0.6 = 5");
         helper.succeed();
     }
 
@@ -928,28 +936,19 @@ public final class AgentGameTests {
     public static void enhancedRewardIsPureCreditFaucetAmount(GameTestHelper helper) {
         // 加强奖励是"纯逻辑算额, 不实发": extraCreditRaw 只产 CREDIT raw (绝不含青辉石), 交集成层喂 grantDaily。
         // 青辉石仅周常悬赏出, 加强奖励不碰; 本层只给"喂主闸的原始信用点", 故 raw 必 >0 且全 CREDIT。
-        long raw = AgentEnhancedReward.extraCreditRaw(10, 10); // L10 x3.0 杀 10★ = 10*600*3.0 = 18000。
-        helper.assertTrue(raw == 18_000L, "L10 vs 10star enhanced reward raw = 10*600*3.0 = 18000 (pure CREDIT)");
+        long raw = AgentEnhancedReward.extraCreditRaw(10, 30_000L, 0.2D); // L10 x3.0, 份额 30000 = 30000*0.2*3.0。
+        helper.assertTrue(raw == 18_000L, "L10 with payout 30000 enhanced reward raw = 30000*0.2*3.0 = 18000 (pure CREDIT)");
 
         // 该 raw 必须 >0 才喂 grantDaily (AgentRewardHandler 对 <=0 短路不发, 因 grantDaily 对 <=0 抛)。
-        // 最低折算: L1 x1.0 杀 1★ = 1*600*1.0 = 600 > 0, 仍是可喂主闸的合法正额。
-        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(1, 1) == 600L,
-                "L1 vs 1star raw = 1*600*1.0 = 600 (>0, a fundable faucet amount)");
-        // 越界星级自然冒泡 (不静默兜底): star=0 / star=11 抛 IllegalArgumentException。
-        boolean threwLow = false;
-        try {
-            AgentEnhancedReward.extraCreditRaw(5, StarRank.MIN_STAR - 1);
-        } catch (IllegalArgumentException expected) {
-            threwLow = true;
-        }
-        helper.assertTrue(threwLow, "star below MIN_STAR throws (no silent fallback amount)");
-        boolean threwHigh = false;
-        try {
-            AgentEnhancedReward.extraCreditRaw(5, StarRank.MAX_STAR + 1);
-        } catch (IllegalArgumentException expected) {
-            threwHigh = true;
-        }
-        helper.assertTrue(threwHigh, "star above MAX_STAR throws (no silent clamp to a fundable amount)");
+        // 单人 1★ 独得整池 600: L1 x1.0 = 600*0.2*1.0 = 120 > 0, 仍是可喂主闸的合法正额。
+        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(1, 600L, 0.2D) == 120L,
+                "L1 solo 1star (payout 600) raw = 600*0.2*1.0 = 120 (>0, a fundable faucet amount)");
+        // 份额太小折算不足 1 时为 0 (调用方据此短路, 不喂 grantDaily)。
+        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(1, 4L, 0.2D) == 0L,
+                "payout 4 at L1: 4*0.2*1.0 = 0.8 floors to 0 (caller skips grantDaily)");
+        // 系数为 0 = 关闭加成 (运营旋钮), 不抛。
+        helper.assertTrue(AgentEnhancedReward.extraCreditRaw(10, 45_000L, 0.0D) == 0L,
+                "agentBonusRate 0 disables the bonus");
         helper.succeed();
     }
 
@@ -962,8 +961,8 @@ public final class AgentGameTests {
         long tier = EconomyConstants.GLOBAL_DAILY_CREDIT_FAUCET_TIER; // 60000
         double floorRatio = EconomyConstants.ECONOMY_PRICE_FLOOR_RATIO; // 1% 地板 (credit faucet 权威值)
 
-        // L10 杀 10★ 加强奖励 raw = 18000。
-        long raw = AgentEnhancedReward.extraCreditRaw(10, 10);
+        // L10 按份额 30000 折算的加强奖励 raw = 30000*0.2*3.0 = 18000。
+        long raw = AgentEnhancedReward.extraCreditRaw(10, 30_000L, 0.2D);
         helper.assertTrue(raw == 18_000L, "enhanced reward raw fed to the faucet = 18000");
 
         // 当日尚未入账 (累计 0, 第 0 档系数 1.0): 18000 全额入账 (未撞限, 加强奖励首杀全得)。
@@ -1037,7 +1036,7 @@ public final class AgentGameTests {
         helper.assertTrue(AgentKillXp.killXpRaw(10, 1.0D) == 600L, "10star full share: 10*60*1.0 = 600 raw xp");
         // 半占比: 8star * 60 * 0.5 = 240 (round)。
         helper.assertTrue(AgentKillXp.killXpRaw(8, 0.5D) == 240L, "8star half share: 8*60*0.5 = 240 raw xp");
-        // 每星基数 = 信用点每星基数 (600) 的 1/10 (同源同尺度, 防漂移)。
+        // 每星基数 = 1-5★ 信用点池每星基数 (600) 的 1/10 (6-10★ 池已改查表, 经验基数按方案 D4 不随之放大)。
         helper.assertTrue(AgentKillXp.XP_BASE_PER_STAR * 10L == ChampionReward.CREDIT_POOL_PER_STAR,
                 "xp per-star base (60) is exactly 1/10 of credit per-star base (600)");
 
@@ -1050,22 +1049,23 @@ public final class AgentGameTests {
         List<DamageContribution> contribs = List.of(
                 new DamageContribution(p1, 700.0D, 10L, true),
                 new DamageContribution(p2, 300.0D, 12L, true));
-        long creditPoolRaw = ChampionReward.creditPoolRaw(star); // 6*600 = 3600
+        // 6star 池取内置表 4200 (方案 D6; 用显式表断言, 不依赖运行目录 toml 的当前值)。
+        long creditPoolRaw = ChampionReward.creditPoolRaw(star, ChampionReward.DEFAULT_CREDIT_POOL_BY_STAR, 1.0D);
         Map<UUID, Long> payout = ContributionPool.distribute(contribs, bossHp, creditPoolRaw);
         helper.assertTrue(payout.size() == 2, "both qualified killers share the credit pool");
 
-        // p1 占比 0.7: payout1 = round(3600*0.7) = 2520; 反推 share = 2520/3600 = 0.7; killXp = round(6*60*0.7) = 252。
+        // p1 占比 0.7: payout1 = 4200*0.7 = 2940; 反推 share = 2940/4200 = 0.7; killXp = round(6*60*0.7) = 252。
         long payout1 = payout.get(p1);
         double share1 = (double) payout1 / (double) creditPoolRaw;
         long xpRaw1 = AgentKillXp.killXpRaw(star, share1);
-        helper.assertTrue(payout1 == 2_520L, "p1 (70% damage) credit payout = round(3600*0.7) = 2520");
+        helper.assertTrue(payout1 == 2_940L, "p1 (70% damage) credit payout = 4200*0.7 = 2940");
         helper.assertTrue(xpRaw1 == 252L, "p1 kill xp = round(6*60*0.7) = 252 (star*60*reverse-derived share)");
 
-        // p2 占比 0.3 (末名吸收 round 余数): payout2 = 3600-2520 = 1080; share = 0.3; killXp = round(6*60*0.3) = 108。
+        // p2 占比 0.3: payout2 = 4200*0.3 = 1260; share = 0.3; killXp = round(6*60*0.3) = 108。
         long payout2 = payout.get(p2);
         double share2 = (double) payout2 / (double) creditPoolRaw;
         long xpRaw2 = AgentKillXp.killXpRaw(star, share2);
-        helper.assertTrue(payout2 == 1_080L, "p2 (30% damage, last-share remainder) credit payout = 1080");
+        helper.assertTrue(payout2 == 1_260L, "p2 (30% damage) credit payout = 4200*0.3 = 1260");
         helper.assertTrue(xpRaw2 == 108L, "p2 kill xp = round(6*60*0.3) = 108");
 
         // 喂职业经验软上限 (与 AgentLevels.grantRawXp -> IJobService.grantXp 同一引擎): 首笔全额, 有效经验严格 >0。

@@ -1,15 +1,21 @@
 package com.miningdim.job.munitions;
 
 import com.electronwill.nightconfig.core.CommentedConfig;
+import com.miningdim.job.munitions.gunsmith.GunsmithBlueprint;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartQuality;
 import com.miningdim.job.munitions.gunsmith.GunsmithPartRarity;
 import net.minecraftforge.common.ForgeConfigSpec;
+
+import java.util.Collections;
+import java.util.EnumMap;
+import java.util.Locale;
+import java.util.Map;
 
 /**
  * 军火商 SERVER 级配置 spec 持有者 (Munitions_Job_DesignSpec 十/C6 硬约束: 全部平衡数值进 ForgeConfigSpec,
  * 业务类内硬编码字面量即缺陷)。覆盖: 产能曲线 (台数/每台速率/缓冲, 6.1) / 双推进剂配方 (直造 7 铜 16 火药 -> 40 发,
  * 提炼 -> 70 发, 四章) / 工费 (1.5 CP/发, 整数化为 ×10 锚价 = 15/10 发, 九章 sink) / 各口径商店价与售价及缩产系数
- * (6.3) / 速率到 tick 换算 (PENDING 11.3) 的唯一数据源。
+ * (6.3) / 速率到 tick 换算 (PENDING 11.3) / 台子与图纸的系统采购价 (6.4, [shop] 段) 的唯一数据源。
  *
  * 本任务铁律: 不修改中央 config.MiningServerConfig。故军火商自带独立 SERVER spec (文件 miningdim-munitions.toml),
  * 由 {@link MunitionsSystem#register} 经 ModLoadingContext.registerConfig 注册。业务经 *.get() 实时读取不缓存。
@@ -81,17 +87,18 @@ public final class MunitionsConfig {
     public static final ForgeConfigSpec.BooleanValue GUNSMITH_ENABLED;
 
     /**
-     * 爆头等效伤害倍率总帽 (审查 TACZ-BAL-1): 只钳枪机伤害品质系数 x 枪管爆头品质系数的复利。
-     * 势力组件伤害在帽外等比作用于躯干和爆头，避免高伤组件把爆头倍率反解到 1 以下。
-     * 默认取保守初值, 待真服对 80 血目标实测致死阈值后调定。
+     * 爆头品质复利帽 (审查 TACZ-BAL-1): 只钳枪机伤害品质系数 x 枪管爆头品质系数的复利, 双传奇 1.50 x 1.50 = 2.25
+     * 被钳到 1.8。势力组件的伤害与爆头倍率在帽外等比作用于躯干和爆头，避免高伤组件把爆头倍率反解到 1 以下。
+     * 本帽只管品质复利, PvP 爆头发数另行约束; 装配预览、成品 tooltip 与 WebUI 显示的爆头倍率都已带本帽。
      */
     public static final ForgeConfigSpec.DoubleValue GUNSMITH_HEADSHOT_DAMAGE_CAP;
 
     /**
-     * 整枪伤害乘子总帽 (审查 27): GunsmithGunStats.damage() = 单件品质系数 (上限 1.50) x 各组件伤害乘数连乘,
-     * 全链原本无上限 —— AK 平台叠红东高压导气核心 (2.00) + 赤雪-A 枪机 (1.25) + 传奇品质 (1.50) 可达 3.75 倍,
-     * 对 80 血公服单发躯干 27 点即三发致死。本帽钳最终伤害乘子; {@link #GUNSMITH_HEADSHOT_DAMAGE_CAP} 只钳
-     * 品质复利, 两帽各管一段串联生效, 调参时须同盘看。
+     * 整枪伤害乘子总帽 (审查 27): GunsmithGunStats.damage() = 单件品质系数 (上限 1.50) x 各组件伤害乘数连乘。
+     * 本帽是 PvE 的"品质 x 组件"帽, TaCZ 配件在帽外: 默认 2.25 下 AK 首段 9 x 2.25 = 20.25, PvP 发数另行约束,
+     * 不靠本帽。红东高压导气与赤雪-A 枪机已互斥, 新装配最高连乘为传奇枪机 1.50 x 传奇红东 1.60 = 2.40;
+     * 互斥落地前装出的双加伤 AK 可达 1.50 x 1.60 x 1.25 = 3.00, 同样被本帽钳住。
+     * {@link #GUNSMITH_HEADSHOT_DAMAGE_CAP} 只钳品质复利, 两帽各管一段串联生效, 调参时须同盘看。
      */
     public static final ForgeConfigSpec.DoubleValue GUNSMITH_DAMAGE_MULTIPLIER_CAP;
 
@@ -149,6 +156,21 @@ public final class MunitionsConfig {
     public static final ForgeConfigSpec.DoubleValue GUN_REPAIR_LOSS_SMG;
     public static final ForgeConfigSpec.DoubleValue GUN_REPAIR_MINIMUM_RATIO;
 
+    // ---- TaCZ 子弹爆炸: 配件开启的爆炸当量帽 + 子弹爆炸对玩家的伤害 (不受 gunsmithEnabled 门控) ----
+    /**
+     * 配件开启的爆炸 (HE 等弹头改装; 枪原生不爆炸) 每颗弹丸的爆炸伤害上限比例 (无量纲):
+     * 上限 = min(缓存模板伤害, 枪原生子弹伤害 ÷ max(1, 弹丸数) × 本比例), 即每颗弹丸的爆炸不超过它自己的直伤。
+     * 设 0 即关闭配件爆炸; RPG7、M320 这类原生爆炸武器不受影响。落点见 HeExplosionCapHandler。
+     */
+    public static final ForgeConfigSpec.DoubleValue HE_EXPLOSION_PER_PROJECTILE_CAP_RATIO;
+
+    /**
+     * TaCZ 子弹爆炸 (直接实体是 TaCZ 子弹、带爆炸标签、攻击者是玩家) 对玩家的伤害系数 (无量纲):
+     * 0 = 直接取消 (射手自伤与队友误伤归零), 1 = TaCZ 原值。
+     * 落点见 BulletExplosionPlayerDamageHandler。
+     */
+    public static final ForgeConfigSpec.DoubleValue BULLET_EXPLOSION_SCALE;
+
     // ---- 九章: 工费 sink (1.5 CP/发, ×10 锚价整数化为 15/10 发) ----
     /** 每 10 发产弹扣的信用点工费 (整数化锚价; 实发 1.5/发 = 15/10 发, 销毁 = sink)。 */
     public static final ForgeConfigSpec.IntValue WORK_FEE_PER_TEN_ROUNDS;
@@ -202,6 +224,23 @@ public final class MunitionsConfig {
     // ---- 七章: 产弹经验 (谁产谁得, 按产出弹量给原始经验; 框架管衰减/翻日/软上限) ----
     /** 每发步枪当量产出给的原始经验 (×千分位避免每发 < 1; 实际入账 = floor(rounds × perRoundXp / 1000))。 */
     public static final ForgeConfigSpec.IntValue PRODUCE_XP_PER_ROUND_MILLI;
+
+    // ---- 6.4 系统采购: 军火商面板向系统购买台子与图纸的信用点售价 (销毁型 sink) ----
+    // 等级门不在这里: 它由台档/品质/装配/口径这些既有配置推导 (见 MunitionsShop), 单开一组键只会与推导源漂移。
+    /** 旧注册名 munitions_bench (存量兼容的全档台, 有效等级上限 L10)。 */
+    public static final ForgeConfigSpec.IntValue SHOP_BENCH_LEGACY_PRICE;
+    public static final ForgeConfigSpec.IntValue SHOP_BENCH_MEDIUM_PRICE;
+    public static final ForgeConfigSpec.IntValue SHOP_BENCH_HIGH_PRICE;
+    public static final ForgeConfigSpec.IntValue SHOP_BENCH_SUPERIOR_PRICE;
+    public static final ForgeConfigSpec.IntValue SHOP_BENCH_TRANSCENDENT_PRICE;
+    public static final ForgeConfigSpec.IntValue SHOP_BENCH_RADIANT_PRICE;
+    public static final ForgeConfigSpec.IntValue SHOP_GUNSMITH_PRESS_PRICE;
+    public static final ForgeConfigSpec.IntValue SHOP_GUNSMITH_ASSEMBLY_BENCH_PRICE;
+    /** 每张枪匠图纸一个键 ([shop.blueprints] 段, 键名 = 枚举名小写); 按枚举遍历生成, 新增图纸自动长出新键。 */
+    private static final Map<GunsmithBlueprint, ForgeConfigSpec.IntValue> SHOP_BLUEPRINT_PRICES;
+
+    /** 系统采购价的取值上界: 高于它的数已经没有经济意义, 只会是手滑多打了几个 0。 */
+    private static final int SHOP_PRICE_MAX = 100_000_000;
 
     static {
         ForgeConfigSpec.Builder b = new ForgeConfigSpec.Builder();
@@ -260,14 +299,15 @@ public final class MunitionsConfig {
         GUNSMITH_ENABLED = b.comment("Enable the gunsmith press subsystem (WIP chapter 3A; keep false until"
                         + " material items, survival chain, gating, damage coefficients and economy sink pass review)")
                 .define("gunsmithEnabled", false);
-        GUNSMITH_HEADSHOT_DAMAGE_CAP = b.comment("Cap on the bolt-quality x barrel-headshot-quality multiplier;"
-                        + " faction component damage remains outside this cap. Conservative default pending live tuning against"
-                        + " the 80-HP server; 2.25 restores the uncapped legendary+legendary compound.")
+        GUNSMITH_HEADSHOT_DAMAGE_CAP = b.comment("Quality-compounding headshot cap: clamps only bolt-quality x"
+                        + " barrel-headshot-quality (legendary 1.50 x 1.50 = 2.25 is clamped to 1.8); faction component"
+                        + " damage and headshot bonuses stay outside this cap. PvP headshot kill counts are constrained"
+                        + " separately; 2.25 disables this cap.")
                 .defineInRange("gunsmithHeadshotDamageCap", 1.8D, 1.0D, 2.25D);
         GUNSMITH_DAMAGE_MULTIPLIER_CAP = b.comment("整枪伤害乘子总帽 (无量纲倍率): 钳住 品质系数 x 各组件伤害乘数",
-                        "的连乘结果。默认 2.25 = 品质上限 1.50 x 单件强力组件 1.50, 对 AK47 基础伤害 7.2 折算单发躯干",
-                        "16.2 (80 血公服五发致死); 不设帽时同一套配置可达 3.75 倍即三发致死。上界 4.0 高于当前链路",
-                        "可达的 3.75, 设到上界等于关掉总帽。")
+                        "的连乘结果, 是 PvE 的品质 x 组件帽, TaCZ 配件在帽外。默认 2.25 = 品质上限 1.50 x 单件强力组件",
+                        "1.50, AK47 首段 9 x 2.25 = 20.25; PvP 发数另行约束, 不靠本帽。上界 4.0 高于当前链路可达的",
+                        "3.00 (互斥前装出的双加伤 AK), 设到上界等于关掉总帽。")
                 .defineInRange("gunsmithDamageMultiplierCap", 2.25D, 1.0D, 4.0D);
         FE_PER_RIFLE_EQUIVALENT_ROUND = b.comment(
                         "FE charged per rifle-equivalent round. Power is billed on the rifle-equivalent",
@@ -316,6 +356,22 @@ public final class MunitionsConfig {
         GUN_REPAIR_MINIMUM_RATIO = b.comment("Lowest maintainable maximum as a fraction of the original maximum."
                         + " At this floor the gun can no longer be repaired.")
                 .defineInRange("minimumRemainingRatio", 0.30D, 0.01D, 1.0D);
+        b.pop();
+
+        b.push("explosion");
+        b.comment("TaCZ 子弹爆炸平衡 (对全部 TaCZ 枪生效, 不受 gunsmithEnabled 门控)。");
+        HE_EXPLOSION_PER_PROJECTILE_CAP_RATIO = b.comment(
+                        "配件开启的爆炸 (HE 等弹头改装, 枪原生不爆炸) 每颗弹丸的爆炸伤害上限比例:",
+                        "上限 = min(模板爆炸伤害, 枪原生子弹伤害 / max(1, 弹丸数) x 本比例)。默认 1.0 = 每颗弹丸的爆炸",
+                        "不超过它自己的直伤 (M1014 每颗上限 5.0, 一发合计 40); 0 = 关闭配件爆炸。模板值是",
+                        "天花板, 比例再大每颗爆炸也不超过模板值。",
+                        "RPG7、M320 等原生爆炸武器不受影响。")
+                .defineInRange("heExplosionPerProjectileCapRatio", 1.0D, 0.0D, 20.0D);
+        BULLET_EXPLOSION_SCALE = b.comment(
+                        "TaCZ 子弹爆炸 (直接实体是 TaCZ 子弹、爆炸标签、攻击者是玩家) 对玩家的伤害系数。",
+                        "默认 0 = 直接取消: 射手自伤与队友误伤归零。",
+                        "1 = TaCZ 原值; 原生爆炸武器 (RPG7 等) 同样适用。对非玩家目标不生效, PvE 不变。")
+                .defineInRange("bulletExplosionScale", 0.0D, 0.0D, 1.0D);
         b.pop();
 
         b.push("workFee");
@@ -418,7 +474,84 @@ public final class MunitionsConfig {
                 .defineInRange("perRoundMilli", 1000, 0, 1000000);
         b.pop();
 
+        // 段注释必须挂在 push 上: 先 push 再 comment 会被下一个键自己的 comment 覆盖掉 (Builder 只留最后一次)。
+        b.comment("6.4 系统采购: 平板军火商页向系统购买军火台、枪匠冲压机、枪匠装配台与枪匠图纸的信用点售价 (整数 CP)。",
+                "扣费经 IEconomyService.tryCharge 直接销毁, 不转入任何玩家 (信用点 sink); 0 = 免费。",
+                "等级门不在本段配置, 由既有键推导: 军火台按台档有效等级上限, 冲压机取品质解锁等级最低档,",
+                "装配台取 min(assemblyUnlockLevel, repairUnlockLevel), 图纸取 max(assemblyUnlockLevel, 弹药口径解锁等级)。",
+                "各默认值的出处与推法见 Munitions_Job_DesignSpec 6.4; 标 PROVISIONAL 的是设计文档里没有锚价的暂定值。")
+                .push("shop");
+        // 军火台六档: PROVISIONAL, 设计文档只说"向系统购买 (信用点 sink + 进阶目标)", 没给价。推法统一为
+        // "该档有效等级上限处 6.2 表的每台日净收入 x 3 天回本", 取整到千位; 3 天回本本身是暂定假设。
+        SHOP_BENCH_MEDIUM_PRICE = b.comment("munitions_bench_medium (effective cap L4). PROVISIONAL: L4 net 9,400/day / 2 tables"
+                        + " x 3-day payback = 14,100 -> 15,000")
+                .defineInRange("munitionsBenchMediumPrice", 15_000, 0, SHOP_PRICE_MAX);
+        SHOP_BENCH_HIGH_PRICE = b.comment("munitions_bench_high (effective cap L6). PROVISIONAL: L6 net 53,800/day / 3 tables"
+                        + " x 3-day payback = 53,800 -> 55,000")
+                .defineInRange("munitionsBenchHighPrice", 55_000, 0, SHOP_PRICE_MAX);
+        SHOP_BENCH_SUPERIOR_PRICE = b.comment("munitions_bench_superior (effective cap L8). PROVISIONAL: L8 net 94,500/day"
+                        + " / 4 tables x 3-day payback = 70,875 -> 70,000")
+                .defineInRange("munitionsBenchSuperiorPrice", 70_000, 0, SHOP_PRICE_MAX);
+        SHOP_BENCH_TRANSCENDENT_PRICE = b.comment("munitions_bench_transcendent (effective cap L9). PROVISIONAL: L9 net"
+                        + " 130,900/day / 5 tables x 3-day payback = 78,540 -> 80,000")
+                .defineInRange("munitionsBenchTranscendentPrice", 80_000, 0, SHOP_PRICE_MAX);
+        SHOP_BENCH_RADIANT_PRICE = b.comment("munitions_bench_radiant (effective cap L10). PROVISIONAL: L10 net 174,500/day"
+                        + " / 6 tables x 3-day payback = 87,250 -> 90,000")
+                .defineInRange("munitionsBenchRadiantPrice", 90_000, 0, SHOP_PRICE_MAX);
+        SHOP_BENCH_LEGACY_PRICE = b.comment("munitions_bench (legacy registry name, full range L1-L10, bought at L10)."
+                        + " Functionally identical to the radiant bench, so it defaults to the same price")
+                .defineInRange("munitionsBenchPrice", 90_000, 0, SHOP_PRICE_MAX);
+        SHOP_GUNSMITH_PRESS_PRICE = b.comment("gunsmith_press. PROVISIONAL: 100 x pressWorkFeeCredits (200) = 20,000")
+                .defineInRange("gunsmithPressPrice", 20_000, 0, SHOP_PRICE_MAX);
+        SHOP_GUNSMITH_ASSEMBLY_BENCH_PRICE = b.comment("gunsmith_assembly_bench. PROVISIONAL: 10 x assemblyWorkFeeCredits"
+                        + " (5,000) = 50,000")
+                .defineInRange("gunsmithAssemblyBenchPrice", 50_000, 0, SHOP_PRICE_MAX);
+
+        b.comment("One key per gunsmith blueprint (lower-case enum name). Defaults follow the one-off gun price anchors of",
+                "服务器经济系统设计文档 8.3 (midpoint of each range), picked by the blueprint's ammo caliber tier:",
+                "pistol/SMG 2-5万 -> 35,000; rifle 8-15万 -> 115,000; shotgun 12-20万 -> 160,000; sniper 25-40万 -> 325,000.",
+                "Blueprints are not consumed by assembly, so one purchase serves every later assembly.")
+                .push("blueprints");
+        Map<GunsmithBlueprint, ForgeConfigSpec.IntValue> blueprintPrices = new EnumMap<>(GunsmithBlueprint.class);
+        for (GunsmithBlueprint blueprint : GunsmithBlueprint.values()) {
+            blueprintPrices.put(blueprint, b.defineInRange(blueprint.name().toLowerCase(Locale.ROOT),
+                    defaultBlueprintPrice(blueprint), 0, SHOP_PRICE_MAX));
+        }
+        SHOP_BLUEPRINT_PRICES = Collections.unmodifiableMap(blueprintPrices);
+        b.pop();
+        b.pop();
+
         SPEC = b.build();
+    }
+
+    /** 某张枪匠图纸的系统采购价配置项 ([shop.blueprints] 段; 6.4)。 */
+    public static ForgeConfigSpec.IntValue shopBlueprintPrice(GunsmithBlueprint blueprint) {
+        ForgeConfigSpec.IntValue value = SHOP_BLUEPRINT_PRICES.get(blueprint);
+        if (value == null) {
+            throw new IllegalStateException("No shop price key for gunsmith blueprint " + blueprint);
+        }
+        return value;
+    }
+
+    /**
+     * 图纸默认售价 = 8.3 单把枪价区间的中值, 按图纸弹药的口径档归类 (6.4)。
+     *
+     * 这里刻意按图纸逐个列而不是调 {@code blueprint.ammoCaliber()}: 本方法跑在本类静态初始化里, 而
+     * {@link MunitionsCaliber} 的静态初始化会反过来读本类的 SHOP_PRICE_* 字段, 两边互等时读到的是尚未赋值的
+     * null。归类是否与口径表一致由 {@code MunitionsShopGameTests} 逐张对账。无 default 的 switch 让新增图纸
+     * 不补一行就编译不过。
+     */
+    private static int defaultBlueprintPrice(GunsmithBlueprint blueprint) {
+        return switch (blueprint) {
+            // 手枪/SMG 档 (9mm / .45 ACP): 8.3 "手枪/SMG 2-5 万" 中值。
+            case M1911, UMP45, UZI, HK_MP5A5, STERLING, MPX -> 35_000;
+            // 步枪档 (5.56 / 7.62x39): 8.3 "步枪 8-15 万" 中值。
+            case M4A1, M16A1, M16A4, HK416D, SPR15HB, AK47, RPK, TYPE_81 -> 115_000;
+            // 霰弹档 (12g): 8.3 "霰弹/战斗 12-20 万" 中值。
+            case M870, M1887_LONG, KSG, M1014 -> 160_000;
+            // 狙击档 (.30-06 / 7.92x57 / .303): 8.3 "狙击 25-40 万" 中值。
+            case KAR98K, SMLE_III, M700 -> 325_000;
+        };
     }
 
     /** 整枪伤害乘子总帽 (审查 27; 钳 GunsmithGunStats.damage() 的连乘结果)。 */

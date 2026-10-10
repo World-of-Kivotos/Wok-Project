@@ -31,14 +31,14 @@
 - TACZ 弹药 = 单一 `tacz:ammo` 物品,口径存 `AmmoId` NBT。**用公共 API `AmmoItemBuilder.create().setId(口径).setCount(N).build()` 直接产出合法弹药 ItemStack**,无需 mixin、无需 TACZ 配方系统。
 - 服务器禁用 TACZ 默认 `gun_smith_table_crafting` 弹药/枪械配方(维持买断),军火商的**军火台**是唯一搓弹入口。
   - **落点**:本 mod 内置 `data/tacz/recipe_filters/default.json`。TACZ 1.1.8 的 `RecipeFilterManager` 按 `recipe_filters/` 下的文件路径取过滤器 id,同 id 的多份文件把白/黑名单各自追加合并(javap 核实),所以这份文件并进 `tacz:default`;枪械台、弹药台、配件台三份方块数据的 `filter` 字段写的都是 `tacz:default`。判定是"白名单任一命中放行、黑名单任一命中否决",以 `^` 开头的条目按全串正则匹配,其余按字面配方 id。
-  - **规则**:只拉黑 `^tacz:gun/.+$` 与 `^tacz:ammo/.+$`(配方 id 形如 `tacz:gun/ak47`、`tacz:ammo/9mm`,对应默认枪包 `recipes/gun/` 53 条、`recipes/ammo/` 24 条);`recipes/attachments/` 的 95 条配件配方(含 `ammo_mod_he` 等弹头改装)照常可造。不写白名单,默认枪包自带的 `^.*$` 仍然生效。
+  - **规则**:只拉黑 `^tacz:gun/.+$` 与 `^tacz:ammo/.+$`(配方 id 形如 `tacz:gun/ak47`、`tacz:ammo/9mm`,对应默认枪包 `recipes/gun/` 53 条、`recipes/ammo/` 24 条);`recipes/attachments/` 的 95 条配件配方(含 `ammo_mod_he` 等弹头改装)照常可造,HE 爆炸的当量与对玩家伤害另由 3C 约束。不写白名单,默认枪包自带的 `^.*$` 仍然生效。
   - **历史**:此前的 `data/miningdim/recipe_filters/munitions_disable_tacz.json` 注册成 `miningdim:munitions_disable_tacz`,没有任何工作台引用它,黑名单从未生效(审计 V03),已删除。`TaczRecipeFilterGameTests` 按 TACZ 同一套扫描与合并语义核对:服务端数据里的文件确实落在 `tacz:default` 下,枪械/弹药配方被拒、配件配方放行。
   - **前提与边界**:`tacz-server.toml` 的 `EnableDefaultGunSmithTableFilter` 必须保持默认的 `true`,关掉后枪械台 `tacz:gun_smith_table` 会跳过过滤器(弹药台与配件台不受这个开关影响)。第三方枪包自带的工作台若使用自己命名空间的过滤器(例如 `ccrp:default`、`cib:cib_printer_bullet`),不在本文件管辖范围内;上线的枪包组合变化时要复核它们会不会放出 `tacz:gun/*`、`tacz:ammo/*` 配方。
 - **GUI 为自研贴图**(`MunitionsBenchScreen` 引用 `miningdim:textures/gui/container/` 下的 munitions_bench.png、munitions_ui_font.png、munitions_titles.png、munitions_ammo_profiles.png 共四张)。世界方块走自建 block+BE。世界模型同为自研 GeckoLib 骨骼模型(六档各一套 geo + 512x512 调色板图集,由 `tools/generate_munitions_bench_geckolib_assets.py` 确定性生成)。GUI 与世界模型均不再引用任何 TACZ 资源,对 TACZ 的依赖只剩运行期弹药物化 API(`AmmoItemBuilder`);原先"复用 TACZ 制枪台贴图 → 不触再分发协议"的论据已随自研贴图落地而失效。
 
 ### 3A. 枪械配件冲压补充（WIP）
 
-> **运行状态：整条枪匠链默认关闭。** 冲压台与装配台右键、M4/图纸组枪、TACZ 加伤与耐久事件、创造模式页签全部由 `miningdim-munitions.toml` 的 `[recipe] gunsmithEnabled` 单一开关门控（代码为 `MunitionsConfig.GUNSMITH_ENABLED`，拦截点在 `GunsmithPressBlock.use`、`GunsmithAssemblyBenchBlock.use`、`GunsmithAssemblyBenchBlockEntity`、`GunsmithTaczDurabilityHandler`、`GunsmithTaczStatsHandler`、`ModMunitionsTab`），**当前默认值为 `false`**。真服开箱状态下右键装配台只会收到 `message.miningdim.gunsmith.disabled`（“枪匠系统尚未开放”）提示，本节的冲压产线与十章第 8、9 条的耐久扣减、维修结算一条都不会发生，`repairUnlockLevel` / `repairWorkFeeCredits` 等参数全部空转。本节与十章 8/9 描述的是**已落码但未开启**的行为，开启前必须先过数值与经济评审（开关注释所列门槛：材料物品、生存链、门控、伤害系数、经济 sink）。
+> **运行状态：整条枪匠链默认关闭。** 冲压台与装配台右键、M4/图纸组枪、TACZ 加伤与耐久事件、创造模式页签全部由 `miningdim-munitions.toml` 的 `[recipe] gunsmithEnabled` 单一开关门控（代码为 `MunitionsConfig.GUNSMITH_ENABLED`，拦截点在 `GunsmithPressBlock.use`、`GunsmithAssemblyBenchBlock.use`、`GunsmithAssemblyBenchBlockEntity`、`GunsmithTaczDurabilityHandler`、`GunsmithTaczStatsHandler`、`ModMunitionsTab`），**当前默认值为 `false`**。真服开箱状态下右键装配台只会收到 `message.miningdim.gunsmith.disabled`（“枪匠系统尚未开放”）提示，本节的冲压产线与十章第 8、9 条的耐久扣减、维修结算一条都不会发生，`repairUnlockLevel` / `repairWorkFeeCredits` 等参数全部空转。本节与十章 8/9 描述的是**已落码但未开启**的行为，开启前必须先过数值与经济评审（开关注释所列门槛：材料物品、生存链、门控、伤害系数、经济 sink）。"生存链"一项的获取途径已由 6.4 系统采购补上（冲压机、装配台与图纸按等级向系统购买），但同一个开关也管着采购：开关关着时这三类不出售。
 
 - 命名口径与显示规则见 [枪匠组件命名计划](Gunsmith_Component_Naming_Plan.md)；属性平衡、射速禁区与后续稀有组件规则见 [枪匠组件平衡与后续扩展路线](Gunsmith_Component_Balance_Roadmap.md)。
 - **机械冲压机**用于制造枪械配件，不与弹药制造台混在同一产线。
@@ -77,6 +77,24 @@
 
 - 图纸装配成品必须保留源枪的完整、有序射击模式列表；成品不允许缺少模式、追加模式或调换模式顺序。
 - 详细事故记录、实现边界、legacy M4 规则与验收清单见 [枪匠图纸射击模式策略](Gunsmith_Blueprint_Fire_Mode_Policy.md)。
+
+### 3C. TaCZ 子弹爆炸平衡（DECIDED）
+
+> 作用于全部 TaCZ 枪(含非枪匠枪),**不受** `gunsmithEnabled` 门控;两个旋钮在 `miningdim-munitions.toml` 的 `[explosion]` 段。只在 TaCZ 已加载时注册(`MunitionsSystem`)。
+
+- **口径**(TaCZ 1.1.8,javap 核实):"配件开启的爆炸"指枪原生 `bullet.explosion` 不爆炸、由 HE 弹头改装(`ammo_mod_he`)等配件打开的子弹爆炸;爆炸参数取枪数据 `bullet.explosion` 的模板(没写这一段的枪取缺省模板 2 伤 / 0.5 格),按弹丸逐颗结算。
+- **当量帽**(`HeExplosionCapHandler`):在 `AttachmentPropertyEvent`(LOWEST)改写射手属性缓存的 EXPLOSION 项,子弹构造时读的就是这一项。只处理配件开启的爆炸(缓存爆炸为真,枪原生 `bullet.explosion.explode` 为假或缺省):每颗弹丸爆炸伤害 = min(模板, 原生 `bullet.damage` ÷ max(1, `bullet_amount`) × `heExplosionPerProjectileCapRatio`),半径、击退、延时、破坏方块沿用模板。
+  - 默认比例 1.0,即每颗弹丸的爆炸不超过它自己的直伤:M1014 每颗 5.0、M870 每颗 4.0、SPAS-12 每颗 8.0、M107 55、RPK 10(一发合计不超过整发直伤 40 / 36 / 64 / 55 / 10)。
+  - 比例 0 = 关闭配件爆炸。模板是天花板:比例再大,每颗爆炸也不超过模板值(配置上限 20)。
+  - RPG7、M320 等原生爆炸武器不处理。
+  - 需与精英侧"配件爆炸并入复合装甲子弹桶"(平衡方案 C2)同批上线:当量归本条管,复合装甲分桶归 C2 管。
+- **子弹爆炸对玩家**(`BulletExplosionPlayerDamageHandler`):受击者是玩家、伤害带原版爆炸标签、直接实体是 TaCZ 子弹、攻击者是玩家时,伤害 × `bulletExplosionScale`。
+  - 默认 0:在 `LivingAttackEvent`(HIGHEST)直接取消。取消发生在受伤流程最前面,受击者不挂无敌帧,插板也不因这次爆炸磨损或扣电;系数在 (0, 1) 时于 `LivingHurtEvent`(HIGHEST,早于插板的 LOW)缩放。
+  - "攻击者是玩家"同时覆盖射手自伤、队友误伤与 PvP,原生爆炸武器打到玩家同样适用。
+  - 打在非玩家目标上的爆炸、以及非玩家攻击者的子弹爆炸一概不动,PvE 不变。爆炸击退不在受伤流程里,不受影响。
+  - 本条不是 PvP 伤害守门器,子弹直伤不钳。
+- **启动自检**:注册时核对 `GunProperties.EXPLOSION` 与 `ExplosionModifier.ID` 是同一缓存键且注册了修改器、`ExplosionData(explode, radius, damage, knockback, delay, destroyBlock)` 构造存在且参数顺序未变(造一份回读 getter)、`EntityKineticBullet#getGunId` 与 `BulletData` 的弹丸数 / 伤害 / 爆炸数据 getter 存在。任一不符就在启动时报错,防 TaCZ 升级后当量帽静默失效。
+- **测试**:`HeExplosionBalanceGameTests`。dev GameTest 不加载 TaCZ,当量帽按纯函数测(入参取默认枪包原值),子弹爆炸对玩家用替身实体驱动事件并经 Forge 总线核对订阅;缓存改写与启动自检只能在装了 TaCZ 的测试端手测:M1014 装 HE 打僵尸看每颗爆炸扣血、RPG7 对照、两名玩家互射 HE 看爆炸不掉血。
 
 ---
 
@@ -141,7 +159,7 @@
 
 本表是**电力与料都充足**前提下的理论产能上限;实际产出还要过五章的电力闸与四件套料闸,任一不足即按短板减产。表里"级"对单台的实际意义是**有效等级**(见 6.1b),不等于台主的职业等级本身。
 
-制造台向系统购买(信用点 sink + 进阶目标),拥有数受等级上限约束。
+制造台向系统购买(信用点 sink + 进阶目标),拥有数受等级上限约束。落地方式见 6.4 系统采购。
 
 ### 6.1b 军火台档位（DECIDED）
 
@@ -161,6 +179,8 @@
 旧注册名 `munitions_bench` 出于存量兼容保留全档 `(1,10)` 能力:它是 main 时代唯一的军火台(口径只由职业等级门控),而区块按注册名持久化,在役台若被降为低档会静默砍产能。新档位一律用新注册名。
 
 六档各有一套自研 GeckoLib 骨骼模型(见三章),但**档位差异不只是外观**:美术资产与上表的等级钳制一一对应,不要把三章的"六档"描述当成纯换皮。
+
+表中 `unlockLevel` 至今只是声明:放置门控 `MunitionsSystem.onBenchPlace` 只校验台数上限,不校验台档(档位与等级的对应关系实际由 6.4 的系统采购等级门落地,两者的差异与理由见该节)。
 
 ### 6.2 价格/收益表（步枪弹,售价=商店 75%=15,铜28/火药15市场)
 
@@ -215,6 +235,60 @@
 
 后四档是随禁用 TACZ 配方一起补的:原先这五张图纸在生存中没有弹源。`.303` 不在 TACZ 默认枪包里,弹药命名空间取 lavender 枪包(`MunitionsCaliber.ammoNamespace()`,其余档都是 `tacz`),服务器没装 lavender 枪包时这一档产出的弹药 id 无效,SMLE_III 图纸本身也用不了。
 
+### 6.4 系统采购(DECIDED 方向 / 价格 PROVISIONAL)
+
+拍板(2026-09-27):**枪械通过升级军火商(枪匠)职业等级获得**,落地为平板军火商页的"系统采购"。修掉 TaCZ 配方旁路(三章)之后,TaCZ 工作台不再能造枪造弹,而军火台、枪匠冲压机、枪匠装配台和枪匠图纸原先只在创造页签里;系统采购是生存玩家拿到这四类物品的唯一途径。
+
+**入口**:WebUI 两条 action,`job.munitions.shop`(采购目录,只读,进 `system.batch` 白名单)与 `job.munitions.buy`(下单,写动作)。判定、扣费、发货真源 `MunitionsShop`,JSON 化与错误码映射在 `MunitionsWebUiActions`(十章第 11 条)。
+
+**目录**(顺序恒定):军火台六档(按采购等级从低到高,旧全档台垫底)→ 冲压机 → 装配台 → 全部枪匠图纸(`GunsmithBlueprint` 声明序,当前 21 张)。每行下发:等级门、售价、是否已解锁、系统是否出售、余额是否够、图纸是否已持有、此刻能否购买,以及买不了时的第一条原因(与下单被拒的错误码同值,出自同一个判定函数)。
+
+**等级门**(不新开配置键,全部由既有配置推导):
+
+| 条目 | 等级门规则 | 默认配置下的结果 |
+|---|---|---|
+| 军火台 | 有效等级上限比它低的各档里最高的那个上限 + 1(最低一档从 L1 起) | 中级 L1 / 高级 L5 / 极品 L7 / 超凡 L9 / 闪耀 L10 / 旧全档台 L10 |
+| 冲压机 | 零件品质解锁等级的最低档(`[gunsmith] qualityUnlock*`) | L1 |
+| 装配台 | min(`assemblyUnlockLevel`, `repairUnlockLevel`) | L4 |
+| 图纸 | max(`assemblyUnlockLevel`, 图纸弹药口径的解锁等级) | 狙击三张(KAR98K / SMLE_III / M700,口径 L6)为 L6,其余 L5 |
+
+- **军火台为什么不按 6.1b 的 `unlockLevel` 卖**:单台有效等级 = min(台主等级, 台档上限)(6.1b),一档台只有在玩家等级超过"低一档台的上限"时才多出产能,所以采购等级取"低一档上限 + 1"。它与 `unlockLevel` 在高级/极品/超凡/闪耀四档上一致,差异只在两处:中级台(上限 L4)从 L3 提前到 L1,成为入门台;旧注册名 `munitions_bench`(全档 1-10)从 L1 推迟到 L10。原因是审查 M-5 把旧注册名恢复成全档之后,已经没有上限 L2 的低级台;若照 `unlockLevel=1` 卖旧全档台,L1 就能买到一台陪玩家升到满级的台子,后五档全成摆设。旧全档台在 L10 与闪耀台功能完全相同,默认同价。
+- **装配台为什么取装配与维修的较低者**:装配台同时是维修入口,维修按十章第 9 条比装配早一级开放(L4),只按装配等级卖会让 L4 的修枪服务没有自己的台子。
+- **图纸为什么取口径等级**:装配不了、或军火台造不出这发弹时,买到图纸也只能造出一把打不响的枪。图纸到口径的映射是 `GunsmithBlueprint.ammoCaliber()`(与 6.3 口径弹药对照表同一出处),`MunitionsShopGameTests` 拿 `TaczRecipeFilterGameTests.BLUEPRINT_AMMO`(逐张抄自枪数据文件)逐张对账。
+
+**不出售的情形**(与玩家无关):`[recipe] gunsmithEnabled` 为 false(当前默认)时,冲压机、装配台与图纸都不卖(买到也用不了,见 3A 运行状态),军火台不受影响;图纸所绑的枪不在 TaCZ 枪械索引里(缺 ccrp / hare / wyyc1991 / lavender 等第三方枪包)时该图纸不卖。**上线前要用系统采购拿到枪,必须先按 3A 的评审门槛打开 `gunsmithEnabled`**。
+
+**价格**(`miningdim-munitions.toml` 的 `[shop]` 段,整数信用点,0 = 免费,实时读):
+
+| 配置键 | 默认 | 出处 / 推法 |
+|---|--:|---|
+| `munitionsBenchMediumPrice` | 15,000 | 暂定:6.2 表 L4 日净 9,400 / 2 台 × 3 天回本 = 14,100,取整 |
+| `munitionsBenchHighPrice` | 55,000 | 暂定:L6 日净 53,800 / 3 台 × 3 天 = 53,800,取整 |
+| `munitionsBenchSuperiorPrice` | 70,000 | 暂定:L8 日净 94,500 / 4 台 × 3 天 = 70,875,取整 |
+| `munitionsBenchTranscendentPrice` | 80,000 | 暂定:L9 日净 130,900 / 5 台 × 3 天 = 78,540,取整 |
+| `munitionsBenchRadiantPrice` | 90,000 | 暂定:L10 日净 174,500 / 6 台 × 3 天 = 87,250,取整 |
+| `munitionsBenchPrice` | 90,000 | 旧全档台与闪耀台功能相同,同价 |
+| `gunsmithPressPrice` | 20,000 | 暂定:100 × `pressWorkFeeCredits`(200) |
+| `gunsmithAssemblyBenchPrice` | 50,000 | 暂定:10 × `assemblyWorkFeeCredits`(5,000) |
+| `[shop.blueprints]` 手枪/SMG 口径六张(`m1911` `ump45` `uzi` `hk_mp5a5` `sterling` `mpx`) | 35,000 | [服务器经济系统设计文档](服务器经济系统设计文档.md) 8.3 "手枪/SMG 2-5 万" 中值 |
+| `[shop.blueprints]` 步枪口径八张(`m4a1` `m16a1` `m16a4` `hk416d` `spr15hb` `ak47` `rpk` `type_81`) | 115,000 | 8.3 "步枪 8-15 万" 中值 |
+| `[shop.blueprints]` 霰弹口径四张(`m870` `m1887_long` `ksg` `m1014`) | 160,000 | 8.3 "霰弹/战斗 12-20 万" 中值 |
+| `[shop.blueprints]` 狙击口径三张(`kar98k` `smle_iii` `m700`) | 325,000 | 8.3 "狙击 25-40 万" 中值 |
+
+设计文档对台子与设备没有给过锚价("向系统购买"只说了是 sink 与进阶目标),上表标"暂定"的都是按上述推法给的初值,其中"3 天回本"本身也是假设;图纸价取的是 8.3 单把枪的锚价,而图纸装配时不消耗、一张可以造任意多把,之后每把枪的 sink 只剩冲压工费 + 装配工费 5,000,这一点要随枪械平衡一起复核。图纸键名是 `GunsmithBlueprint` 枚举名小写(按枚举遍历生成,新增图纸自动长出新键)。
+
+**购买规则**:
+
+1. **服务端权威**:等级、台数上限、余额、背包空位在下单时全部重新判一遍,目录里的 `purchasable` 只是展示。
+2. **拥有数上限**:军火台拥有数 = `MunitionsSavedData` 的已放置计数(与放置门控同一份)+ 主背包与副手里未放置的军火台(任一档),达到 `MunitionsLevels.tableCount` 即拒绝。放置门控本就拦住超额的那一台,购买侧把背包里的算进去是为了不让玩家花钱买一台放不下的台子;放进箱子里的台数不到,但放置时照样过不了门控。
+3. **扣费**:经 `IEconomyService.tryCharge` 扣信用点并销毁(信用点 sink,计入 [全服经济收支总表](Economy_BalanceSheet_DesignSpec.md) 第四章"低频/一次性"一栏)。每笔成交记一行 `[munitions-shop] sink` INFO 日志(玩家、条目、金额、扣后余额、purchaseId),全服目前没有按用途分账的 sink 表,这行日志就是它的账目。
+4. **背包满**:拒绝,不扣款,也不掉在脚下 —— 平板购买时玩家可能在岩浆边或矿洞深处,三十多万的图纸掉了没人能赔。
+5. **先扣后发与回滚**:全部校验通过后先扣费再发货;发货失败(理论上不会发生,空位在同一主线程帧里刚查过)一律原额退回(`grant`,不占 faucet 主闸额度)并记 error 日志,不记回执。
+6. **防重入**:每单带客户端生成的 `purchaseId`(UUID)。同一玩家同一 id 只成交一次,重复到达回放第一次的回执(`replayed=true`,不扣费不发货);同一 id 拿去买别的条目被拒。前端在网络层失败后重试沿用原 id,服务端回了拒绝才换新 id。回执每人保留最近 16 条,只在进程内存。
+7. **图纸可否重复购买**:装配只消耗部件不消耗图纸(`GunsmithAssemblyBenchBlockEntity.tryStartAssembly`),一张图纸一直能用。背包里已有同一张(旧 M4 装配模板按 M4A1 算)时拒绝再买;背包里没有(弄丢了、放进箱子了)时照常可买 —— 系统没有全局持有记录,也不该让弄丢图纸的玩家永远买不回来。
+
+**拒绝码**(`WebUiErrorCodes`):`SHOP_ITEM_UNAVAILABLE`(params `reason` = `gunsmith_disabled` / `gun_pack_missing`)、`PURCHASE_LEVEL_LOCKED`、`PURCHASE_CAP_REACHED`、`ALREADY_OWNED`、`ECONOMY_OFFLINE`、`INSUFFICIENT_FUNDS`、`INVENTORY_FULL`,入参非法为 `INVALID_REQUEST`。判定顺序即优先级:不可售 > 等级 > 台数上限 / 已持有 > 经济未就绪 > 余额 > 背包空位。
+
 ---
 
 ## 七、升级线（DECIDED）
@@ -256,12 +330,13 @@
 9. **枪械维修**（已落码，默认关闭，见 3A 运行状态）:枪械装配台兼作维修入口——图纸槽改放损耗枪后界面切到维修模式，只开放该平台的关键循环件槽位。维修受一道等级门与一条替换件校验约束，并付出三重代价（工费、替换件、永久最大耐久下降），全部数值落在 `miningdim-munitions.toml`：
    - **等级门** `[gunsmith] repairUnlockLevel`（默认 4）：维修是「替别人修枪」的低阶服务，比装配 `assemblyUnlockLevel`（默认 5）早一级开放；没有这道门，1 级号就能开免费修枪铺，把装配侧的等级门与工费一并架空。
    - **工费 sink** `[gunsmith] repairWorkFeeCredits`（默认 1500 CP，销毁）：与装配工费（默认 5000）独立结算，先扣费再消耗零件。它必须明显低于「弃枪重造」的总价（装配 5000 + 该平台整套组件的冲压工费），否则玩家宁可弃枪重造，耐久体系失去意义；设 0 等于关掉维修 sink。
-   - **替换件**：消耗一件同平台关键循环件——AR / AK / 精准射手 / 机枪 / 霰弹枪取枪机，手枪取套筒，无托式步枪 / 冲锋枪取机匣，栓动式步枪取撞针。
+   - **替换件**：消耗一件同平台的伤害件（与 `GunsmithStat` 的伤害来源槽位逐一对齐）——AR / AK / 精准射手 / 机枪 / 霰弹枪取枪机，手枪取击锤，无托式步枪 / 冲锋枪 / 栓动式步枪取机匣。手枪原取套筒、栓动式步枪原取撞针，玩家把品质堆在伤害件上、维修件却可以是普通件，维修成本跟不上枪的输出；2026-09 平衡方案 E11 改为伤害件，存量枪从下一次维修起按新件结算。
    - **永久最大耐久下降**：按 `[gunDurability] <平台>RepairLoss` 扣掉原始上限的固定比例（AK、栓动式步枪、霰弹枪 0.08；AR、手枪、无托式步枪 0.10；精准射手、机枪、冲锋枪 0.12），向上取整且至少 1 点；最大耐久降到 `minimumRemainingRatio`（默认 0.30，即原始上限的 30%）即报废，不得再维修。
    - **替换件同型号且不降级校验**：替换件的组件型号（`variant`）必须与枪上该槽实际装着的组件一致，品质档不低于原件。维修只重写耐久子标签，不重算 Parts/Stats；若放行降级件，最便宜的普通基础件就能给传奇或势力组件枪无限续命，稀缺组件的成本退化成一次性投入。槽位谓词只在放入那一刻生效，换枪后残留在槽里的旧件仍会走到结算，故服务端开工前必须再判一次。
    - 成功后当前耐久回满到**新的**最大耐久。损耗不足（新上限仍不高于当前耐久）时拒绝维修，免得白吃一次永久损失。维修为确定性结算，不设随机失败或直接销毁枪械；装配台在开工前给出维修预览（当前/最大耐久、已维修次数、维修后的新上限、本次永久损失，以及可维修/耐久已满/损耗不足/已报废四种状态）。
 10. **电力闸门与双模式**:`MunitionsProduction.settle` 把电力作为第四道闸与时间/缓冲/料一同取最小(电不足减产不停产);手动开工路径绕开 `settle`,故 `MunitionsBenchBlockEntity.tryStartCraft` 必须**独立再设一次同样的电力闸**,否则它就是电力限制的逃逸口。被动挂机与手动制作互斥:`settleManualCraft` 返回 true 即本帧不再放行被动结算;开工/取消/连续/上锁四个菜单按钮(101/102/103/100)一律限台主。原版按钮包按单字节传 id,专用服上 ≥128 的 id 会被截成负数而失效,所以口径占 0-99、功能按钮占 100-127,`MunitionsBenchMenu` 类加载时断言这两个区间。数值与理由见五章。
-11. **WebUI 面板**:两条只读 action `job.munitions.state`(军火台/冲压机/装配台三台机器的远程只读镜像)与 `job.blueprints`(图纸静态全表),由 `MunitionsWebUiActions.registerAll()` 经 `MunitionsSystem.register` 注册进 `WebUiServerDispatcher`。**铁律**:面板刷新绝不调 `onAccess` / `settleForOwner`——那条路径会扣工费、扣料、发经验,挂上去等于"开着面板"变成产能加速器;数值一律经各 BE 的 `ContainerData` 读,与原生 GUI 同一份权威快照。台位按发送者所在维度、以其所在区块为心的 `SEARCH_CHUNK_RADIUS`(4)区块半径内**已加载**区块就近扫描,军火台额外过归属;故 `pos` 为 `null` 的语义是"这个半径内没扫到",不是"你没造过",全局台数以 `benchesPlaced` / `benchCap` 为准(SavedData 按 UUID 计,跨维度权威)。
+11. **WebUI 面板**:四条 action,由 `MunitionsWebUiActions.registerAll()` 经 `MunitionsSystem.register` 注册进 `WebUiServerDispatcher`:只读的 `job.munitions.state`(军火台/冲压机/装配台三台机器的远程只读镜像)、`job.blueprints`(图纸静态全表)、`job.munitions.shop`(系统采购目录),以及本页唯一的写动作 `job.munitions.buy`(系统采购下单,规则见 6.4)。**铁律**:面板刷新绝不调 `onAccess` / `settleForOwner`——那条路径会扣工费、扣料、发经验,挂上去等于"开着面板"变成产能加速器;数值一律经各 BE 的 `ContainerData` 读,与原生 GUI 同一份权威快照。台位按发送者所在维度、以其所在区块为心的 `SEARCH_CHUNK_RADIUS`(4)区块半径内**已加载**区块就近扫描,军火台额外过归属;故 `pos` 为 `null` 的语义是"这个半径内没扫到",不是"你没造过",全局台数以 `benchesPlaced` / `benchCap` 为准(SavedData 按 UUID 计,跨维度权威)。
+12. **TaCZ 子弹爆炸平衡**:`HeExplosionCapHandler`(配件爆炸当量帽 + TaCZ 前提启动自检)与 `BulletExplosionPlayerDamageHandler`(子弹爆炸对玩家)在 `MunitionsSystem` 的 FMLCommonSetup 里、TaCZ 已加载时注册,不看 `gunsmithEnabled`。两类的外层都不引用 TaCZ,TaCZ 调用只在各自的内部类里,dev GameTest 可以直接调它们的纯函数与事件方法。数值与结算点见 3C。
 
 ---
 
@@ -286,3 +361,5 @@
 7. 禁用 TACZ 默认弹药/枪械配方(mod 内置 `data/tacz/recipe_filters/default.json` 并入 `tacz:default`,细节见三章;`TaczRecipeFilterGameTests` 守护)。
 8. 全链路 TDD。
 9. WebUI 只读面板:`job.munitions.state` / `job.blueprints` 两条 action + "面板刷新绝不触发结算"的铁律(见十章第 11 条)。
+10. 系统采购:`job.munitions.shop` / `job.munitions.buy` + `MunitionsShop`(等级门推导、拥有数上限、先扣后发与退款、purchaseId 幂等)+ `[shop]` 价格段,规则见 6.4;`MunitionsShopGameTests` 守护。
+11. TaCZ 子弹爆炸平衡:配件爆炸当量帽、子弹爆炸对玩家、TaCZ 前提启动自检(见 3C;`HeExplosionBalanceGameTests` 守护)。

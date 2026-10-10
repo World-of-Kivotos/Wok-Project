@@ -58,16 +58,16 @@ public final class ChampionGameTests {
         StarRank s10 = StarRank.ofStar(10);
         helper.assertTrue(s10.survivalBudget() == 440, "10star survival budget must be 440");
         helper.assertTrue(s10.combatBudget() == 310, "10star combat budget must be 310");
-        helper.assertTrue(Math.abs(s10.baseEffectiveHp() - 73_000.0D) < EPS, "10star base eff HP must be 73000");
+        helper.assertTrue(Math.abs(s10.baseEffectiveHp() - 31_400.0D) < EPS, "10star base eff HP must be 31400");
 
         // 技能 3star 才解锁: 1-2star 技能数上限 = 0。
         helper.assertTrue(StarRank.ofStar(1).maxSkills() == 0, "1star has no skills");
         helper.assertTrue(StarRank.ofStar(2).maxSkills() == 0, "2star has no skills");
         helper.assertTrue(StarRank.ofStar(3).maxSkills() == 1, "skills unlock at 3star");
 
-        // 6star+ 走自定义血池 (破 1024)。
-        helper.assertTrue(!StarRank.ofStar(5).usesCustomBloodPool(), "5star (765 HP) stays vanilla");
-        helper.assertTrue(StarRank.ofStar(6).usesCustomBloodPool(), "6star (2700 HP) needs custom pool");
+        // 6star+ 按星级恒走自定义血池; 5star 不按星级强制 (有效血破 1024 的个体另由 requiresBloodPool 建池)。
+        helper.assertTrue(!StarRank.ofStar(5).usesCustomBloodPool(), "5star is not a forced blood-pool star");
+        helper.assertTrue(StarRank.ofStar(6).usesCustomBloodPool(), "6star (5500 HP) needs custom pool");
 
         // 红线 3 单击上限三档。
         helper.assertTrue(Math.abs(StarRank.ofStar(5).normalHitCapPct() - 0.40D) < EPS, "1-5star hit cap 40%");
@@ -455,7 +455,7 @@ public final class ChampionGameTests {
         long total = payout.get(a) + payout.get(b) + payout.get(c);
         helper.assertTrue(total == 10_000L, "weighted shares sum exactly to fixed pool (no head-count copy)");
 
-        // 含蹭枪玩家: 蹭枪被排除, 合格者瓜分整池 (非按人头复制给蹭枪)。
+        // 含蹭枪玩家: 蹭枪被排除, 合格者只拿自己那份 (非按人头复制给蹭枪; 蹭枪那份作废不回池)。
         UUID leech = UUID.randomUUID();
         List<DamageContribution> withLeech = List.of(
                 new DamageContribution(a, 8_000.0D, 1L, true),
@@ -463,7 +463,8 @@ public final class ChampionGameTests {
         // bossHp=204000 -> 0.5%=1020; 蹭枪 1 伤排除, teamAvg=(8000+1)/2=4000.5, 15%=600 -> 蹭枪 1<600 排除。
         Map<UUID, Long> p2 = ContributionPool.distribute(withLeech, 204_000.0D, 5_000L);
         helper.assertTrue(p2.size() == 1, "only main qualifies; leech excluded");
-        helper.assertTrue(p2.get(a) == 5_000L, "sole qualifier takes whole fixed pool");
+        helper.assertTrue(p2.get(a) == 4_999L,
+                "sole qualifier takes round(5000 x 8000/8001) = 4999; the leech's 1/8001 is voided, not repooled");
         helper.assertTrue(!p2.containsKey(leech), "leech receives nothing (not head-count copied)");
 
         // 无合格者: 整池不发。
@@ -558,10 +559,12 @@ public final class ChampionGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void championRewardScaling(GameTestHelper helper) {
-        // 信用点固定池 = star × 600 (删公式必挂)。
-        helper.assertTrue(ChampionReward.creditPoolRaw(1) == 600L, "1star credit pool 600");
-        helper.assertTrue(ChampionReward.creditPoolRaw(10) == 6_000L, "10star credit pool 6000");
-        helper.assertTrue(ChampionReward.creditPoolRaw(5) == 3_000L, "5star credit pool 3000");
+        // 信用点固定池查内置表 (1-5star = star × 600, 6-10star 按 4 人传奇击杀成本标定; 删表必挂)。
+        // 用显式表 + 缩放的纯函数重载断言, 不依赖运行目录里 miningdim-champion.toml 的当前值。
+        List<Long> table = ChampionReward.DEFAULT_CREDIT_POOL_BY_STAR;
+        helper.assertTrue(ChampionReward.creditPoolRaw(1, table, 1.0D) == 600L, "1star credit pool 600");
+        helper.assertTrue(ChampionReward.creditPoolRaw(10, table, 1.0D) == 45_000L, "10star credit pool 45000");
+        helper.assertTrue(ChampionReward.creditPoolRaw(5, table, 1.0D) == 3_000L, "5star credit pool 3000");
 
         // 青辉石: 1-5star 不掉, 6star+ 掉 (门槛 = CUSTOM_BLOOD_POOL_MIN_STAR = 6)。
         helper.assertTrue(!ChampionReward.dropsAzure(5), "5star drops no azure");
@@ -573,37 +576,34 @@ public final class ChampionGameTests {
     }
 
     // ============================================================
-    // 贡献账本 (ContributionTracker) — 累计 + drain online 现查 + 召唤物排除前置
+    // 贡献账本 (ContributionTracker 门面 -> 冠军 capability) — 累计 + 快照 online 现查 + 结算清账
     // ============================================================
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void contributionTrackerAccumulateAndDrain(GameTestHelper helper) {
-        UUID champ = UUID.randomUUID();
+        // 账本挂在冠军 capability 数据上 (不再有静态表, 也就不用 finally 清理)。
+        MiningChampionData champ = new MiningChampionData();
         UUID p1 = UUID.randomUUID();
         UUID p2 = UUID.randomUUID();
-        try {
-            ContributionTracker.record(champ, p1, 100.0D, 10L);
-            ContributionTracker.record(champ, p1, 50.0D, 20L);   // 累加 -> 150
-            ContributionTracker.record(champ, p2, 80.0D, 15L);
-            ContributionTracker.record(champ, p2, 0.0D, 30L);    // 0 伤不计 (无效贡献)
-            helper.assertTrue(ContributionTracker.hasLedger(champ), "ledger exists after record");
+        ContributionTracker.record(champ, p1, 100.0D, 100.0D, 10L);
+        ContributionTracker.record(champ, p1, 50.0D, 50.0D, 20L);   // 累加 -> 150
+        ContributionTracker.record(champ, p2, 80.0D, 80.0D, 15L);
+        ContributionTracker.record(champ, p2, 30.0D, 0.0D, 30L);    // 0 净伤不计 (无效贡献)
+        helper.assertTrue(ContributionTracker.hasLedger(champ), "ledger exists after record");
 
-            // drain: p1 在线, p2 离线 (online 现查注入)。
-            List<DamageContribution> drained = ContributionTracker.drain(champ,
-                    id -> id.equals(p1));
-            helper.assertTrue(drained.size() == 2, "two contributors drained");
-            helper.assertTrue(!ContributionTracker.hasLedger(champ), "ledger cleared after drain");
+        // 快照: p1 在线, p2 离线 (online 现查注入)。
+        List<DamageContribution> drained = ContributionTracker.snapshot(champ, id -> id.equals(p1));
+        helper.assertTrue(drained.size() == 2, "two contributors in snapshot");
+        ContributionTracker.clear(champ); // 主结算发奖后清账。
+        helper.assertTrue(!ContributionTracker.hasLedger(champ), "ledger cleared after settlement");
 
-            DamageContribution c1 = drained.stream().filter(c -> c.playerId().equals(p1)).findFirst().orElseThrow();
-            DamageContribution c2 = drained.stream().filter(c -> c.playerId().equals(p2)).findFirst().orElseThrow();
-            helper.assertTrue(Math.abs(c1.effectiveDamage() - 150.0D) < EPS, "p1 accumulated 100+50=150");
-            helper.assertTrue(c1.firstHitTick() == 10L, "p1 first hit tick is earliest record");
-            helper.assertTrue(c1.online(), "p1 online via resolver");
-            helper.assertTrue(Math.abs(c2.effectiveDamage() - 80.0D) < EPS, "p2 accumulated 80 (0-damage record dropped)");
-            helper.assertTrue(!c2.online(), "p2 offline via resolver (will be forfeited downstream)");
-        } finally {
-            ContributionTracker.reset(); // 防跨 test 脏账本。
-        }
+        DamageContribution c1 = drained.stream().filter(c -> c.playerId().equals(p1)).findFirst().orElseThrow();
+        DamageContribution c2 = drained.stream().filter(c -> c.playerId().equals(p2)).findFirst().orElseThrow();
+        helper.assertTrue(Math.abs(c1.effectiveDamage() - 150.0D) < EPS, "p1 accumulated 100+50=150");
+        helper.assertTrue(c1.firstHitTick() == 10L, "p1 first hit tick is earliest record");
+        helper.assertTrue(c1.online(), "p1 online via resolver");
+        helper.assertTrue(Math.abs(c2.effectiveDamage() - 80.0D) < EPS, "p2 accumulated 80 (0-damage record dropped)");
+        helper.assertTrue(!c2.online(), "p2 offline via resolver (will be forfeited downstream)");
         helper.succeed();
     }
 
@@ -740,8 +740,8 @@ public final class ChampionGameTests {
                 AffixQuality.COMMON, AffixQuality.COMMON, AffixQuality.UNCOMMON, AffixQuality.UNCOMMON,
                 AffixQuality.RARE, AffixQuality.RARE, AffixQuality.EPIC, AffixQuality.EPIC,
                 AffixQuality.LEGENDARY, AffixQuality.LEGENDARY};
-        double[] effHp = {135.0D, 225.0D, 360.0D, 540.0D, 765.0D,
-                2_700.0D, 6_000.0D, 27_000.0D, 45_000.0D, 73_000.0D};
+        double[] effHp = {135.0D, 225.0D, 920.0D, 1_050.0D, 1_170.0D,
+                5_500.0D, 10_800.0D, 15_500.0D, 23_400.0D, 31_400.0D};
         double[] hitPct = {0.04D, 0.05D, 0.06D, 0.08D, 0.10D, 0.12D, 0.14D, 0.16D, 0.18D, 0.20D};
 
         for (int s = StarRank.MIN_STAR; s <= StarRank.MAX_STAR; s++) {

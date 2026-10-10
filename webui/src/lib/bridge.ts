@@ -32,6 +32,10 @@ import type {
   AgentSealResult,
   MunitionsStatePayload,
   MunitionsStateResult,
+  MunitionsShopPayload,
+  MunitionsShopResult,
+  MunitionsBuyPayload,
+  MunitionsBuyResult,
   BlueprintsPayload,
   BlueprintsResult,
   EngineerStatePayload,
@@ -223,6 +227,8 @@ type WebUiContractMap = {
   'job.agent.scan': { payload: AgentScanPayload; result: AgentScanResult }
   'job.agent.seal': { payload: AgentSealPayload; result: AgentSealResult }
   'job.munitions.state': { payload: MunitionsStatePayload; result: MunitionsStateResult }
+  'job.munitions.shop': { payload: MunitionsShopPayload; result: MunitionsShopResult }
+  'job.munitions.buy': { payload: MunitionsBuyPayload; result: MunitionsBuyResult }
   'job.blueprints': { payload: BlueprintsPayload; result: BlueprintsResult }
   'job.engineer.state': { payload: EngineerStatePayload; result: EngineerStateResult }
   'job.tarot.state': { payload: TarotStatePayload; result: TarotStateResult }

@@ -6,9 +6,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 战斗基建子系统: 注册玩家受击减伤的单点结算 handler ({@link PlayerDamageReduction}) 到 forgeBus。各职业把自己
- * 的命名减伤源 register 进 PlayerDamageReduction 的静态注册表; 本处只挂结算 handler。静态注册表对 register 顺序
- * 不敏感 (handler 运行期读表), 故本子系统在职业之前或之后注册均可。
+ * 战斗基建子系统: 注册玩家受击减伤的单点结算 handler ({@link PlayerDamageReduction}) 与玩家基础最大生命落地
+ * handler ({@link PlayerBaseHealthHandler}, 默认 80) 到 forgeBus。各职业把自己的命名减伤源 register 进
+ * PlayerDamageReduction 的静态注册表; 本处只挂结算 handler。静态注册表对 register 顺序不敏感 (handler 运行期读表),
+ * 基础血量 handler 靠 HIGHEST 优先级先于其它监听读 base, 也不依赖注册顺序, 故本子系统在职业之前或之后注册均可。
  */
 public final class CombatSystem implements Subsystem {
 
@@ -17,7 +18,8 @@ public final class CombatSystem implements Subsystem {
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
         forgeBus.register(new PlayerDamageReduction());
-        LOGGER.info("[miningdim] combat subsystem registered (player damage-reduction resolver)");
+        forgeBus.register(new PlayerBaseHealthHandler());
+        LOGGER.info("[miningdim] combat subsystem registered (player damage-reduction resolver + player base max health)");
     }
 
     @Override

@@ -99,6 +99,52 @@ const ERROR_CODE_TEXT: Readonly<Record<string, ErrorCodeText>> = {
   QUEST_DISABLED: {
     text: '任务系统当前未启用',
   },
+  /*
+   * 以下五条是军火商系统采购 (job.munitions.buy) 的拒绝码。job.munitions.shop 目录行的 reasonCode 回的是同一批值,
+   * 但目录行不带 params (所需数字都在行上), 那边由 MunitionsPanel 就地拼句; 这里只管下单被拒时的那一句。
+   * INSUFFICIENT_FUNDS / ECONOMY_OFFLINE 不在此补: 前者属上面文件头说的开箱那一组, 服务端原文已写明缺多少;
+   * 后者已有通用文案。
+   */
+  PURCHASE_LEVEL_LOCKED: {
+    text: '职业等级不够, 还买不了',
+    withParams: (params) => {
+      const requiredLevel = required(params, 'requiredLevel')
+      const currentLevel = required(params, 'currentLevel')
+      return requiredLevel === null || currentLevel === null
+        ? null
+        : `需要 ${requiredLevel} 级才能购买 (当前 ${currentLevel} 级)`
+    },
+  },
+  PURCHASE_CAP_REACHED: {
+    text: '已达当前等级的拥有上限',
+    withParams: (params) => {
+      const cap = required(params, 'cap')
+      const placed = required(params, 'placed')
+      const held = required(params, 'held')
+      return cap === null || placed === null || held === null
+        ? null
+        : `军火台已达当前等级上限 ${cap} 台 (已放置 ${placed}, 背包里 ${held})`
+    },
+  },
+  SHOP_ITEM_UNAVAILABLE: {
+    text: '系统暂不出售这一件',
+    withParams: (params) => {
+      const reason = required(params, 'reason')
+      if (reason === 'gunsmith_disabled') {
+        return '枪匠系统尚未开放, 冲压机、装配台与图纸暂不出售'
+      }
+      if (reason === 'gun_pack_missing') {
+        return '服务器没有加载这张图纸所需的枪包, 暂不出售'
+      }
+      return null
+    },
+  },
+  ALREADY_OWNED: {
+    text: '背包里已经有这张图纸了 (装配不消耗图纸, 不必重复购买)',
+  },
+  INVENTORY_FULL: {
+    text: '背包已满, 腾出一格再买 (本次未扣款)',
+  },
   ITEM_NOT_TRADABLE: {
     /*
      * 一码两用: market.place 拒绝时它是失败信封里的 errorCode (带 params.rule), market.tradable 判定为

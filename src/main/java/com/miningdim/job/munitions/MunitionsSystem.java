@@ -8,6 +8,7 @@ import com.miningdim.job.munitions.client.GunsmithAssemblyScreen;
 import com.miningdim.job.munitions.client.GunsmithPressScreen;
 import com.miningdim.job.munitions.client.MunitionsBenchScreen;
 import com.miningdim.job.munitions.client.MunitionsClientSetup;
+import com.miningdim.job.munitions.gunsmith.BulletExplosionPlayerDamageHandler;
 import com.miningdim.job.munitions.gunsmith.GunsmithBaseStats;
 import com.miningdim.job.munitions.gunsmith.GunsmithComponentRuleLoader;
 import com.miningdim.job.munitions.gunsmith.GunsmithGunDurability;
@@ -17,6 +18,7 @@ import com.miningdim.job.munitions.gunsmith.GunsmithTaczBridge;
 import com.miningdim.job.munitions.gunsmith.GunsmithTaczDurabilityHandler;
 import com.miningdim.job.munitions.gunsmith.GunsmithTaczResourceBootstrap;
 import com.miningdim.job.munitions.gunsmith.GunsmithTaczStatsHandler;
+import com.miningdim.job.munitions.gunsmith.HeExplosionCapHandler;
 import com.miningdim.job.munitions.gunsmith.network.GunsmithRulesNetwork;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.screens.MenuScreens;
@@ -93,6 +95,9 @@ public final class MunitionsSystem implements Subsystem {
                     if (MunitionsAmmoFactory.isTaczLoaded()) {
                         GunsmithTaczStatsHandler.register(forgeBus);
                         GunsmithTaczDurabilityHandler.register(forgeBus);
+                        // HE 当量帽 (含 TaCZ 前提自检) 与子弹爆炸对玩家的伤害: 作用于全部 TaCZ 枪, 不看 gunsmithEnabled。
+                        HeExplosionCapHandler.register(forgeBus);
+                        BulletExplosionPlayerDamageHandler.register(forgeBus);
                     }
                 }));
 

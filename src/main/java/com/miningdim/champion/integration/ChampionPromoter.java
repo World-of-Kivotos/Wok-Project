@@ -14,8 +14,14 @@ import com.miningdim.champion.StarRank;
 import com.miningdim.champion.bloodpool.BloodPool;
 import com.miningdim.champion.bloodpool.BloodPoolRegistry;
 import com.miningdim.core.Difficulty;
+import com.miningdim.core.IInstanceManager;
+import com.miningdim.core.InstanceState;
+import com.miningdim.core.MiningServices;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
@@ -28,6 +34,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 /**
  * 精英怪升格实现 (自研冠军系统; ChampionStarAffix spec 第十二章生成接入 + 第二章星级控制 + 第六章血量)。实现
@@ -41,7 +48,8 @@ import java.util.UUID;
  *
  * 升格链路:
  *  1. {@link ChampionSpawnPolicy#shouldPromote} 掷是否升格 (杂兵海点缀精英); 不升格直接返回普通怪。
- *  2. {@link ChampionSpawnPolicy#rollStar} 按难度档掷星 (EASY[1,3]/MEDIUM[3,6]/HARD[5,10])。
+ *  2. {@link ChampionSpawnPolicy#rollStar} 按难度档掷星 (EASY[1,3]/MEDIUM[3,6]/HARD[5,10]); ≥8★ 受每矿区同时
+ *     1 只的存活上限约束, 满额则重掷到 7★ 以下 (计数见 {@link #countAliveWorldBosses})。
  *  3. {@link AffixRoller#roll} 四池点数预算内掷合法词条选择 (纯逻辑, PointBudget 终校验)。
  *  4. {@link MiningChampionData#promote} 盖章 capability (星级 + def→品质映射 + 有效血)。
  *  5. {@link #applyBaseHealth} 接管基础血量 (取代 Champions rank growthFactor)。
@@ -79,7 +87,8 @@ public final class ChampionPromoter implements ChampionSpawnSeam.Promoter {
     }
 
     private void promoteToChampion(Mob mob, Difficulty difficulty, RandomSource rng) {
-        int star = ChampionSpawnPolicy.rollStar(difficulty, rng);
+        // 世界 BOSS 同时存活上限: 掷出 ≥8★ 时才数本矿区存活的 ≥8★, 满额则在 [难度下界, 7] 内重掷。
+        int star = ChampionSpawnPolicy.rollStar(difficulty, rng, () -> aliveWorldBossesInSameRegion(mob));
         StarRank rank = StarRank.ofStar(star);
 
         // 词条掷取 (纯逻辑) -> def→品质映射。带体型资格上下文: 非白名单异形碰撞箱实体剔除 SIZE 族, 点数改抽同池
@@ -126,6 +135,61 @@ public final class ChampionPromoter implements ChampionSpawnSeam.Promoter {
         // capability 体型系数缩放服务端 AABB + 首帧向 tracking 玩家广播尺寸 (客户端 capability 不同步, 靠 S2C 包)。
         // 无体型词条的冠军该事件读出系数 1.0 早退, 不改任何行为。
         mob.refreshDimensions();
+    }
+
+    /**
+     * 与新刷怪同一矿区 (实例 region, 按 {@code regionAt(x,z)} 定位) 内存活的世界 BOSS 数。新刷怪不在任何 region
+     * (理论上压力系统只在 region 内刷) 时返回 0, 不设上限。
+     */
+    private static int aliveWorldBossesInSameRegion(Mob mob) {
+        if (!(mob.level() instanceof ServerLevel level)) {
+            return 0;
+        }
+        IInstanceManager instances = MiningServices.instanceManager();
+        InstanceState home = instances.regionAt(mob.getBlockX(), mob.getBlockZ());
+        if (home == null) {
+            return 0;
+        }
+        long homeId = home.instanceId();
+        return countAliveWorldBosses(level, mob.getUUID(), candidate -> {
+            InstanceState region = instances.regionAt(candidate.getBlockX(), candidate.getBlockZ());
+            return region != null && region.instanceId() == homeId;
+        });
+    }
+
+    /**
+     * 世界 BOSS 存活计数 (A3 计数口径, GameTest 可直调): 只数 {@link BloodPoolRegistry} 在册 (≥6★ 恒建池, 故覆盖全部
+     * ≥8★) 且能在本维度按 UUID 取到、存活、所在区块已加载、星级 ≥{@value ChampionSpawnPolicy#WORLD_BOSS_MIN_STAR}
+     * 并满足区域判据的实体, 排除 self。区块卸载 / despawn 后残留的在册条目取不到实体, 不计入 —— 否则一条残留就能把
+     * 该矿区的 8-10★ 永久锁死。
+     *
+     * @param level      计数所在维度 (新刷怪所在的矿洞维度)
+     * @param self       排除的实体 UUID (新刷怪自身; 可为 null)
+     * @param sameRegion 区域判据 (生产: 与新刷怪同一 region)
+     * @return 存活世界 BOSS 数
+     */
+    public static int countAliveWorldBosses(ServerLevel level, UUID self, Predicate<LivingEntity> sameRegion) {
+        int alive = 0;
+        for (UUID id : BloodPoolRegistry.live().keySet()) {
+            if (id.equals(self)) {
+                continue;
+            }
+            Entity entity = level.getEntity(id);
+            if (!(entity instanceof LivingEntity living) || !living.isAlive()) {
+                continue;
+            }
+            if (!level.hasChunkAt(living.blockPosition())) {
+                continue;
+            }
+            MiningChampionData data = MiningChampions.get(living).orElse(null);
+            if (data == null || !ChampionSpawnPolicy.isWorldBossStar(data.star())) {
+                continue;
+            }
+            if (sameRegion.test(living)) {
+                alive++;
+            }
+        }
+        return alive;
     }
 
     /**

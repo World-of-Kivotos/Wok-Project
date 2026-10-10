@@ -23,14 +23,15 @@ public final class ChampionDamageReduction {
     /**
      * 伤害类别 (复合装甲同源适应的分桶维度, spec 7.1 复合装甲 v2): 装甲只适应【当前持续挨的那类】伤害, 换类别
      * 即重置 —— 玩家的真实反制手段 (枪打久了换近战/丢雷)。分类由受击 handler 从 DamageSource 折算 (子弹 =
-     * tacz:bullet*; 爆炸 = IS_EXPLOSION 标签; 近战 = MOB/PLAYER_ATTACK; 其余归 OTHER), 本枚举纯逻辑供 tracker 分桶。
+     * tacz:bullet* 与配件开启的子弹爆炸; 爆炸 = 其余 IS_EXPLOSION 标签; 近战 = MOB/PLAYER_ATTACK; 其余归 OTHER),
+     * 折算规则见 {@link #categorize}, 本枚举纯逻辑供 tracker 分桶。
      */
     public enum DamageCategory {
-        /** TACZ 子弹 (tacz:bullet*)。 */
+        /** TACZ 子弹 (tacz:bullet*), 含 HE 等配件开启的子弹爆炸 (枪原生不爆炸, 见 {@link #categorize})。 */
         BULLET,
         /** 近战 (MOB_ATTACK / MOB_ATTACK_NO_AGGRO / PLAYER_ATTACK)。 */
         MELEE,
-        /** 爆炸 (IS_EXPLOSION 标签, 含 TACZ 爆炸弹/手雷)。 */
+        /** 爆炸 (IS_EXPLOSION 标签: 原生爆炸武器 RPG7/M320、手雷、苦力怕等; 配件开启的子弹爆炸除外)。 */
         EXPLOSION,
         /** 其它 (弹射物/魔法/环境等)。 */
         OTHER
@@ -50,6 +51,25 @@ public final class ChampionDamageReduction {
 
     /** TACZ 子弹伤害类型 path 前缀 (BULLET/BULLET_IGNORE_ARMOR/BULLET_VOID/BULLET_VOID_IGNORE_ARMOR 均以此起)。 */
     public static final String TACZ_BULLET_PATH_PREFIX = "bullet";
+
+    /** TACZ 穿甲段伤害类型 path 后缀 (bullet_ignore_armor / bullet_void_ignore_armor; jar 内二者都在 bypasses_armor 标签)。 */
+    public static final String TACZ_ARMOR_PIERCE_PATH_SUFFIX = "_ignore_armor";
+
+    /**
+     * 6★+ 穿甲段对护甲类减伤 (复合装甲 / 超高分子 / 重型护甲子弹抗) 的豁免比例 (0-1; 2026-09 精英批次)。
+     *
+     * TaCZ 每发子弹拆两段结算: 普通段 D×(1-穿甲) 与穿甲段 tacz:bullet_ignore_armor D×穿甲 (EntityKineticBullet
+     * 两次 hurt 前都清无敌帧)。6★+ 血池在原版护甲结算前就取消事件, 穿甲原本对 6★+ 完全无效。本旋钮让穿甲段按比例
+     * 豁免三项护甲类减伤: 1.0 = 完全不吃; 若真服 10★ 过快, 调低本值即可, 不必回滚整条。偏斜 EV / 缩小化 / 刚毅
+     * 封顶 / keep≥0.25 帽不受影响。星表 6-10★ 基础血按本值 1.0 标定 (StarRank 类注释)。
+     */
+    public static final double ARMOR_PIERCE_AFFIX_BYPASS = 1.0D;
+
+    /**
+     * 穿甲段分流的最低星级 = 血池星级 6★ (只有它们在原版护甲前被取消)。1-5★ 仍走原版护甲, 穿甲本就生效, 不改。
+     * 有效血破 1024 而建池的 4-5★ 个体同样不在范围内 (按星级而非按是否有池判定, 与方案口径一致)。
+     */
+    public static final int ARMOR_PIERCE_BYPASS_MIN_STAR = StarRank.CUSTOM_BLOOD_POOL_MIN_STAR;
 
     /**
      * 复合装甲当前 ramp 减伤率 (spec 7.1: ramp 每受击 +上限/5, 满 5 次达上限 = valueFor; ramp 目标 = 词条上限不再
@@ -237,5 +257,74 @@ public final class ChampionDamageReduction {
             return false;
         }
         return TACZ_NAMESPACE.equals(typeNamespace) && typePath.startsWith(TACZ_BULLET_PATH_PREFIX);
+    }
+
+    /**
+     * 是否 TACZ 子弹的穿甲段 (2026-09 穿甲分流判据): 先须是 TACZ 子弹 ({@link #isBulletDamage}), 再看 path 以
+     * {@value #TACZ_ARMOR_PIERCE_PATH_SUFFIX} 结尾; 兜底再认 vanilla bypasses_armor 标签 (TaCZ 升级改了命名但
+     * 保留标签时仍能识别)。兜底只在 TACZ 子弹范围内生效, 魔法/凋零等原版无视护甲伤害不算穿甲段。
+     *
+     * @param typeNamespace    伤害类型 ResourceLocation namespace
+     * @param typePath         伤害类型 ResourceLocation path
+     * @param bypassesArmorTag 该伤害类型是否带 vanilla bypasses_armor 标签 (handler 查好传入)
+     * @return 是否穿甲段
+     */
+    public static boolean isArmorPierceSegment(String typeNamespace, String typePath, boolean bypassesArmorTag) {
+        if (!isBulletDamage(typeNamespace, typePath)) {
+            return false;
+        }
+        return typePath.endsWith(TACZ_ARMOR_PIERCE_PATH_SUFFIX) || bypassesArmorTag;
+    }
+
+    /**
+     * 本次受击是否启用穿甲豁免: 受击冠军 ≥{@link #ARMOR_PIERCE_BYPASS_MIN_STAR}★ + 本次是穿甲段 + 旋钮 &gt;0。
+     * 启用时受击 handler 对三项护甲类减伤率按 {@link #pierceBypassedRate} 折算, 且复合装甲不叠层。
+     *
+     * @param star               受击冠军星级
+     * @param armorPierceSegment 本次是否穿甲段 ({@link #isArmorPierceSegment})
+     * @return 是否启用穿甲豁免
+     */
+    public static boolean armorPierceBypassApplies(int star, boolean armorPierceSegment) {
+        return armorPierceSegment && star >= ARMOR_PIERCE_BYPASS_MIN_STAR && ARMOR_PIERCE_AFFIX_BYPASS > 0.0D;
+    }
+
+    /**
+     * 护甲类减伤率 (复合 ramp / 超高分子 / 重型子弹抗) 在穿甲豁免下的折算: rate × (1 - {@link #ARMOR_PIERCE_AFFIX_BYPASS});
+     * 未启用豁免原样返回。旋钮 1.0 时恒为 0 (调用方 addRate 对 0 率不入连乘)。
+     *
+     * @param rate         该词条原本的减伤率
+     * @param pierceBypass 本次是否启用穿甲豁免 ({@link #armorPierceBypassApplies})
+     * @return 折算后的减伤率
+     */
+    public static double pierceBypassedRate(double rate, boolean pierceBypass) {
+        return pierceBypass ? rate * (1.0D - ARMOR_PIERCE_AFFIX_BYPASS) : rate;
+    }
+
+    /**
+     * 伤害类别折算 (复合装甲同源适应分桶维度): 子弹 &gt; 爆炸 &gt; 近战 &gt; 其它; 爆炸先于近战判, 防爆炸型近战误归。
+     *
+     * 配件开启的子弹爆炸 (2026-09 精英批次): HE 等配件让本不爆炸的枪在弹丸命中后附带一次爆炸。这类爆炸
+     * (直接实体是 TaCZ 子弹、该枪原生不爆炸, 由集成层探针判定后传入) 在分桶上归子弹桶; 它仍不是 tacz:bullet*
+     * 伤害类型, 所以不吃超高分子 / 重型子弹抗 / 偏斜这些子弹专属减伤, 重型护甲对爆炸的 &lt;T 整次免疫照常生效。
+     * RPG7 等原生爆炸武器仍归爆炸桶。
+     *
+     * @param bullet                    是否 TACZ 子弹伤害 ({@link #isBulletDamage})
+     * @param explosion                 是否带 IS_EXPLOSION 标签
+     * @param attachmentBulletExplosion 是否配件开启的子弹爆炸 (仅 explosion 为真时有意义)
+     * @param melee                     是否近战 (MOB_ATTACK / MOB_ATTACK_NO_AGGRO / PLAYER_ATTACK)
+     * @return 伤害类别
+     */
+    public static DamageCategory categorize(boolean bullet, boolean explosion,
+                                            boolean attachmentBulletExplosion, boolean melee) {
+        if (bullet) {
+            return DamageCategory.BULLET;
+        }
+        if (explosion) {
+            return attachmentBulletExplosion ? DamageCategory.BULLET : DamageCategory.EXPLOSION;
+        }
+        if (melee) {
+            return DamageCategory.MELEE;
+        }
+        return DamageCategory.OTHER;
     }
 }

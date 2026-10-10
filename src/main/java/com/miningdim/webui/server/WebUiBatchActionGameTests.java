@@ -124,7 +124,8 @@ public final class WebUiBatchActionGameTests {
         List<String> writes = List.of(
                 "admin.economy.set", "admin.job.setLevel", "admin.mining.reset", "admin.setBaseValue",
                 "case.apply", "case.open", "job.agent.scan", "job.agent.seal", "job.farmer.sell",
-                "job.miner.scan", "job.tarot.buyPack", "market.buy", "market.cancel", "market.place",
+                "job.miner.scan", "job.munitions.buy", "job.tarot.buyPack", "market.buy", "market.cancel",
+                "market.place",
                 "marriage.buyRing", "marriage.divorce", "marriage.propose", "marriage.respond",
                 "marriage.wed", "mining.enter", "mining.leave", "player.prefs.set",
                 "quest.claim", "quest.refresh", "quest.turnIn", "system.batch");

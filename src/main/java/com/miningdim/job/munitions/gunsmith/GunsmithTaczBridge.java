@@ -71,6 +71,21 @@ public final class GunsmithTaczBridge {
         }
     }
 
+    /**
+     * 这把枪当前是否在 TaCZ 的枪械索引里 (所属枪包已加载)。
+     *
+     * 给系统采购判"图纸所需的第三方枪包缺失"用: 缺包时图纸买到手也装配不出枪 (materialize 回 EMPTY)。
+     * 与 {@link #findBaseStats} 不同, 查不到是预期内的常态 (服务器没装 ccrp/hare 等枪包), 不打 error 日志 ——
+     * 目录每次刷新都会逐张图纸调一次, 按错误记会把日志刷满。TaCZ 未加载时直接回 false, 不触碰 com.tacz.*。
+     */
+    public static boolean isGunIndexed(ResourceLocation gunId) {
+        Objects.requireNonNull(gunId, "gunId");
+        if (!MunitionsAmmoFactory.isTaczLoaded()) {
+            return false;
+        }
+        return TimelessAPI.getCommonGunIndex(gunId).isPresent();
+    }
+
     public static Optional<List<FireMode>> findFireModes(ResourceLocation gunId) {
         return findFireModeProfile(gunId).map(FireModeProfile::fireModes);
     }

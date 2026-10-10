@@ -1,6 +1,8 @@
 package com.miningdim.champion;
 
+import com.miningdim.champion.reward.ContributionLedger;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 
 import java.util.Collections;
 import java.util.EnumMap;
@@ -21,6 +23,9 @@ import java.util.Map;
  *
  * currentHp 随 NBT 持久是为了让 6★+ 影子血池在服务端重启/区块重载后可被原样重建 (F040): 否则
  * {@code BloodPoolRegistry.get} 返 null 会让战斗权威静默切回 vanilla 血, 违反 spec 6.2 #2。
+ *
+ * 贡献账本 ({@link ContributionLedger}) 同理随 NBT 持久 (方案 D2), 重启/区块卸载不清零, 与影子血读回同口径。
+ * 账本写入即落在本对象上 (与 currentHp 同为写穿), 随实体存盘/消失, 不另留静态表。
  */
 public final class MiningChampionData {
 
@@ -32,12 +37,14 @@ public final class MiningChampionData {
     private static final String NBT_AFFIXES = "affixes";
     private static final String NBT_SUMMONED = "summoned_by_affix";
     private static final String NBT_CURRENT_HP = "current_hp";
+    private static final String NBT_CONTRIBUTIONS = "contributions";
 
     private int star = NOT_CHAMPION;
     private final EnumMap<AffixDef, AffixQuality> affixes = new EnumMap<>(AffixDef.class);
     private double effectiveHp = 0.0D;
     private boolean summonedByAffix = false;
     private double currentHp = 0.0D;
+    private final ContributionLedger contributions = new ContributionLedger();
 
     /** 是否已被盖章为冠军 (star ∈ [1,10])。非冠军的默认 capability 恒 false。 */
     public boolean isChampion() {
@@ -62,6 +69,11 @@ public final class MiningChampionData {
     /** 写入当前血量 (受击/回血落账点调用; 纯赋值, 越界与否由血池层的构造校验负责, 本层不做 clamp 掩盖)。 */
     public void setCurrentHp(double hp) {
         this.currentHp = hp;
+    }
+
+    /** 本冠军的贡献账本 (可变; 读写经 {@code ContributionTracker} 门面)。 */
+    public ContributionLedger contributions() {
+        return contributions;
     }
 
     /** 装配词条→品质 (不可变视图; 遍历顺序 = AffixDef 声明序)。 */
@@ -115,6 +127,8 @@ public final class MiningChampionData {
         this.effectiveHp = effectiveHp;
         this.summonedByAffix = false; // 重新盖章即普通冠军; 召唤物身份由 markSummonedByAffix 在 promote 后补盖。
         this.currentHp = effectiveHp; // 新盖章的冠军恒为满血 (spawn 期/命令召唤同一入口, 无旧血量可延续)。
+        // 贡献账本刻意不在这里清: 特勤封印到期恢复 (AgentSealExecutor.restoreAffixes) 会对战斗中的冠军重跑
+        // promote, 清账会把已打出的贡献整本抹掉。新刷的冠军账本本来就是空的。
     }
 
     /** 清为非冠军态 (deserialize 前重置 / 显式清除)。 */
@@ -124,6 +138,7 @@ public final class MiningChampionData {
         this.effectiveHp = 0.0D;
         this.summonedByAffix = false;
         this.currentHp = 0.0D;
+        this.contributions.clear();
     }
 
     /**
@@ -161,6 +176,9 @@ public final class MiningChampionData {
             affixTag.putInt(e.getKey().name(), e.getValue().ordinal());
         }
         tag.put(NBT_AFFIXES, affixTag);
+        if (!contributions.isEmpty()) {
+            tag.put(NBT_CONTRIBUTIONS, contributions.serializeNBT()); // 空账本不写键 (没挨过打的冠军不膨胀 NBT)。
+        }
         return tag;
     }
 
@@ -196,6 +214,10 @@ public final class MiningChampionData {
                 continue; // 越界品质 ordinal: 跳过。
             }
             affixes.put(def, qualities[ordinal]);
+        }
+        // 贡献账本: 旧存档 (本键上线前已盖章的冠军) 无此键, clear() 已置空账本, 按"无人造成过伤害"续战。
+        if (tag.contains(NBT_CONTRIBUTIONS, Tag.TAG_LIST)) {
+            contributions.deserializeNBT(tag.getList(NBT_CONTRIBUTIONS, Tag.TAG_COMPOUND));
         }
     }
 

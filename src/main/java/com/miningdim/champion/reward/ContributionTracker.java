@@ -1,143 +1,69 @@
 package com.miningdim.champion.reward;
 
-import java.util.ArrayList;
-import java.util.Comparator;
+import com.miningdim.champion.MiningChampionData;
+
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 每冠军贡献累计器纯逻辑 (ChampionStarAffix spec 第十一章奖励与经济闸: 击杀/伤害事件累计贡献)。
+ * 贡献账本门面 (ChampionStarAffix spec 第十一章奖励与经济闸 + 方案 D2): 读写冠军 capability 上的
+ * {@link ContributionLedger}, 不再持有任何静态表。
  *
- * 维护 championUUID -> (playerUUID -> 累计有效伤害 + 首伤 tick) 的服务端账本。受击 handler 在玩家对冠军造成
- * 有效伤害时 {@link #record} 累加 (召唤物伤害已在归因层排除, 不进本表); 冠军死亡时 {@link #drain} 取出全部
- * 贡献记录交给 {@link ContributionPool#distribute} 盖章瓜分, 并清该冠军账本。
+ * 记账点 (方案 D1, 统一记"本次实际扣掉的血"):
+ *  - 6★+ 血池冠军: {@code ChampionBloodPoolHandler} 算出净伤后, 在致死与非致死两个分支里各记一次
+ *    min(净伤, 扣血前影子血);
+ *  - 其余冠军 (1-5★ 及未建池者): {@code ChampionRewardHandler} 在 LivingDamageEvent (LOWEST) 记
+ *    min(amount, 扣血前血量)。
+ * 召唤物来源与支援召唤物本身都在记账点前排除, 不进本账。
  *
- * 纯逻辑层: 只持 UUID + double, 不碰 ServerPlayer/IEconomyService/Champions, dev GameTest 触达安全。
- * online 在 drain 时由 handler 现查 (玩家可能中途登出), 故本表只存伤害+首伤 tick, 不存 online 快照。
- *
- * 线程纪律: 累加/结算只在服务端主线程 (受击/死亡串行); ConcurrentHashMap 仅防跨线程读可见性。
+ * 结算 (死亡时) 读 {@link #snapshot}: 特勤侧 ({@code AgentRewardHandler}, HIGHEST) 与贡献池主结算
+ * ({@code ChampionRewardHandler}, 默认优先级) 读同一份 capability。主结算发完奖后 {@link #clear} 该账本, 防同一
+ * 实体被重复派发死亡事件时二次发奖; 特勤侧只读不清, 两者先后由事件优先级决定, 不依赖同优先级的注册顺序。
  */
 public final class ContributionTracker {
 
     private ContributionTracker() {
     }
 
-    /** championUUID -> (playerUUID -> 累计态)。 */
-    private static final ConcurrentHashMap<UUID, Map<UUID, Accum>> LEDGER = new ConcurrentHashMap<>();
-
-    /** 单玩家对单冠军的累计态 (累计有效伤害 + 首次有效伤害 tick)。 */
-    private static final class Accum {
-        double effectiveDamage;
-        final long firstHitTick;
-
-        Accum(long firstHitTick) {
-            this.firstHitTick = firstHitTick;
+    /**
+     * 累加一笔玩家对冠军的命中 (净伤 ≤0 的命中整笔不记)。
+     *
+     * @param champion    冠军 capability 数据
+     * @param playerId    造成伤害的玩家 UUID
+     * @param grossDamage 本次毛伤 (诊断)
+     * @param netDamage   本次实际扣掉的血
+     * @param nowTick     当前 gameTime
+     */
+    public static void record(MiningChampionData champion, UUID playerId,
+                              double grossDamage, double netDamage, long nowTick) {
+        if (champion == null || playerId == null) {
+            throw new IllegalArgumentException("champion/playerId must not be null");
         }
+        champion.contributions().record(playerId, grossDamage, netDamage, nowTick);
     }
 
     /**
-     * 累加一笔玩家对冠军的有效伤害 (受击 handler 在归因到玩家来源、排除召唤物后调)。
+     * 只读地取某冠军的全部贡献记录 (按首次命中 tick 升序, 同 tick 按 UUID)。online 由调用方现查注入。
      *
-     * @param championId      冠军实体 UUID
-     * @param playerId        造成伤害的玩家 UUID
-     * @param effectiveDamage 本次有效伤害 (净伤; 必须 &gt;=0; ≤0 不计)
-     * @param nowTick         当前 gameTime (首伤记此 tick)
+     * @return 贡献记录列表 (空表示无人造成过净伤)
      */
-    public static void record(UUID championId, UUID playerId, double effectiveDamage, long nowTick) {
-        if (championId == null || playerId == null) {
-            throw new IllegalArgumentException("championId/playerId must not be null");
+    public static List<DamageContribution> snapshot(MiningChampionData champion, OnlineResolver onlineResolver) {
+        if (champion == null) {
+            throw new IllegalArgumentException("champion must not be null");
         }
-        if (effectiveDamage <= 0.0D || Double.isNaN(effectiveDamage)) {
-            return; // 0/负伤不计 (无效贡献)。
-        }
-        Map<UUID, Accum> perPlayer = LEDGER.computeIfAbsent(championId, id -> new ConcurrentHashMap<>());
-        Accum accum = perPlayer.computeIfAbsent(playerId, id -> new Accum(nowTick));
-        accum.effectiveDamage += effectiveDamage;
+        return champion.contributions().snapshot(onlineResolver);
     }
 
-    /**
-     * 取出某冠军的全部贡献记录并清账 (冠军死亡结算时调)。online 由调用方 (handler) 现查注入 (玩家可能登出)。
-     *
-     * @param championId     冠军 UUID
-     * @param onlineResolver 现查某玩家是否在线 (handler 经 server.getPlayerList 判)
-     * @return 贡献记录列表 (按首伤 tick 升序, 同 tick 按玩家 UUID 兜底保全序; 空表示无人参战)
-     */
-    public static List<DamageContribution> drain(UUID championId, OnlineResolver onlineResolver) {
-        if (championId == null) {
-            throw new IllegalArgumentException("championId must not be null");
-        }
-        if (onlineResolver == null) {
-            throw new IllegalArgumentException("onlineResolver must not be null");
-        }
-        return snapshot(LEDGER.remove(championId), onlineResolver);
+    /** 某冠军是否已有贡献记录。 */
+    public static boolean hasLedger(MiningChampionData champion) {
+        return champion != null && !champion.contributions().isEmpty();
     }
 
-    /**
-     * 只读地取某冠军的全部贡献记录, <b>不清账</b>。输出与 {@link #drain} 逐字段一致 (同一排序、同一 online 现查)。
-     *
-     * 存在的理由: 同一次冠军死亡有不止一个消费者 —— 贡献池主结算 ({@code ChampionRewardHandler}) 要按份额发钱,
-     * 特勤子系统要在池外叠加自己的加强奖励与悬赏推进。若两者都用 {@link #drain}, 先跑的那个会把账本抽干,
-     * 后跑的直接读到空表; 而"谁先跑"取决于 Forge 同优先级下的注册先后, 是个没人能稳定推理的顺序。
-     *
-     * 因此约定: <b>账本的所有权归主结算</b> —— 只有 {@code ChampionRewardHandler} 调 {@link #drain}, 其余消费者
-     * 一律 peek。这条约定一旦破坏, 症状是"某个奖励静默不发", 极难归因 (线上已因此让 F099 的青辉石瓜分修复
-     * 空转过一轮: 特勤侧抢先 drain 后按自己那份旧逻辑按人头发, 主结算的按权重瓜分从未执行)。
-     *
-     * @return 贡献记录列表 (排序同 drain; 无账本返回空表)
-     */
-    public static List<DamageContribution> peek(UUID championId, OnlineResolver onlineResolver) {
-        if (championId == null) {
-            throw new IllegalArgumentException("championId must not be null");
+    /** 清空某冠军账本 (仅贡献池主结算在发奖后调用; 其余消费者只读)。 */
+    public static void clear(MiningChampionData champion) {
+        if (champion != null) {
+            champion.contributions().clear();
         }
-        if (onlineResolver == null) {
-            throw new IllegalArgumentException("onlineResolver must not be null");
-        }
-        return snapshot(LEDGER.get(championId), onlineResolver);
-    }
-
-    /**
-     * 把累计表快照成有序的贡献记录。
-     *
-     * 真排序保确定性 (F103 修复): perPlayer 是 ConcurrentHashMap, entrySet() 的遍历序是哈希桶序 —— 换一批
-     * 玩家 UUID (哈希值不同) 结果就变, 而下游 {@link ContributionPool#distribute} 的 round 余数归属 (末名吸收)
-     * 依赖本输出的迭代序, 不排序则"可复现性"不成立。按首伤 tick 升序; 同 tick (理论极罕见, 两玩家同 tick 首次
-     * 命中) 按 UUID 兜底保全序, 不依赖排序算法稳定性。
-     */
-    private static List<DamageContribution> snapshot(Map<UUID, Accum> perPlayer, OnlineResolver onlineResolver) {
-        List<DamageContribution> out = new ArrayList<>();
-        if (perPlayer == null) {
-            return out;
-        }
-        List<Map.Entry<UUID, Accum>> entries = new ArrayList<>(perPlayer.entrySet());
-        entries.sort(Comparator
-                .comparingLong((Map.Entry<UUID, Accum> e) -> e.getValue().firstHitTick)
-                .thenComparing(Map.Entry::getKey));
-        for (Map.Entry<UUID, Accum> e : entries) {
-            UUID playerId = e.getKey();
-            Accum accum = e.getValue();
-            boolean online = onlineResolver.isOnline(playerId);
-            out.add(new DamageContribution(playerId, accum.effectiveDamage, accum.firstHitTick, online));
-        }
-        return out;
-    }
-
-    /** 某冠军是否已有贡献记录 (诊断/测试用)。 */
-    public static boolean hasLedger(UUID championId) {
-        return championId != null && LEDGER.containsKey(championId);
-    }
-
-    /** 丢弃某冠军账本 (实例重置定向清除冠军时调, 不结算)。 */
-    public static void discard(UUID championId) {
-        if (championId != null) {
-            LEDGER.remove(championId);
-        }
-    }
-
-    /** 服务端停止清空, 防跨存档脏引用。 */
-    public static void reset() {
-        LEDGER.clear();
     }
 
     /** 在线判定回调 (handler 注入, 解耦纯逻辑层对 server/playerList 的依赖)。 */

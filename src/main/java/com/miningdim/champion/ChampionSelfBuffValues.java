@@ -22,14 +22,30 @@ public final class ChampionSelfBuffValues {
     /** 再生组织脱战判定窗 (spec 7.1: 任意受伤重置 5s -> 100 tick 无伤才回, 实战不触发只惩罚脱离/翻盘)。 */
     public static final long REGEN_TISSUE_OUT_OF_COMBAT_TICKS = 100L;
 
-    /** 易燃再生受伤停回窗 (spec 7.1 [红队] off-switch: 受任意伤害停回 1.5s -> 30 tick)。 */
-    public static final long FLAMMABLE_REGEN_PAUSE_TICKS = 30L;
+    /**
+     * 易燃再生受伤停回窗 (spec 7.1 [红队] off-switch: 受任意伤害停回 3s -> 60 tick)。2026-09 由 1.5s 放宽到 3s:
+     * 回血每 20 tick 结算一整秒, 1.5s 比所有枪的换弹空窗都短 (M4A1 战术换弹 1.94s / MP5 空仓 3.10s / M1014 3.23s),
+     * 单人每次换弹都白送一整秒回血; 3s 与复合装甲无伤重置窗 {@link ChampionDamageReduction#COMPOSITE_RAMP_RESET_TICKS} 对齐。
+     */
+    public static final long FLAMMABLE_REGEN_PAUSE_TICKS = 60L;
 
     /** 反震反伤内 CD (spec 7.1 [红队]: 内 CD 1.5s->≥3s -> 60 tick; 逐击反伤被此闸挡)。 */
     public static final long THORNS_INTERNAL_CD_TICKS = 60L;
 
+    /**
+     * 反震生效半径 (格, 2026-09): 攻击者到冠军碰撞箱外沿的距离超过此值时不反伤, 也不消耗内 CD。远程枪手不再被
+     * 每 3s 一次的真伤反震追着扣血, 贴脸近战与近距离射击照吃 (spec 7.1 "半径 3-5" 取上沿)。
+     */
+    public static final double THORNS_RADIUS_BLOCKS = 5.0D;
+
     /** 自身回血结算周期 (tick): 回血按 1s = 20tick 结算一次, 每次施加一整秒名义回血 (与 handler 扫描节流对齐)。 */
     public static final long HEAL_TICK_INTERVAL = 20L;
+
+    /**
+     * 自效果状态 TTL (tick): 5min 未被触达 (未受击/未被超速扫描) 的状态条目回收; 同时也是 48 格扫描外冠军继续结算
+     * 自身效果的时限 (见 {@link #settlesOutsideScan})。
+     */
+    public static final long SELF_STATE_TTL_TICKS = 6000L;
 
     /**
      * 再生组织每秒回血 (spec 7.1: 脱战回 3/4/5/6/8% maxHP/s)。按有效最大血量折 HP (血池 maxHp / 1-5★ vanilla
@@ -46,7 +62,7 @@ public final class ChampionSelfBuffValues {
     }
 
     /**
-     * 易燃再生每秒回血 (spec 7.1: 战斗回 FLAT 8/15/30/60/90 HP/s)。FLAT HP (不随血量缩放)。仅距上次受伤 ≥1.5s
+     * 易燃再生每秒回血 (spec 7.1: 战斗回 FLAT 8/15/30/60/90 HP/s)。FLAT HP (不随血量缩放)。仅距上次受伤 ≥3s
      * ({@link #flammableRegenReady}) 时由 handler 施加 (受伤停回 off-switch)。
      *
      * @param quality 易燃再生品质
@@ -96,7 +112,7 @@ public final class ChampionSelfBuffValues {
     }
 
     /**
-     * 易燃再生是否可回 (距上次受伤 ≥1.5s): off-switch 门槛。lastHurtTick = Long.MIN_VALUE 视为可回。
+     * 易燃再生是否可回 (距上次受伤 ≥3s): off-switch 门槛。lastHurtTick = Long.MIN_VALUE 视为可回。
      *
      * @param nowTick      当前 gameTime tick
      * @param lastHurtTick 上次受伤 tick
@@ -115,6 +131,52 @@ public final class ChampionSelfBuffValues {
      */
     public static boolean thornsReady(long nowTick, long lastThornsTick) {
         return elapsedAtLeast(nowTick, lastThornsTick, THORNS_INTERNAL_CD_TICKS);
+    }
+
+    /**
+     * 攻击者是否在反震半径内 (距冠军碰撞箱外沿 ≤ {@link #THORNS_RADIUS_BLOCKS}; 恰 5 格仍反)。超距由 handler 直接
+     * 放行: 不反伤、不占聚合器额度、不消耗内 CD。
+     *
+     * @param distanceToHitbox 攻击者 (眼睛位置) 到冠军碰撞箱的最近距离 (格, &gt;=0; 在箱内为 0)
+     * @return 是否在反震半径内
+     */
+    public static boolean thornsInRange(double distanceToHitbox) {
+        if (distanceToHitbox < 0.0D || Double.isNaN(distanceToHitbox)) {
+            throw new IllegalArgumentException("distanceToHitbox must be >= 0, got " + distanceToHitbox);
+        }
+        return distanceToHitbox <= THORNS_RADIUS_BLOCKS;
+    }
+
+    /**
+     * 点到轴对齐碰撞箱的最近距离 (格; 点在箱内或箱面上为 0)。按轴把点钳进箱内求差, 即"到碰撞箱外沿"的口径,
+     * 巨大化冠军的碰撞箱越大, 同一站位离外沿越近。
+     */
+    public static double distanceToBox(double px, double py, double pz,
+                                       double minX, double minY, double minZ,
+                                       double maxX, double maxY, double maxZ) {
+        double dx = Math.max(Math.max(minX - px, 0.0D), px - maxX);
+        double dy = Math.max(Math.max(minY - py, 0.0D), py - maxY);
+        double dz = Math.max(Math.max(minZ - pz, 0.0D), pz - maxZ);
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    /**
+     * 48 格扫描之外的冠军本轮是否仍结算自身效果 (2026-09): 近场扫描覆盖玩家 48 格内的冠军; 扫描外
+     * "受过伤 + 未满血 + 状态仍在 TTL 内" 的冠军同样照常结算, 与格内同一口径。从未受伤 / 已满血 / 超 TTL 的一律
+     * 不结算 (前者无事可做, 后者状态条目本就会被清扫)。
+     *
+     * @param nowTick         当前 gameTime tick
+     * @param lastHurtTick    上次受伤 tick (Long.MIN_VALUE = 从未受伤)
+     * @param lastTouchedTick 状态最后触达 tick (Long.MIN_VALUE = 未触达)
+     * @param belowMaxHp      当前是否未满血 (血池冠军按池, 其余按 vanilla)
+     * @return 是否结算
+     */
+    public static boolean settlesOutsideScan(long nowTick, long lastHurtTick, long lastTouchedTick,
+                                             boolean belowMaxHp) {
+        if (lastHurtTick == Long.MIN_VALUE || lastTouchedTick == Long.MIN_VALUE || !belowMaxHp) {
+            return false;
+        }
+        return nowTick - lastTouchedTick <= SELF_STATE_TTL_TICKS;
     }
 
     /** lastTick=Long.MIN_VALUE (从未) 恒 true; 否则 nowTick-lastTick ≥ window。显式判 MIN_VALUE 防减法溢出。 */

@@ -153,10 +153,12 @@ public final class GunsmithGunStats {
      * 整枪伤害乘子 = 单件品质系数 x 各槽组件伤害乘数连乘, 封顶到
      * {@link MunitionsConfig#gunsmithDamageMultiplierCap()} (审查 27)。
      *
-     * 全链连乘原本无上限: AK 平台的红东高压导气核心 (2.00) 与赤雪-A 枪机 (1.25) 互不排斥,
-     * 叠传奇枪机品质 (1.50) 可达 3.75 倍, 对 80 血公服单发躯干 27 点即三发致死。帽必须落在这里而不是
-     * TACZ 接入层: tooltip / WebUI 详情 / 伤害曲线 全都读本方法, 分开封顶就会出现"面板显示 3.75 实际只有
-     * 2.25"的不一致。爆头帽 {@link MunitionsConfig#GUNSMITH_HEADSHOT_DAMAGE_CAP} 只钳品质复利, 与本帽串联生效。
+     * 本帽是 PvE 的"品质 x 组件"帽, TaCZ 配件 (HP 弹等) 在帽外, PvP 发数另行约束。默认 2.25 下 AK 首段
+     * 9 x 2.25 = 20.25。新装配能到的最高连乘是传奇枪机 1.50 x 传奇红东高压导气 1.60 = 2.40; 红东导气与
+     * 赤雪-A 枪机已互斥 ({@link GunsmithPartVariant#excludes}), 互斥落地前装出来的双加伤 AK
+     * (1.50 x 1.60 x 1.25 = 3.00) 仍照常读取, 同样被本帽钳住。帽必须落在这里而不是 TACZ 接入层:
+     * tooltip / WebUI 详情 / 伤害曲线 全都读本方法, 分开封顶就会出现"面板显示 3.00 实际只有 2.25"的不一致。
+     * 爆头帽 {@link MunitionsConfig#GUNSMITH_HEADSHOT_DAMAGE_CAP} 只钳品质复利, 与本帽串联生效。
      */
     public double damage() {
         double uncapped = version == 1 ? value("damage") : baseDamage() * variantProduct(VariantStat.DAMAGE);
@@ -176,8 +178,16 @@ public final class GunsmithGunStats {
         return version == 1 ? value("damage") : coefficient(GunsmithStat.DAMAGE);
     }
 
+    /**
+     * 整枪爆头倍率乘子, 与 GunsmithTaczStatsHandler 实际写进 TaCZ 的同一个数 (E8): 基础枪管品质系数先过
+     * {@link MunitionsConfig#GUNSMITH_HEADSHOT_DAMAGE_CAP} 品质复利帽, 再乘各组件爆头倍率。
+     *
+     * 原实现不带帽, 双传奇枪机 x 枪管 (1.50 x 1.50) 时 tooltip / WebUI 显示 2.25 倍, 实战只有 1.80 倍。
+     * 换算只借 {@link GunsmithStatMultipliers#of(GunsmithGunStats, double)}, 它读的是 baseHeadshot / specialHeadshot,
+     * 不回调本方法, 不会成环; 改那边时不得让它读 headshot()。
+     */
     public double headshot() {
-        return version == 1 ? value("headshot") : baseHeadshot() * specialHeadshot();
+        return GunsmithStatMultipliers.of(this, MunitionsConfig.GUNSMITH_HEADSHOT_DAMAGE_CAP.get()).headshot();
     }
 
     double baseHeadshot() {
@@ -217,7 +227,18 @@ public final class GunsmithGunStats {
         return version == 1 ? value("average") : averageCoefficient();
     }
 
+    /**
+     * 实际生效的射速倍率 (E8)。强制三连发的成品只有 burst 一种模式, TaCZ 1.1.8 的连发节奏取 burst_data 的
+     * bpm 与 min_interval, 不读 RPM 缓存, 组件射速 (格赫娜高速导气) 对它恒不生效, 故返回 1.0。WebUI 与写进 TaCZ
+     * RPM 缓存的乘子都读本方法, 不再宣称连发被加速; 装配预览按同一口径另算。组件表面上的射速倍率见
+     * {@link #componentFireRate()}。
+     */
     public double fireRate() {
+        return forcesBurstFireMode() ? 1.0D : componentFireRate();
+    }
+
+    /** 各组件射速倍率连乘, 不看射击模式; 只供 tooltip 标注"连发模式下无效"。 */
+    public double componentFireRate() {
         return version == 1 ? 1.0D : variantProduct(VariantStat.FIRE_RATE);
     }
 
@@ -291,7 +312,7 @@ public final class GunsmithGunStats {
     }
 
     public double spreadChange() {
-        return inverse(spread()) * specialSpread() - 1.0D;
+        return inaccuracyMultiplier() - 1.0D;
     }
 
     public double verticalRecoilMultiplier() {
@@ -302,8 +323,13 @@ public final class GunsmithGunStats {
         return inverse(recoil()) * specialRecoil();
     }
 
+    /**
+     * 整枪散布乘子, 与 {@link GunsmithStatMultipliers#combinedInaccuracy()} 逐位同式 (E8): 护木控制 x 组件散布
+     * x 握把控制。TaCZ 1.1.8 的腰射与瞄准散布共用同一份缓存, GunsmithTaczStatsHandler 把握把那一路一并写了进去;
+     * 原实现漏乘握把, 全传奇 M4 (系数中值 1.43) 显示 -30%, 实战是 -51%。
+     */
     public double inaccuracyMultiplier() {
-        return inverse(spread()) * specialSpread();
+        return inverse(spread()) * specialSpread() * inverse(handling());
     }
 
     private double value(String key) {

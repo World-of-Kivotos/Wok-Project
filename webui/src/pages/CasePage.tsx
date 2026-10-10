@@ -40,6 +40,7 @@ import type {
   CaseSoundCue,
   CaseStateResult,
 } from '../lib/types'
+import { createClientUuid } from '../lib/uuid'
 import { callMock, useMockAction } from '../mock'
 
 /**
@@ -182,27 +183,11 @@ function formatMoment(epochMs: number): string {
   return new Date(epochMs).toLocaleString('zh-CN', { hour12: false })
 }
 
-function randomHex(byteCount: number): string {
-  const bytes = new Uint8Array(byteCount)
-  crypto.getRandomValues(bytes)
-  return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
-}
-
 /**
- * 生成 openingId。
- *
- * 不直接用 crypto.randomUUID: 它只在**安全上下文**里存在, 而 MCEF 加载本页的来源不保证是 https。
- * jar 内置开箱页为此带了同一条回退链 (case-opening.html 的 createUuid), 这不是假想风险 —— 少了它,
- * 真客户端上点开箱会抛 "randomUUID is not a function", 而不是失败得体面。
- * getRandomValues 不受安全上下文限制, 故回退只补版本位与变体位, 不退化到 Math.random。
+ * 生成 openingId。实现挪到了 lib/uuid.ts (系统采购的 purchaseId 共用同一条安全上下文回退链), 理由见那里。
  */
 function createOpeningId(): string {
-  if (typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  const hex = randomHex(16)
-  // 版本位钉 4、变体位钉 8: 服务端按 UUID.fromString 解析, 随机凑出的这两处不能省。
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+  return createClientUuid()
 }
 
 function formatOdds(weight: number, total: number): string {

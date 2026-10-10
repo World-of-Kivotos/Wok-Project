@@ -1,6 +1,7 @@
 package com.miningdim.job.munitions.gunsmith;
 
 import java.util.List;
+import java.util.Objects;
 
 /** 枪匠部件的实际组件型号。 */
 public enum GunsmithPartVariant {
@@ -77,6 +78,26 @@ public enum GunsmithPartVariant {
 
     public boolean forcesBurstFireMode() {
         return this == AR_THREE_ROUND_BURST_BOLT;
+    }
+
+    /**
+     * 组件互斥表 (平衡方案 E6): 返回 true 表示本型号与 {@code other} 不能装在同一把枪上, 表按对称写死。
+     *
+     * 红冬高压导气 (CORE) 与赤雪-A 枪机 (BOLT) 都是 AK 平台的加伤件, 分属两个槽位, supports() 拦不住它们同装。
+     * 两件连乘会越过或贴近整枪伤害总帽 2.25: 传奇档 1.43 x 1.60 x 1.25 = 2.86, 越帽部分被钳掉白给, 两件的代价
+     * (射速/射程/散布/后坐 + 穿甲) 却全额照吃; 军规档 1.20 x 1.48 x 1.15 = 2.04 已贴近帽值, 把传奇枪机该有的
+     * 成长空间提前吃掉。装配与装配预览都按本表拒绝。
+     *
+     * 格赫娜高速导气 + AR三连发枪机不在表内: 同装时射速加成对强制三连发无效, 本轮只在成品 tooltip 标红提示,
+     * 不拒绝装配。本表只约束新装配; 已经装出来的双加伤 AK 仍可读取、开火与维修, 伤害照旧被总帽钳住。
+     */
+    public boolean excludes(GunsmithPartVariant other) {
+        Objects.requireNonNull(other, "other");
+        return switch (this) {
+            case RED_EAST_HIGH_PRESSURE_GAS -> other == RED_WINTER_CHIXUE_A_BOLT;
+            case RED_WINTER_CHIXUE_A_BOLT -> other == RED_EAST_HIGH_PRESSURE_GAS;
+            default -> false;
+        };
     }
 
     /** 对成品枪最大耐久的倍率修正；小于 1 表示组件代价。 */

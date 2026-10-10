@@ -2548,7 +2548,15 @@ NetworkHooks.openScreen(serverPlayer, new MiningMenuProvider(availableInstances)
 
 作用域:Instance = 实例治理;Ore = 矿物总控;Difficulty = 难度系数;Trap = 陷阱;Danger = 压力;Mob = 刷怪;Spawn = 出生;Reset = 重置;Perf = 性能/生命周期;Entry = 入场。原有的 Layer(分层)作用域已随 R2 删除(16.2.2)。
 
-覆盖范围说明:`MiningServerConfig` 里还有 `rules`(R7 方块放置白名单)、`marriage`(婚姻系统)、`movement` 三段,分别归各自的模块规格文档管辖,本章不重复登记。
+覆盖范围说明:`MiningServerConfig` 里还有 `rules`(R7 方块放置白名单)、`marriage`(婚姻系统)、`movement`、`player` 四段,前三段分别归各自的模块规格文档管辖,本章不重复登记。
+
+`player` 段只有一个键 `player.baseMaxHealth`(double,默认 80,范围 20..1024),读取方是战斗框架的 `combat/PlayerBaseHealthHandler`。全服战斗数值(精英 %maxHP 伤害与处决、金酒、塔罗、护甲与枪械平衡)都按玩家 80 血建模,原版玩家 `generic.max_health` 的基础值却是 20,这个键就是 80 的落地点。行为要点:
+
+- 写的是属性【基础值】而不是修饰:金酒 +10%/层与跨职业额外生命全局帽都以 `getBaseValue` 为锚,用修饰补 60 会让金酒满层只 +10。判定也只看 base,不看含修饰的最大生命。
+- 只升不降:base 已高于配置值的玩家(生产服 KubeJS `test_hp.js` 给测试员设的 500)不动。调低配置不会缩小在线玩家已抬过的 base,要等其死亡重生(新实体从 20 起抬)才按新值生效。
+- 触发时机:登录、`PlayerEvent.Clone`、重生、换维(均为 HIGHEST,先于金酒登录重挂等读 base 的监听),外加每 100 tick 校正。1.20.1 的 `restoreFrom` 不搬属性,死亡重生和末地出口都会新建 base=20 的实体,所以 Clone 里必须抬回。
+- 当前血量:死亡重生回满;末地出口保留离开末地时的血量;其余路径只把"第一次抬到该水位"的差值加到当前血量(20/20 → 80/80,15/20 → 75/80),水位记在 `PlayerPersisted` 下,base 被外部改低再抬回不重复补血。
+- 副作用:原版饱食回血按固定点数回,从 1 血回满的时间约为原来的 4 倍;金苹果、药水等固定数值回复相对变弱到 1/4。
 
 16.2.1 实例治理(Instance)
 

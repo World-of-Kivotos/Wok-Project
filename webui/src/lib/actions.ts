@@ -25,7 +25,7 @@
  *   job.chef.*          ChefWebUiActions
  *   job.brewer.*        BrewerWebUiActions
  *   job.agent.*         AgentWebUiActions
- *   job.munitions.state / job.blueprints   MunitionsWebUiActions
+ *   job.munitions.state / job.blueprints / job.munitions.shop / job.munitions.buy   MunitionsWebUiActions
  *   job.engineer.state  EngineerWebUiActions
  *   job.tarot.*         TarotWebUiActions
  *   admin.job.setLevel  JobAdminWebUiActions
@@ -64,6 +64,8 @@ export const SERVER_ACTIONS = [
   'job.farmer.state',
   'job.miner.scan',
   'job.miner.state',
+  'job.munitions.buy',
+  'job.munitions.shop',
   'job.munitions.state',
   'job.progress',
   'job.tarot.buyPack',

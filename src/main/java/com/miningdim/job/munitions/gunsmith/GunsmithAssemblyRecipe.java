@@ -1,17 +1,29 @@
 package com.miningdim.job.munitions.gunsmith;
 
 import com.miningdim.job.munitions.ModMunitionsItems;
+import com.miningdim.job.munitions.MunitionsConfig;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
 public final class GunsmithAssemblyRecipe {
+
+    /**
+     * 互斥组件的拒绝文案 (平衡方案 E6, 参数: 两件组件的型号名)。lang 归属方尚未收录该键, 故经
+     * translatableWithFallback 兜底, 与冲压台的 {@code RARITY_LOCKED_KEY} 同一做法; 装配台拒绝消息与装配预览
+     * 共用这一对常量, 防两处文案漂移。
+     */
+    public static final String VARIANT_CONFLICT_KEY = "message.miningdim.gunsmith_assembly_bench.variant_conflict";
+    public static final String VARIANT_CONFLICT_FALLBACK = "%s 与 %s 不能装在同一把枪上。";
 
     private GunsmithAssemblyRecipe() {
     }
@@ -107,6 +119,13 @@ public final class GunsmithAssemblyRecipe {
         }
         GunsmithBlueprint blueprint = blueprint(blueprintStack);
         EnumMap<GunsmithPressPart, Double> coefficients = coefficients(parts, blueprint, true);
+        // 互斥组合的硬校验落在写入路径上 (E6): 装配台开工前已用 findVariantConflict 拒过一次并提示玩家,
+        // 这里兜住绕过装配台直接调用本方法的路径, 不让互斥组合写进成品 NBT。
+        VariantConflict conflict = variantConflict(blueprint, variants(parts, blueprint, true));
+        if (conflict != null) {
+            throw new IllegalArgumentException("Assembly components are mutually exclusive: "
+                    + conflict.first().id() + " + " + conflict.second().id());
+        }
         ItemStack result = baseGun.copy();
         CompoundTag root = new CompoundTag();
         root.putInt(GunsmithGunStats.VERSION_KEY, GunsmithGunStats.CURRENT_VERSION);
@@ -135,7 +154,11 @@ public final class GunsmithAssemblyRecipe {
         double recoilMultiplier = variantProduct(blueprint, parts, variants, VariantStat.RECOIL);
         double spreadMultiplier = variantProduct(blueprint, parts, variants, VariantStat.SPREAD);
         double adsSpeedMultiplier = variantProduct(blueprint, parts, variants, VariantStat.ADS_SPEED);
-        double fireRateMultiplier = variantProduct(blueprint, parts, variants, VariantStat.FIRE_RATE);
+        // 强制三连发的成品只有 burst 一种模式, TaCZ 1.1.8 的连发节奏取 burst_data、不读 RPM 缓存, 组件射速对它
+        // 恒不生效 (E8)。预览这一行标的是半/全自动射速, 与成品 GunsmithGunStats.fireRate() 同口径记 0。
+        boolean forcesBurst = variants.values().stream().anyMatch(GunsmithPartVariant::forcesBurstFireMode);
+        double fireRateMultiplier = forcesBurst ? 1.0D
+                : variantProduct(blueprint, parts, variants, VariantStat.FIRE_RATE);
         // 装配前的预览必须与成品枪 tooltip 同口径, 否则玩家看不到穿甲/弹速/额外垂直后坐就付了工费。
         // 这三项在成品侧 (GunsmithGunTooltip) 各占独立一行, 值就是组件型号乘子本身, 不与品质浮动系数
         // 合并 —— 这里照搬同一口径, 避免"预览一套算法、成品另一套算法"。
@@ -143,24 +166,71 @@ public final class GunsmithAssemblyRecipe {
         double ammoSpeedMultiplier = variantProduct(blueprint, parts, variants, VariantStat.AMMO_SPEED);
         double armorIgnoreMultiplier = variantProduct(blueprint, parts, variants, VariantStat.ARMOR_IGNORE);
         // 预览的伤害必须过成品枪那一个总帽, 否则装配台显示 3.75 倍、成品实际 2.25 倍 (审查 27)。
+        double qualityDamage = coefficient(blueprint, coefficients, GunsmithStat.DAMAGE);
         double damageMultiplier = GunsmithGunStats.capDamageMultiplier(
-                coefficient(blueprint, coefficients, GunsmithStat.DAMAGE)
-                        * variantProduct(blueprint, parts, variants, VariantStat.DAMAGE));
+                qualityDamage * variantProduct(blueprint, parts, variants, VariantStat.DAMAGE));
+        // 爆头与散布借 GunsmithStatMultipliers 的同一套换算 (E8), 与 GunsmithTaczStatsHandler 实际写进 TaCZ 的
+        // 口径逐项一致: 爆头先过 1.8 品质复利帽再乘组件爆头倍率; 散布 = 护木控制 x 组件散布 x 握把控制,
+        // 握把那一路 (aimInaccuracy) 与护木写进的是同一份散布缓存, 漏乘就会把全传奇 M4 的 -51% 显示成 -30%。
+        GunsmithStatMultipliers qualityMultipliers = GunsmithStatMultipliers.of(damageMultiplier, qualityDamage,
+                coefficient(blueprint, coefficients, GunsmithStat.HEADSHOT), range, handling, spread, recoil,
+                MunitionsConfig.GUNSMITH_HEADSHOT_DAMAGE_CAP.get());
         double average = average(coefficients, blueprint.requiredParts());
         return new Preview(
                 baseStats.damage() * damageMultiplier,
-                baseStats.headshot() * coefficient(blueprint, coefficients, GunsmithStat.HEADSHOT)
+                baseStats.headshot() * qualityMultipliers.headshot()
                         * variantProduct(blueprint, parts, variants, VariantStat.HEADSHOT),
                 range,
                 baseStats.effectiveRange() * range,
                 (1.0D / recoil * recoilMultiplier - 1.0D) * 100.0D,
                 (verticalRecoilMultiplier - 1.0D) * 100.0D,
-                (1.0D / spread * spreadMultiplier - 1.0D) * 100.0D,
+                (qualityMultipliers.inaccuracy() * spreadMultiplier * qualityMultipliers.aimInaccuracy() - 1.0D)
+                        * 100.0D,
                 (fireRateMultiplier - 1.0D) * 100.0D,
                 (ammoSpeedMultiplier - 1.0D) * 100.0D,
                 (armorIgnoreMultiplier - 1.0D) * 100.0D,
                 GunsmithGunStats.effectiveAdsTime(baseStats.adsTime(), handling * adsSpeedMultiplier),
-                average);
+                average,
+                variantConflict(blueprint, variants));
+    }
+
+    /**
+     * 已放入组件里的第一对互斥组合 (E6), 没有则返回 null。
+     *
+     * 只读容错入口: 装配台开工前调用, 界面侧要单独判断时也可直接调; 零件 NBT 读不出来或平台/槽位对不上时
+     * 按空槽处理, 不抛 ——
+     * 那类畸形零件由 {@link #matchesPart} 与 {@link #assemble} 的硬校验另行拒绝, 这里只回答"互不互斥"。
+     */
+    @Nullable
+    public static VariantConflict findVariantConflict(GunsmithBlueprint blueprint,
+                                                      Map<GunsmithPressPart, ItemStack> parts) {
+        Objects.requireNonNull(blueprint, "blueprint");
+        Objects.requireNonNull(parts, "parts");
+        EnumMap<GunsmithPressPart, GunsmithPartVariant> variants = new EnumMap<>(GunsmithPressPart.class);
+        for (GunsmithPressPart part : blueprint.requiredParts()) {
+            GunsmithPartItem.PartData data = matchingPartData(
+                    Objects.requireNonNullElse(parts.get(part), ItemStack.EMPTY), part);
+            variants.put(part, data != null && data.platform() == blueprint.platform()
+                    ? data.variant() : GunsmithPartVariant.BASE);
+        }
+        return variantConflict(blueprint, variants);
+    }
+
+    @Nullable
+    private static VariantConflict variantConflict(GunsmithBlueprint blueprint,
+                                                   EnumMap<GunsmithPressPart, GunsmithPartVariant> variants) {
+        List<GunsmithPressPart> installed = new ArrayList<>(blueprint.requiredParts());
+        for (int first = 0; first < installed.size(); first++) {
+            GunsmithPartVariant firstVariant = variants.get(installed.get(first));
+            for (int second = first + 1; second < installed.size(); second++) {
+                GunsmithPartVariant secondVariant = variants.get(installed.get(second));
+                if (firstVariant.excludes(secondVariant)) {
+                    return new VariantConflict(installed.get(first), firstVariant,
+                            installed.get(second), secondVariant);
+                }
+            }
+        }
+        return null;
     }
 
     public static EnumMap<GunsmithPressPart, ItemStack> previewCompatibleParts(
@@ -336,11 +406,22 @@ public final class GunsmithAssemblyRecipe {
      * 不是相加 —— 这与 {@link GunsmithGunStats#horizontalRecoilMultiplier()} 和
      * {@link GunsmithGunStats#verticalRecoilMultiplier()} 的关系一致。
      *
-     * {@code damage} 已过 {@link GunsmithGunStats#capDamageMultiplier(double)} 总帽, 与成品枪一致。
+     * {@code damage} 已过 {@link GunsmithGunStats#capDamageMultiplier(double)} 总帽, 与成品枪一致;
+     * {@code headshot} 已过 1.8 品质复利帽, {@code spreadChange} 含握把分量, {@code fireRateChange} 在强制三连发时
+     * 恒为 0, 三项都与 {@link GunsmithGunStats} 及实际写进 TaCZ 的口径一致 (E8)。
+     *
+     * {@code conflict} 非 null 表示所放组件互斥 (E6), 这套组合装配台会拒绝开工; 其余数值仍按所放组件照算,
+     * 只供界面说明, 不代表能装出来。
      */
     public record Preview(double damage, double headshot, double range, double effectiveRange, double recoilChange,
                           double verticalRecoilChange, double spreadChange, double fireRateChange,
-                          double ammoSpeedChange, double armorIgnoreChange, double adsTime, double average) {
+                          double ammoSpeedChange, double armorIgnoreChange, double adsTime, double average,
+                          @Nullable VariantConflict conflict) {
+
+        /** 所放组件互斥, 装配台会拒绝开工。 */
+        public boolean rejected() {
+            return conflict != null;
+        }
 
         public double recoil() {
             return recoilChange;
@@ -356,6 +437,24 @@ public final class GunsmithAssemblyRecipe {
 
         public double overallCoefficient() {
             return average;
+        }
+    }
+
+    /** 一对互斥组件及其所在槽位 (E6); {@code first} 在图纸槽位顺序里排在前面。 */
+    public record VariantConflict(GunsmithPressPart firstPart, GunsmithPartVariant first,
+                                  GunsmithPressPart secondPart, GunsmithPartVariant second) {
+
+        public VariantConflict {
+            Objects.requireNonNull(firstPart, "firstPart");
+            Objects.requireNonNull(first, "first");
+            Objects.requireNonNull(secondPart, "secondPart");
+            Objects.requireNonNull(second, "second");
+        }
+
+        /** 给玩家看的拒绝原因, 装配台拒绝消息与装配预览共用。 */
+        public Component message() {
+            return Component.translatableWithFallback(VARIANT_CONFLICT_KEY, VARIANT_CONFLICT_FALLBACK,
+                    Component.translatable(first.labelKey()), Component.translatable(second.labelKey()));
         }
     }
 }

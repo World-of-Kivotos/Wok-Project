@@ -8,11 +8,15 @@ import java.util.Objects;
  * 刻意不依赖任何 TACZ 类型: dev GameTest 不加载 TACZ, 把"乘还是逆"的方向与爆头封顶留在这里就能直接断言;
  * GunsmithTaczStatsHandler 只负责把这些乘子落到 TACZ 属性缓存, 不再自己算方向。
  *
- * 爆头封顶只约束枪机伤害品质系数 x 基础枪管爆头品质系数的复利。势力组件自己的伤害与爆头倍率在帽外计算，
- * 避免红冬伤害或圣三一枪管的明确特殊效果被基础品质封顶吞掉。
+ * 爆头封顶是"品质复利帽": 只约束枪机伤害品质系数 x 基础枪管爆头品质系数的复利。势力组件自己的伤害与爆头倍率在帽外计算，
+ * 避免红冬伤害或圣三一枪管的明确特殊效果被基础品质封顶吞掉。PvP 爆头发数不靠本帽，另行约束。
  *
  * inaccuracy 与 aimInaccuracy 是散布的两个方向分量 (护木 spread / 握把 handling)，不是两条可以分别下发的
  * TACZ 属性; 写进缓存的永远是 {@link #combinedInaccuracy()}，原因见该方法。
+ *
+ * 显示侧同口径 (平衡方案 E8): 成品 tooltip 与 WebUI 的爆头、散布经 GunsmithGunStats#headshot /
+ * GunsmithGunStats#inaccuracyMultiplier 取本类同一套换算, 装配预览直接调包内的 8 参 of(...);
+ * 改这里的公式时显示侧会一起变, 不要在显示侧另写一份。
  */
 public record GunsmithStatMultipliers(double damage, double headshot, double effectiveRange, double ammoSpeed,
                                       double armorIgnore, double adsTime, double inaccuracy, double aimInaccuracy,
@@ -37,6 +41,10 @@ public record GunsmithStatMultipliers(double damage, double headshot, double eff
         return of(damage, damage, headshot, range, handling, spread, recoil, headshotDamageCap);
     }
 
+    /**
+     * headshotCapDamage 是只含品质的枪机伤害系数 (不含组件), 爆头帽按它反解; damage 是过了总帽的整枪伤害乘子,
+     * 只原样落到 damage 分量。装配预览 (GunsmithAssemblyRecipe.preview) 没有成品 NBT, 直接调这一版。
+     */
     static GunsmithStatMultipliers of(double damage, double headshotCapDamage, double headshot, double range,
                                       double handling, double spread, double recoil,
                                       double headshotDamageCap) {

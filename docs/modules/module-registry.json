@@ -677,7 +677,8 @@
         "wok-webui"
       ],
       "optionalIntegrations": [
-        "champions"
+        "champions",
+        "tacz"
       ]
     },
     {

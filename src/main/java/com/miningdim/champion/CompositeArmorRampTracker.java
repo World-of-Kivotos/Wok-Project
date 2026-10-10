@@ -14,6 +14,8 @@ import java.util.Map;
  *  - 玩家反制: 换伤害类别 (枪打久了换近战/丢雷) = 新类别从 0 层重爬 (吃满伤害数击), 且旧类别桶被清 —— 切回旧武器
  *    同样从 0 重爬。持续单一输出 (纯突突) 则很快满层吃 35~75% 减伤 (原版 adaptable 式博弈, 我方给了真重置手段)。
  *  - 3s 无伤: 全桶重置 (脱战归零)。
+ *  - 同一 tick 同一类别只叠 1 层 (2026-09): 霰弹一枪 8-9 颗弹丸、TaCZ 一发子弹拆出的两段结算都在同一 tick 落地,
+ *    此前逐事件 +1 层, 霰弹第一枪就叠满; 现在同 tick 再受同类击直接返回当前层数。同 tick 换类别仍照常清桶。
  *
  * 单冠军一只的有状态计数器 (服务端 tick 串行, 非线程安全), 不碰世界/实体, GameTest 直接断言。多只冠军各持一个
  * 实例 (受击 handler 按 UUID 持 Map), 实例间独立。返回的 hitCount 交
@@ -28,7 +30,8 @@ public final class CompositeArmorRampTracker {
 
     /**
      * 记一次某类别受击, 返回该类别适应后的当前层数 (∈ [1, COMPOSITE_RAMP_STEPS])。
-     * 距上次任意受击 ≥3s 先全桶清零 (无伤重置); 然后清空其它类别桶 (同源适应), 本类别 +1 夹到满层。
+     * 与上次受击同 tick 且本类别已有层数: 直接返回当前层数 (同 tick 同类别只叠 1 层)。否则距上次任意受击 ≥3s 先
+     * 全桶清零 (无伤重置); 然后清空其它类别桶 (同源适应), 本类别 +1 夹到满层。
      *
      * @param category 本次伤害类别 (受击 handler 从 DamageSource 折算)
      * @param nowTick  当前 gameTime tick (无伤重置窗判定)
@@ -37,6 +40,12 @@ public final class CompositeArmorRampTracker {
     public int onHit(DamageCategory category, long nowTick) {
         if (category == null) {
             throw new IllegalArgumentException("damage category must not be null");
+        }
+        if (lastHitTick != Long.MIN_VALUE && nowTick == lastHitTick) {
+            int sameTick = stacks.getOrDefault(category, 0);
+            if (sameTick > 0) {
+                return sameTick; // 同 tick 同类别: 本 tick 已叠过层, 不再叠。
+            }
         }
         if (lastHitTick == Long.MIN_VALUE || nowTick - lastHitTick >= ChampionDamageReduction.COMPOSITE_RAMP_RESET_TICKS) {
             stacks.clear(); // 3s 无伤: 全桶重置。
@@ -55,6 +64,24 @@ public final class CompositeArmorRampTracker {
 
     /** 某类别当前层数 (诊断/测试用; 未在册返 0)。 */
     public int stacksOf(DamageCategory category) {
+        return stacks.getOrDefault(category, 0);
+    }
+
+    /**
+     * 只读某类别在 nowTick 时的有效层数 (已过 3s 无伤重置窗视为 0), 不记受击、不刷新重置窗、不清他桶。供 6★+ 穿甲段
+     * 在豁免旋钮 &lt;1 时按现有层数折率 (穿甲段不叠层, 见 {@link ChampionDamageReduction#ARMOR_PIERCE_AFFIX_BYPASS})。
+     *
+     * @param category 伤害类别
+     * @param nowTick  当前 gameTime tick
+     * @return 当前有效层数 (∈ [0, COMPOSITE_RAMP_STEPS])
+     */
+    public int peek(DamageCategory category, long nowTick) {
+        if (category == null) {
+            throw new IllegalArgumentException("damage category must not be null");
+        }
+        if (lastHitTick == Long.MIN_VALUE || nowTick - lastHitTick >= ChampionDamageReduction.COMPOSITE_RAMP_RESET_TICKS) {
+            return 0;
+        }
         return stacks.getOrDefault(category, 0);
     }
 

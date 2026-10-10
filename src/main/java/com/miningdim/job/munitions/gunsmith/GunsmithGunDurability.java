@@ -143,12 +143,19 @@ public final class GunsmithGunDurability {
         return new RepairResult(true, RepairStatus.AVAILABLE, before, after);
     }
 
+    /**
+     * 各平台的维修件, 与该平台的伤害件逐一对齐 (平衡方案 E11, 伤害件见 {@code GunsmithStat.DAMAGE})。
+     *
+     * 替换件要求同型号且品质不低于原件, 维修成本因此跟着这一件的品质走; 它必须是玩家为输出堆品质的那一件,
+     * 维修成本才跟得上枪的输出。手枪原取套筒 (只管后坐)、栓动步枪原取撞针 (只管操控), 玩家把品质堆在击锤 /
+     * 机匣上、这两件放普通品质即可, 传奇输出的枪只付普通件的维修钱。
+     * 存量枪从下一次维修起按新件结算, 已经修过的次数与永久磨损不受影响。
+     */
     public static GunsmithPressPart repairPart(GunsmithPlatform platform) {
         return switch (Objects.requireNonNull(platform, "platform")) {
             case AR, AK, MARKSMAN, MACHINE_GUN, SHOTGUN -> GunsmithPressPart.BOLT;
-            case PISTOL -> GunsmithPressPart.SLIDE;
-            case BULLPUP, SMG -> GunsmithPressPart.RECEIVER;
-            case SNIPER -> GunsmithPressPart.FIRING_PIN;
+            case PISTOL -> GunsmithPressPart.HAMMER;
+            case BULLPUP, SMG, SNIPER -> GunsmithPressPart.RECEIVER;
         };
     }
 

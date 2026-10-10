@@ -250,13 +250,14 @@ public final class ChampionWebUiGameTests {
                     rank.star() + "★ 的血条色必须 = " + rank.barColorRgb());
         }
 
-        // 逐位核对两行真值 (防"实现与期望同错"): 5★ 基础有效血 765 仍在 1024 以内, 6★ 直接跳到 2700 破线。
-        helper.assertTrue(Math.abs(stars.get(4).getAsJsonObject().get("baseEffectiveHp").getAsDouble() - 765.0D) < EPS
+        // 逐位核对两行真值 (防"实现与期望同错"): 5★ 基础有效血 1170 不按星级强制走血池 (换算后破 1024 的个体另行建池),
+        // 6★ 基础有效血 5500 且按星级起走血池。
+        helper.assertTrue(Math.abs(stars.get(4).getAsJsonObject().get("baseEffectiveHp").getAsDouble() - 1170.0D) < EPS
                         && !stars.get(4).getAsJsonObject().get("usesCustomBloodPool").getAsBoolean(),
-                "5★ 基础有效血 765 且不走血池");
-        helper.assertTrue(Math.abs(stars.get(5).getAsJsonObject().get("baseEffectiveHp").getAsDouble() - 2700.0D) < EPS
+                "5★ 基础有效血 1170 且不按星级强制走血池");
+        helper.assertTrue(Math.abs(stars.get(5).getAsJsonObject().get("baseEffectiveHp").getAsDouble() - 5500.0D) < EPS
                         && stars.get(5).getAsJsonObject().get("usesCustomBloodPool").getAsBoolean(),
-                "6★ 基础有效血 2700 且起走血池");
+                "6★ 基础有效血 5500 且起走血池");
         // 红线 3 三档 (1-5★ 0.40 / 6-7★ 0.50 / 8-10★ 0.60): 抽三行确认档位没被压平成单值。
         helper.assertTrue(Math.abs(stars.get(0).getAsJsonObject().get("normalHitCapPct").getAsDouble() - 0.40D) < EPS
                         && Math.abs(stars.get(6).getAsJsonObject().get("normalHitCapPct").getAsDouble() - 0.50D) < EPS
@@ -344,15 +345,17 @@ public final class ChampionWebUiGameTests {
         Map<AffixDef, AffixQuality> affixes = new EnumMap<>(AffixDef.class);
         affixes.put(AffixDef.REGEN_TISSUE, AffixQuality.COMMON);
         try {
-            ChampionPromoter.applyChampion(zombie, 5, affixes);
-            double expectedEffectiveHp = ChampionHpConversion.convertedEffectiveHp(StarRank.STAR_5, affixes);
+            // 样本取 4★ + 再生组织普通: 1050 x (0.35 + 0.65 x (49/55)^1.5) = 942 < 1024 (2026-09 星表下 5★ 同配
+            // 1170 x 0.928 = 1086 已破 1024, 测不到 vanilla 分支)。
+            ChampionPromoter.applyChampion(zombie, 4, affixes);
+            double expectedEffectiveHp = ChampionHpConversion.convertedEffectiveHp(StarRank.STAR_4, affixes);
             helper.assertTrue(expectedEffectiveHp < BloodPool.VANILLA_MAX_HEALTH_CLAMP,
-                    "前置条件: 5★ 单词条的有效血 " + expectedEffectiveHp + " 必须仍在 1024 以内 (否则测不到 vanilla 分支)");
+                    "前置条件: 4★ 单词条的有效血 " + expectedEffectiveHp + " 必须仍在 1024 以内 (否则测不到 vanilla 分支)");
             helper.assertTrue(BloodPoolRegistry.get(zombie.getUUID()) == null,
-                    "前置条件: 5★ 且有效血未破 1024 的冠军不建血池");
+                    "前置条件: 4★ 且有效血未破 1024 的冠军不建血池");
 
             JsonObject result = inspect(helper, player, zombie.getId());
-            helper.assertTrue(result.get("star").getAsInt() == 5, "星级必须发 5");
+            helper.assertTrue(result.get("star").getAsInt() == 4, "星级必须发 4");
             helper.assertTrue(!result.get("customBloodPool").getAsBoolean()
                             && "VANILLA_MAX_HEALTH".equals(result.get("healthSource").getAsString()),
                     "低星冠军的血量来自 generic.max_health, healthSource 必须是 VANILLA_MAX_HEALTH, 实得 "

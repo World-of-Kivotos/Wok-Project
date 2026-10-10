@@ -47,7 +47,7 @@ Forge 仍要求资源位于统一的 `assets/miningdim` 与 `data/miningdim` 命
 - `assets/miningdim/sounds.json`：每个条目跟随对应 `.ogg` 的模块归属，不得只迁移其中一半。
 - `data/forge/loot_modifiers/global_loot_modifiers.json`：Forge 全局掉落修饰器索引，每个条目属于定义它的模块。
 - `data/minecraft/tags/blocks/mineable/pickaxe.json`：原版 tag，聚合铸甲师、军火商、电力与厨师的方块，每个值属于注册该方块的模块。
-- `mineable/axe.json` 不在上面这份清单里：它是电力模块数据生成器的产物，在 `src/generated` 下（校验器不扫这棵树）。其中 `miningdim:prep_counter_rustic` 一条属厨师、是手工追加的，重跑 `runData` 会被冲掉，由厨师的 `CookingStationGameTests` 兜底报红；要根治得把 axe 改成像 pickaxe 那样手工维护的共享文件，需电力模块配合。
+- `data/minecraft/tags/blocks/mineable/axe.json`：原版 tag，聚合电力（橡胶原木、橡胶木板）与厨师（木质备餐台）的方块，每个值属于注册该方块的模块。它和 pickaxe 一样是手工维护的共享文件：原先由电力模块的数据生成器（`PowerRubberTagsProvider`）写在 `src/generated` 下，厨师加条目后改为手工维护，生成器里那一行已删掉，重跑 `runData` 不会再产出或冲掉它。
 
 其余纪律：
 

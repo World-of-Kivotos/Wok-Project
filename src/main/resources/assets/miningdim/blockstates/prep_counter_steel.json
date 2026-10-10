@@ -1,33 +1,63 @@
 {
   "variants": {
-    "facing=east,lit=false": {
+    "facing=east,lid_blocked=false,lit=false": {
       "model": "miningdim:block/prep_counter_steel",
       "y": 90
     },
-    "facing=east,lit=true": {
+    "facing=east,lid_blocked=false,lit=true": {
       "model": "miningdim:block/prep_counter_steel_on",
       "y": 90
     },
-    "facing=north,lit=false": {
+    "facing=east,lid_blocked=true,lit=false": {
+      "model": "miningdim:block/prep_counter_steel",
+      "y": 90
+    },
+    "facing=east,lid_blocked=true,lit=true": {
+      "model": "miningdim:block/prep_counter_steel_on_closed",
+      "y": 90
+    },
+    "facing=north,lid_blocked=false,lit=false": {
       "model": "miningdim:block/prep_counter_steel"
     },
-    "facing=north,lit=true": {
+    "facing=north,lid_blocked=false,lit=true": {
       "model": "miningdim:block/prep_counter_steel_on"
     },
-    "facing=south,lit=false": {
+    "facing=north,lid_blocked=true,lit=false": {
+      "model": "miningdim:block/prep_counter_steel"
+    },
+    "facing=north,lid_blocked=true,lit=true": {
+      "model": "miningdim:block/prep_counter_steel_on_closed"
+    },
+    "facing=south,lid_blocked=false,lit=false": {
       "model": "miningdim:block/prep_counter_steel",
       "y": 180
     },
-    "facing=south,lit=true": {
+    "facing=south,lid_blocked=false,lit=true": {
       "model": "miningdim:block/prep_counter_steel_on",
       "y": 180
     },
-    "facing=west,lit=false": {
+    "facing=south,lid_blocked=true,lit=false": {
+      "model": "miningdim:block/prep_counter_steel",
+      "y": 180
+    },
+    "facing=south,lid_blocked=true,lit=true": {
+      "model": "miningdim:block/prep_counter_steel_on_closed",
+      "y": 180
+    },
+    "facing=west,lid_blocked=false,lit=false": {
       "model": "miningdim:block/prep_counter_steel",
       "y": 270
     },
-    "facing=west,lit=true": {
+    "facing=west,lid_blocked=false,lit=true": {
       "model": "miningdim:block/prep_counter_steel_on",
+      "y": 270
+    },
+    "facing=west,lid_blocked=true,lit=false": {
+      "model": "miningdim:block/prep_counter_steel",
+      "y": 270
+    },
+    "facing=west,lid_blocked=true,lit=true": {
+      "model": "miningdim:block/prep_counter_steel_on_closed",
       "y": 270
     }
   }

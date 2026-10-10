@@ -39,7 +39,10 @@ final class StationShape {
         return new StationShape(rotated, rotated);
     }
 
-    /** 选择框与碰撞箱不同 (例: 铸铁烤箱灶的碰撞箱是整格, 选择框贴着灶面和背板), 两者都随朝向旋转。 */
+    /**
+     * 选择框与碰撞箱不同, 两者都随朝向旋转。例: 木质备餐台选择框整格, 碰撞箱整格再并上后沿调料架
+     * (可以高出方块顶; 让它不是严格整格, 模型面才不会一律去取邻格的光)。
+     */
     static StationShape rotated(VoxelShape northOutline, VoxelShape northCollision) {
         return new StationShape(rotations(northOutline), rotations(northCollision));
     }

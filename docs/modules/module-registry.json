@@ -1335,6 +1335,11 @@
       "path": "data/minecraft/tags/blocks/mineable/pickaxe.json",
       "owners": "entry",
       "note": "vanilla tag aggregating armorer, munitions, power and chef blocks; each value belongs to the module that registers the block"
+    },
+    {
+      "path": "data/minecraft/tags/blocks/mineable/axe.json",
+      "owners": "entry",
+      "note": "vanilla tag aggregating power (rubber log, rubber planks) and chef (wooden prep counter) blocks; each value belongs to the module that registers the block; hand-maintained like pickaxe, no data generator writes it"
     }
   ]
 }

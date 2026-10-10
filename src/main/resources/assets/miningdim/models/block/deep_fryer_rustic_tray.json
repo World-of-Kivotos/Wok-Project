@@ -1,8 +1,8 @@
 {
   "parent": "miningdim:block/deep_fryer_rustic",
   "textures": {
-    "tray_top": "farmersdelight:block/cooking_pot_tray_top",
-    "tray_side": "farmersdelight:block/cooking_pot_tray_side"
+    "tray_top": "miningdim:block/deep_fryer_rustic_tray_top",
+    "tray_side": "miningdim:block/deep_fryer_rustic_tray_side"
   },
   "elements": [
     {

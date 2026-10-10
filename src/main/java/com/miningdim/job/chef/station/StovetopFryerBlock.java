@@ -5,7 +5,9 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.TagKey;
+import net.minecraft.util.RandomSource;
 import net.minecraft.util.StringRepresentable;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
@@ -32,7 +34,12 @@ import org.jetbrains.annotations.Nullable;
  *
  * {@link #SUPPORT}: 下方是营火类 (tray_heat_sources) 时为 tray, 换带托架和四条腿的 *_tray 模型 (照抄厨锅的托架),
  * 选择框/碰撞箱也像厨锅那样向下多出 1 像素的托架板。下方方块变化时随邻居更新重算; 下方热源熄灭或被拆掉时
- * 顺带把 lit 关掉。经漏斗传热的情形下两格变化不会通知到本方块, 由以后接入的方块实体逐 tick 复核。
+ * 顺带把 lit 关掉。
+ *
+ * 邻居更新覆盖不到的情形 (经漏斗隔一格传热时最下面的热源熄灭或被拆掉、热源被不发形状更新的 setBlock 换掉、
+ * 中途卸掉农夫乐事使标签变空) 由计划刻兜底: 进入工作状态时 ({@link #onPlace}, 预览开关与活塞推动都会走到)
+ * 排一个 {@link #HEAT_RECHECK_TICKS} 刻后的复核, 仍有热就再排下一次, 没热就熄火。同一位置同一方块的计划刻
+ * 原版会去重, 重复排不会叠加。以后接入方块实体逐 tick 复核时可以去掉这一层。
  */
 public final class StovetopFryerBlock extends CookingStationBlock {
 
@@ -46,6 +53,9 @@ public final class StovetopFryerBlock extends CookingStationBlock {
     static final VoxelShape POT = Block.box(1.0D, 0.0D, 1.0D, 15.0D, 8.0D, 15.0D);
     /** 营火托架: 锅下多一块整格宽、1 像素厚的托架板 (农夫乐事厨锅 SHAPE_WITH_TRAY 同口径)。 */
     static final VoxelShape POT_ON_TRAY = Shapes.or(POT, Block.box(0.0D, -1.0D, 0.0D, 16.0D, 0.0D, 16.0D));
+
+    /** 工作中复核下方热源的间隔 (刻)。 */
+    static final int HEAT_RECHECK_TICKS = 20;
 
     /** 锅下面垫的是什么: none 直接坐在方块上 (炉灶等), tray 架在营火类热源上。 */
     public enum Support implements StringRepresentable {
@@ -65,6 +75,8 @@ public final class StovetopFryerBlock extends CookingStationBlock {
     }
 
     StovetopFryerBlock(BlockBehaviour.Properties properties, StationParticles.Emitter particles) {
+        // 交给父类的形状不生效: 本类按 SUPPORT 重写了 getShape / getCollisionShape (POT 或 POT_ON_TRAY),
+        // 改油锅形状要改上面两个常量, 不是这里。
         super(properties, Kind.DEEP_FRYER, Style.RUSTIC, StationShape.symmetric(POT), particles);
         registerDefaultState(defaultBlockState().setValue(SUPPORT, Support.NONE));
     }
@@ -97,6 +109,28 @@ public final class StovetopFryerBlock extends CookingStationBlock {
             updated = updated.setValue(LIT, false);
         }
         return updated;
+    }
+
+    /** 进入工作状态 (lit 由 false 变 true, 或带着 lit=true 被放下 / 推过来) 时排第一次热源复核。 */
+    @Override
+    public void onPlace(BlockState state, Level level, BlockPos pos, BlockState oldState, boolean movedByPiston) {
+        super.onPlace(state, level, pos, oldState, movedByPiston);
+        if (!level.isClientSide && state.getValue(LIT)) {
+            level.scheduleTick(pos, this, HEAT_RECHECK_TICKS);
+        }
+    }
+
+    /** 计划刻复核: 下方没热了就熄火 (发完整更新, 粒子随之停), 还有热就排下一次。 */
+    @Override
+    public void tick(BlockState state, ServerLevel level, BlockPos pos, RandomSource random) {
+        if (!state.getValue(LIT)) {
+            return;
+        }
+        if (isHeated(level, pos)) {
+            level.scheduleTick(pos, this, HEAT_RECHECK_TICKS);
+        } else {
+            level.setBlock(pos, state.setValue(LIT, false), Block.UPDATE_ALL);
+        }
     }
 
     @Override

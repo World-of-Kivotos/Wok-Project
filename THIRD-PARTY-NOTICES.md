@@ -47,6 +47,21 @@
 （见第二节），其 ND（禁止演绎）条款与本项目"演绎后再分发"之间的冲突评估见第五节。开箱资产的
 来源与再分发边界详见 [docs/CASE_ASSET_PROVENANCE.md](docs/CASE_ASSET_PROVENANCE.md)。
 
+### 随产物分发的农夫乐事托架贴图（厨师烹饪台）
+
+厨师模块炉上油锅架在营火上时的托架模型（`deep_fryer_rustic_tray.json` / `deep_fryer_rustic_on_tray.json`）
+用到两张贴图 `src/main/resources/assets/miningdim/textures/block/deep_fryer_rustic_tray_top.png` 与
+`deep_fryer_rustic_tray_side.png`。它们不是原创：是 Farmer's Delight 1.20.1-1.2.9
+（`FarmersDelight-1.20.1-1.2.9.jar`）内 `assets/farmersdelight/textures/block/cooking_pot_tray_top.png` /
+`cooking_pot_tray_side.png` 的逐字节拷贝，只改了文件名和命名空间，因而**随我方产物 jar 分发**。
+
+许可取自该 jar 的 `META-INF/mods.toml`：`license = "MIT License"`，`authors = "vectorwing"`，项目主页
+https://github.com/vectorwing/FarmersDelight 。jar 内不含 LICENSE 全文，版权行与许可全文以项目主页为准，
+按第六节纪律记作"许可全文待补"。MIT 允许复制与再分发，义务是保留版权声明与许可声明。
+
+拷贝而不是继续跨 mod 引用 `farmersdelight:block/cooking_pot_tray_*` 的原因：农夫乐事 1.3.x 已把这两张图
+改名为 `heating_tray_*`（侧面那张像素也变了），跨 mod 引用在 1.3.x 下会显示成紫黑格。
+
 ---
 
 ## 二、编译期与开发期依赖（不随产物分发）
@@ -66,12 +81,13 @@
 | JEI（Just Enough Items） | 15.20.0.135（`common-api` + `forge-api`） | 许可待补 | `compileOnly fg.deobf(...)`，BlameJared Maven |
 | Jade | 11.13.2+forge | `CC BY-NC-SA 4.0` | `compileOnly fg.deobf(...)`，Modrinth Maven |
 | Flan | 1.20.1-1.11.16（Forge，Modrinth 版本 `Gh42Sknw`） | `All rights reserved`（内嵌的 lingua_bib 1.20.1-1.0.6 为 `MIT`） | `compileOnly` + 开发期 `runtimeOnly fg.deobf(...)`，Modrinth Maven；`verifyFlanArtifact` 钉死服主批准的那个文件的 SHA1。开发运行时另把它内嵌的 lingua_bib 原样取到 `build/flan-dev-libs/`（取前核对 Flan jar、取后核对 lingua_bib 的 SHA1），经 `fg.deobf` 作为根 mod 加载，供真 Flan 的 GameTest 使用（自管区设计文档 20.1 的出路 ③）；两者都不进产物，正式服由服主自装 |
-| Farmer's Delight | 1.20.1-1.3.2 | 许可待补 | 仅开发期 `runtimeOnly`，`libs/` 下存在该 jar 时才加载 |
+| Farmer's Delight | 1.20.1-1.3.2 | `MIT License` | 仅开发期 `runtimeOnly`，`libs/` 下存在该 jar 时才加载（其 1.2.9 版的两张托架贴图另有拷贝随产物分发，见第一节末） |
 | flavor_immersed_daily | 1.1.0.3-forge-1.20.1 | 许可待补 | 仅开发期 `runtimeOnly`，`libs/` 下存在该 jar 时才加载 |
 
 注：上表"自声明许可"是各 mod 作者在自身 `mods.toml` 中填写的字面值，以其项目主页与随附
-许可文件为准。标"许可待补"的三项本地取不到元数据——JEI 的两个 api jar 内只有 `META-INF/MANIFEST.MF`、
-既无 `mods.toml` 也无 LICENSE 条目，Farmer's Delight 与 flavor_immersed_daily 的 jar 不在本机 `libs/` 下；
+许可文件为准。Farmer's Delight 一行取自 `libs/FarmersDelight-1.20.1-1.3.2.jar` 的 `META-INF/mods.toml`。
+标"许可待补"的两项本地取不到元数据——JEI 的两个 api jar 内只有 `META-INF/MANIFEST.MF`、
+既无 `mods.toml` 也无 LICENSE 条目，flavor_immersed_daily 的 jar 不在本机 `libs/` 下；
 按第六节纪律不得凭记忆填写，须在能取证时补齐。TACZ 的 GPL-3.0 声明与本项目专有许可之间的交互，见第五节。
 
 GeckoLib 的前置强度高于本节其余条目：它在 `mods.toml` 中是 `mandatory = true`、`side = "BOTH"`、

@@ -12,8 +12,6 @@ import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.HorizontalDirectionalBlock;
-import net.minecraft.world.level.block.Mirror;
-import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
@@ -33,6 +31,7 @@ import org.jetbrains.annotations.Nullable;
  * 状态: {@link #FACING} 放置时正面朝向玩家 (模型正面画在 north, 与农夫乐事炉灶一致); {@link #LIT} 是"工作中"。
  * 工作状态统一叫 lit 而不叫 active: 铸铁烤箱灶的方案说明指出, 若以后把台子加进 farmersdelight:heat_sources,
  * 农夫乐事判断热源时只认 lit 属性 (没有 lit 的方块一直算热), 用别的名字会让待机的台子也被当成热源。
+ * 旋转 / 镜像 (结构方块、投影类工具) 沿用 {@link HorizontalDirectionalBlock} 自带的实现, 只转 FACING。
  *
  * 本阶段只有方块本身, 没有方块实体、烹饪逻辑与"掌勺"小游戏。为了能进游戏目测待机/工作中两种外观,
  * {@link #use} 暂时提供一个预览开关: 创造模式玩家双手空着潜行右键切换 lit, 生存玩家无效。
@@ -81,14 +80,25 @@ public class CookingStationBlock extends HorizontalDirectionalBlock {
     private final Style style;
     private final StationShape shape;
     private final StationParticles.Emitter particles;
+    private final boolean decorRisesAbove;
 
     CookingStationBlock(BlockBehaviour.Properties properties, Kind kind, Style style,
                         StationShape shape, StationParticles.Emitter particles) {
+        this(properties, kind, style, shape, particles, false);
+    }
+
+    /**
+     * @param decorRisesAbove 模型 (台面摆件、烟囱等) 高出方块顶、会伸进上方一格: 上方放方块会穿模,
+     *                        物品提示里提醒玩家"上方请留空"。有备用模型自动收起的台子 (冷藏备餐台) 不算。
+     */
+    CookingStationBlock(BlockBehaviour.Properties properties, Kind kind, Style style,
+                        StationShape shape, StationParticles.Emitter particles, boolean decorRisesAbove) {
         super(properties);
         this.kind = kind;
         this.style = style;
         this.shape = shape;
         this.particles = particles;
+        this.decorRisesAbove = decorRisesAbove;
         registerDefaultState(stateDefinition.any()
                 .setValue(FACING, Direction.NORTH)
                 .setValue(LIT, false));
@@ -100,6 +110,16 @@ public class CookingStationBlock extends HorizontalDirectionalBlock {
 
     public Style style() {
         return style;
+    }
+
+    /** 模型是否高出方块顶 (见构造参数说明), 供物品提示使用。 */
+    public boolean decorRisesAbove() {
+        return decorRisesAbove;
+    }
+
+    /** 工作中的粒子发射器; GameTest 用它核对出生点。 */
+    StationParticles.Emitter particles() {
+        return particles;
     }
 
     @Override
@@ -176,17 +196,7 @@ public class CookingStationBlock extends HorizontalDirectionalBlock {
     @Override
     public void animateTick(BlockState state, Level level, BlockPos pos, RandomSource random) {
         if (state.getValue(LIT)) {
-            particles.animate(level, pos, state.getValue(FACING), random);
+            particles.animate(StationParticles.into(level, pos, state.getValue(FACING)), random);
         }
-    }
-
-    @Override
-    public BlockState rotate(BlockState state, Rotation rotation) {
-        return state.setValue(FACING, rotation.rotate(state.getValue(FACING)));
-    }
-
-    @Override
-    public BlockState mirror(BlockState state, Mirror mirror) {
-        return state.rotate(mirror.getRotation(state.getValue(FACING)));
     }
 }

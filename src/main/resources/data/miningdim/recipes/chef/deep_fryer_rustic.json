@@ -1,9 +1,10 @@
 {
+  "conditions": [{ "type": "forge:false" }],
   "type": "minecraft:crafting_shaped",
   "pattern": [
     " S ",
     "IBI",
-    "III"
+    " I "
   ],
   "key": {
     "B": { "item": "minecraft:iron_bars" },

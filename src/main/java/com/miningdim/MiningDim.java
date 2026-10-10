@@ -163,6 +163,10 @@ public final class MiningDim {
         //     (范式同 ChefSystem, 不碰中央 MiningServerConfig)。仅挂 ServerTickEvent/ServerStopping, 对 register
         //     顺序不敏感, 列于社交簇后即可。被动产出 xN + 经验 xN 是 faucet 倍增器 (阶段 2 消费), 默认开但可经配置关闭。
         subsystems.add(new com.miningdim.stacking.StackingSystem());
+        // 24e. 捐赠箱 (wok-donation): 自管区公共工程的物资池, 只进不出 + 存取流水, 不发任何回报。
+        //     两个 MenuType 登记在共享 ModMenus 上 (JobFrameworkSystem 统一接 modBus), 其余注册与事件自持,
+        //     对 register 顺序不敏感。
+        subsystems.add(new com.miningdim.donation.DonationBoxModule());
 
         // 25. Web UI 服务端派发 (服务端权威, 无 MCEF): 填充 WebUiServerDispatcher 动作注册表 (system.echo 等),
         //     经 MiningNetwork.CHANNEL 收 C2S 意图并下发 S2C 响应/事件。须排在 NetworkSystem (第 2) 之后,

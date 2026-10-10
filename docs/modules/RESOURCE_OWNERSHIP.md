@@ -35,6 +35,7 @@ Forge 仍要求资源位于统一的 `assets/miningdim` 与 `data/miningdim` 命
 | WOK-婚姻社交 | `engagement_ring`、`wedding_ring`、共享背包及婚姻语言键 |
 | WOK-开箱 | `custom/miningdim_cases/`、`sounds/ui/case/`、`web/case-opening.html`、箱池/钥匙/开箱 UI 资源 |
 | WOK-实体堆叠 | 堆叠配置与语言键；当前无独占模型纹理 |
+| WOK-捐赠箱 | `donation_box*`（方块状态、方块/物品模型、战利品表、配方与拒收标签 `tags/items/donation_box_denied.json`）；共享语言文件中 `*.miningdim.donation_box.*` 键。界面复用原版发射器与大箱子贴图、模型复用原版木桶/堆肥桶贴图，无独占纹理。未进 `mineable/axe`：该原版标签文件由电力模块 datagen 生成，手写同路径文件会与之冲突 |
 
 ## 2. 共享文件纪律
 

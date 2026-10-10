@@ -729,6 +729,27 @@
       ]
     },
     {
+      "id": "wok-donation",
+      "name": "WOK-捐赠箱模块",
+      "category": "gameplay",
+      "javaPackagePrefixes": [
+        "com.miningdim.donation"
+      ],
+      "currentPaths": [
+        "donation"
+      ],
+      "resourcePaths": [],
+      "resourceNamePrefixes": [
+        "donation_box"
+      ],
+      "dependencies": [
+        "wok-core"
+      ],
+      "optionalIntegrations": [],
+      "publicEntry": "com.miningdim.donation.DonationBoxModule",
+      "scope": "one-way donation box for self-governed district public works: whitelist intake, owner and co-admin access, audit ledger, no rewards"
+    },
+    {
       "id": "wok-stacking",
       "name": "WOK-实体堆叠模块",
       "category": "support",
@@ -790,6 +811,7 @@
         "wok-champion",
         "wok-marriage",
         "wok-case-opening",
+        "wok-donation",
         "wok-stacking"
       ],
       "optionalIntegrations": []

@@ -60,10 +60,13 @@
 | WOK-附魔模块 | `wok-enchant` | `enchant` | 金钱修补附魔与按耐久点扣费的修复定价 |
 | WOK-婚姻社交模块 | `wok-marriage` | `marriage` | 求婚、典礼、关系数据、共享功能、社交便利 |
 | WOK-开箱模块 | `wok-case-opening` | `caseopening` | 箱池、钥匙、抽取、资产归属、Saga、TaCZ 外观授权 |
+| WOK-捐赠箱模块 | `wok-donation` | `donation` | 自管区公共工程物资池：只进不出的捐赠箱、箱主/协管存取、存取流水与审计日志；不发任何回报 |
 | WOK-实体堆叠模块 | `wok-stacking` | `stacking` | 实体合并、堆叠持久化、性能治理及产出倍率约束 |
 | WOK-综合装配模块 | `wok-app` | `MiningDim.java` | 唯一 Forge 入口，只负责按顺序装配全部模块，不持有业务逻辑 |
 
 `WOK-开箱模块` 使用经济和 WebUI 的公开接口，但不属于经济核心。这样可在不影响基础货币与市场的情况下停用或维护开箱玩法。
+
+`WOK-捐赠箱模块` 不发任何回报，只依赖核心模块；它是第一个新建时就按目标形态落地的模块（独立包、独立 `DonationBoxModule` 装配入口、无反向依赖），因此不进第 7 节的迁移排期，详细交付清单见 [`modules/donation/README.md`](modules/donation/README.md)。
 
 ## 4. 推荐依赖方向
 
@@ -71,7 +74,7 @@
 
 ```text
 WOK 综合入口
-  -> 各职业 / 精英怪 / 婚姻 / 开箱 / 实体堆叠
+  -> 各职业 / 精英怪 / 婚姻 / 开箱 / 捐赠箱 / 实体堆叠
       -> WOK-全服经验 / WOK-职业框架 / WOK-战斗框架 / WOK-经济 API / WOK-WebUI API / WOK-矿区 API
           -> WOK-核心模块
 ```
@@ -86,6 +89,7 @@ WOK 综合入口
 - WOK-矿工只能通过矿区公开接口读取矿物或难度信息，不能直接操作实例实现。
 - WOK-军火商只能通过 TaCZ 兼容层接入外部 API，核心生产逻辑不得依赖 TaCZ 类才能加载。
 - WOK-开箱与 WOK-市场只通过经济事务接口扣款、发放和审计。
+- WOK-捐赠箱只依赖 WOK-核心模块，直接跳到最底层契约；它不发回报，不接经济、经验或职业框架。
 - WOK-WebUI 只负责传输与展示，不直接结算货币、经验、物品或婚姻状态。
 
 ## 5. 当前仓库问题清单
@@ -136,6 +140,7 @@ src/main/java/com/miningdim/
   champion/
   marriage/
   caseopening/
+  donation/             WOK-捐赠箱模块（新建即按目标形态落地）
   stacking/
 
 docs/modules/
@@ -145,7 +150,7 @@ docs/modules/
   DEPENDENCY_DEBT.md    历史反向依赖清偿表
   RESOURCE_OWNERSHIP.md 数据与资源所有权
   <module-short-name>/  单个模块的详细文档；职业模块直接用 chef/、farmer/ 这类短名，不加 jobs/ 一层
-                        当前已落地 experience/、farmer/、chef/ 三份，其余随迁移分支逐个补
+                        当前已落地 experience/、farmer/、chef/、donation/ 四份，其余随迁移分支逐个补
                         哪些模块必须补子 README，判定规则写在 docs/modules/README.md
 
 tools/assets/<module>/   可复现的资源生成脚本

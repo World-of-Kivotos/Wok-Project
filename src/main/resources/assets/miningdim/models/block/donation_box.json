@@ -1,0 +1,9 @@
+{
+  "parent": "minecraft:block/orientable_with_bottom",
+  "textures": {
+    "top": "minecraft:block/barrel_top_open",
+    "front": "minecraft:block/composter_side",
+    "side": "minecraft:block/barrel_side",
+    "bottom": "minecraft:block/barrel_bottom"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "miningdim:block/donation_box" },
+    "facing=east": { "model": "miningdim:block/donation_box", "y": 90 },
+    "facing=south": { "model": "miningdim:block/donation_box", "y": 180 },
+    "facing=west": { "model": "miningdim:block/donation_box", "y": 270 }
+  }
+}

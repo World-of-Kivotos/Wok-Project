@@ -76,6 +76,7 @@ WOK 主 mod（`modid=miningdim`）的全部设计文档入口。截至 2026-09-2
 | WebUI · 接线范围裁定 | [WebUI_Wiring_Execution_Scope](WebUI_Wiring_Execution_Scope.md) | 同上 |
 | 婚姻社交 | [Marriage_System_DesignSpec](Marriage_System_DesignSpec.md) | `marriage` |
 | 实体堆叠 | [Minecraft实体堆叠_需求规格说明书](Minecraft实体堆叠_需求规格说明书.md) | `stacking` |
+| 捐赠箱 | [DonationBox_DesignSpec](DonationBox_DesignSpec.md) — 自管区公共工程物资池，只进不出、记流水，无回报 | `donation` |
 | 全局脑图 | [design_mindmap](design_mindmap.md) — 各系统的一页纸概览，细节以各自主规格为准 | 全部 |
 
 **任务系统（`quest` 包）至今没有主设计规格**，只有已归档的
@@ -145,12 +146,12 @@ WOK 主 mod（`modid=miningdim`）的全部设计文档入口。截至 2026-09-2
 
 WOK 全仓的模块划分、资源归属与依赖债，入口见 [`modules/README.md`](modules/README.md)。
 
-- [modules/module-registry.json](modules/module-registry.json) — **26 个模块的登记表，`gradlew verifyModuleRegistry` 的校验输入**
+- [modules/module-registry.json](modules/module-registry.json) — **27 个模块的登记表，`gradlew verifyModuleRegistry` 的校验输入**
 - [modules/INVENTORY.md](modules/INVENTORY.md) — 模块清单
 - [modules/RESOURCE_OWNERSHIP.md](modules/RESOURCE_OWNERSHIP.md) — 资源路径归属
 - [modules/DEPENDENCY_DEBT.md](modules/DEPENDENCY_DEBT.md) — 跨模块反向引用的债务登记
 - [WOK_Repository_Module_Plan](WOK_Repository_Module_Plan.md) — 拆仓总方案
-- 模块子说明：[chef](modules/chef/README.md) · [experience](modules/experience/README.md) · [farmer](modules/farmer/README.md)
+- 模块子说明：[chef](modules/chef/README.md) · [donation](modules/donation/README.md) · [experience](modules/experience/README.md) · [farmer](modules/farmer/README.md)
 
 分支与合并纪律见仓库根的 [`分支协作.md`](../分支协作.md)。
 
@@ -175,7 +176,7 @@ WOK 全仓的模块划分、资源归属与依赖债，入口见 [`modules/READM
 | 任务系统（`quest` 包）无主设计规格 | 一个已上线且带独立 faucet 的系统，只有归档的面板接线单 |
 | `/economy grant`、`/mchampion summon` 两条 OP 命令零文档 | 前者直接发信用点与青辉石且绕过全部 faucet 计数，运维无章可循 |
 | 数据库运维口径未进部署文档 | 存档与 `miningdim.db` 须同生共死、备份须含 `-wal`/`-shm`、真服须复核 `PRAGMA synchronous` |
-| 26 个模块只有 3 个有子 README | 规则见 [modules/README.md](modules/README.md) |
+| 27 个模块只有 4 个有子 README | 规则见 [modules/README.md](modules/README.md) |
 | 工程师 / 铸甲师 三方命名未统一 | 见第一节末尾 |
 
 未闭合的**经济与玩法**风险另在

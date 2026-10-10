@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "PHP",
+    "PCP",
+    "PPP"
+  ],
+  "key": {
+    "P": { "tag": "minecraft:planks" },
+    "H": { "item": "minecraft:hopper" },
+    "C": { "item": "minecraft:chest" }
+  },
+  "result": {
+    "item": "miningdim:donation_box",
+    "count": 1
+  }
+}

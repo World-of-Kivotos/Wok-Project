@@ -33,9 +33,12 @@
 | `wok-champion` | WOK-精英怪模块 | 124 | 336 | `ChampionSystem` | 核心、经济、WebUI；Champions 可选 |
 | `wok-marriage` | WOK-婚姻社交模块 | 21 | 35 | `MarriageSystem` | 核心、经济、WebUI |
 | `wok-case-opening` | WOK-开箱模块 | 25 | 24 | `CaseOpeningSystem` | 核心、存储、经济、WebUI；TaCZ、SQLite 可选 |
+| `wok-donation` | WOK-捐赠箱模块 ‡ | 24 | 24 | `DonationBoxModule` | 核心 |
 | `wok-stacking` | WOK-实体堆叠模块 | 11 | 33 | `StackingSystem` | 核心、精英怪 |
 
 † `wok-job-fisher` 这一行是 2026-09-06 单独补测的，其余 25 行仍是第一段声明的 2026-08-30 基线。另外它在登记表里的 `category` 虽然是 `job`，但这只是业务归类：`job/JobId.java` 的枚举至今只有八个常量、没有 `FISHER`，因此渔夫没有职业等级、没有经验轨道（对照 [`experience/README.md`](experience/README.md) 的八轨清单），也没有职业身份门；它对 `wok-store` 的依赖同样只出现在 GameTest 里，图鉴本身走原版 `FishingJournalSavedData` 而不落 SQLite。
+
+‡ `wok-donation` 这一行是 2026-09-27 模块新建时的实数（含 `donation/client` 下 5 个客户端界面类与 1 个 GameTest 类），不属于 2026-08-30 基线；GameTest 数已含同日审查修复补上的 10 条回归用例（14 条增至 24 条）。
 
 GameTest 位于主源码集是本仓库既有约定，因此 Java 文件数包含测试类。`wok-champion` 的测试数量较高，是精英词条和红线组合测试形成的结果。
 

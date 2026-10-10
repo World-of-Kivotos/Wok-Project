@@ -36,6 +36,7 @@
 | 玩法 | WOK-精英怪模块 | `wok-champion` | `champion` |
 | 玩法 | WOK-婚姻社交模块 | `wok-marriage` | `marriage` |
 | 玩法 | WOK-开箱模块 | `wok-case-opening` | `caseopening` |
+| 玩法 | WOK-捐赠箱模块 | `wok-donation` | `donation` |
 | 支撑 | WOK-实体堆叠模块 | `wok-stacking` | `stacking` |
 | 装配 | WOK-综合装配模块 | `wok-app` | `MiningDim.java` |
 
@@ -63,21 +64,22 @@
 
 ## 样板与基线
 
-[WOK-全服经验模块](experience/README.md) 是全服基础契约，[WOK-农夫模块](farmer/README.md) 是首个采用该契约的职业模块详细模板，[WOK-厨师模块](chef/README.md) 是第二份落地的职业模块详细文档。其余模块已进入全量登记表和库存基线。
+[WOK-全服经验模块](experience/README.md) 是全服基础契约，[WOK-农夫模块](farmer/README.md) 是首个采用该契约的职业模块详细模板，[WOK-厨师模块](chef/README.md) 是第二份落地的职业模块详细文档，[WOK-捐赠箱模块](donation/README.md) 是第一个新建时就按目标形态落地（独立 `*Module` 入口、只依赖核心）的玩法模块。其余模块已进入全量登记表和库存基线。
 
 ## 文档所有权与子 README
 
-`docs/modules/` 下目前只有三份子 README，这是有意为之而非漏登：模块的机制与数值写在 `docs/` 下各自的设计规格里，子 README 承载的是另一套内容——注册 ID 清单、冻结的兼容身份、资源前缀口径和该模块的验证入口。没开始迁移就写，只会写成设计规格的二手抄本，还会立刻随代码漂移。
+`docs/modules/` 下目前只有四份子 README，这是有意为之而非漏登：模块的机制与数值写在 `docs/` 下各自的设计规格里，子 README 承载的是另一套内容——注册 ID 清单、冻结的兼容身份、资源前缀口径和该模块的验证入口。没开始迁移就写，只会写成设计规格的二手抄本，还会立刻随代码漂移。
 
 | 子 README | 模块 | 为什么先有它 |
 | --- | --- | --- |
 | [`experience/README.md`](experience/README.md) | `wok-experience` | 全服经验是所有模块都要遵守的公共契约，接入规则必须有单一出处 |
 | [`farmer/README.md`](farmer/README.md) | `wok-job-farmer` | 首个完成模块化装配的职业，迁移提交清单与验证清单以它为模板 |
 | [`chef/README.md`](chef/README.md) | `wok-job-chef` | 第二份落地的职业文档，示范「配置分组 + 注册清单 + 资源所有权」这一体例 |
+| [`donation/README.md`](donation/README.md) | `wok-donation` | 模块新建时就用独立的 `DonationBoxModule` 装配入口（命中下面第 1 条），冻结身份、方块实体存档键与验证入口随模块一起交付 |
 
 判定规则，满足任一条就必须补子 README，其余模块按迁移排期补：
 
-1. 模块已经换成独立的 `*Module` 装配入口。当期只有 `ExperienceModule`、`FarmerModule`、`ChefModule` 三个，其余模块仍是 `*System`/`*Subsystem`（入口类见 [`INVENTORY.md`](INVENTORY.md)）——换入口意味着它已经在走物理迁移，冻结身份和验证清单必须有单一出处。
+1. 模块已经换成（或新建时就用）独立的 `*Module` 装配入口。当期有 `ExperienceModule`、`FarmerModule`、`ChefModule`、`DonationBoxModule` 四个，其余模块仍是 `*System`/`*Subsystem`（入口类见 [`INVENTORY.md`](INVENTORY.md)）——换入口意味着它已经在走物理迁移，冻结身份和验证清单必须有单一出处。
 2. 模块注册了服务端配置文件，而该文件在 `docs/` 下没有可对照的文档（见下一节）。
 3. 模块拥有独占资源前缀，而这些前缀没有写进任何一份设计规格。
 

@@ -1,6 +1,6 @@
 # 文档索引
 
-WOK 主 mod（`modid=miningdim`）的全部设计文档入口。截至 2026-10-07，`docs/` 下现役 54 份、归档 12 份。
+WOK 主 mod（`modid=miningdim`）的全部设计文档入口。截至 2026-10-10，`docs/` 下现役 55 份、归档 12 份。
 
 本索引是 2026-09-20 全量文档审查的产物。审查前 `docs/` 没有任何索引，78 份文档里 34 份没有被任何其它
 文档引用过，冻结的审查快照与现役规格平铺在同一层目录——这些是这次建索引要解决的问题。
@@ -80,6 +80,7 @@ WOK 主 mod（`modid=miningdim`）的全部设计文档入口。截至 2026-10-0
 | 自管区 · 后端设计与实现记录 | [District_Backend_Design](District_Backend_Design.md)（已实现；生产开关默认关闭，第二十三章的实机核对未做完） | `district` `webui/src/pages/district` |
 | 自管区 · Flan 对接说明 | [District_Flan_Integration_Notes](District_Flan_Integration_Notes.md) — 对照 Flan 1.20.1-1.11.16 的调用对照表与不变式 | `district/flan` |
 | 实体堆叠 | [Minecraft实体堆叠_需求规格说明书](Minecraft实体堆叠_需求规格说明书.md) | `stacking` |
+| 腐烂与粮仓 | [Spoilage_Granary_DesignSpec](Spoilage_Granary_DesignSpec.md)（**PENDING**：待拍板、尚未实现） | 计划新模块 `freshness`、计划子包 `job/farmer/granary` |
 | 全局脑图 | [design_mindmap](design_mindmap.md) — 各系统的一页纸概览，细节以各自主规格为准 | 全部 |
 
 **任务系统（`quest` 包）至今没有主设计规格**，只有已归档的

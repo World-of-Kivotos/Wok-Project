@@ -908,6 +908,7 @@
         10,
         1
       ],
+      "shade": false,
       "forge_data": {
         "block_light": 15,
         "sky_light": 15
@@ -920,8 +921,7 @@
             4,
             3
           ],
-          "texture": "#display",
-          "shade": false
+          "texture": "#display"
         },
         "west": {
           "uv": [

@@ -307,7 +307,6 @@ function el(name, from, to, faces, extra = {}) {
     const s = typeof spec === 'string' ? { texture: spec } : Array.isArray(spec) ? { texture: spec[0], uv: spec[1], ...(spec[2] || {}) } : { ...spec };
     const face = { uv: s.uv || uvOf(dir, from, to), texture: s.texture };
     if (s.rotation) face.rotation = s.rotation;
-    if (s.shade === false) face.shade = false;
     if (CULL[dir](from, to) && !s.noCull && !extra.rotation) face.cullface = dir;
     out.faces[dir] = face;
   }
@@ -368,11 +367,11 @@ function knife() {
   ];
 }
 function screen(lit) {
-  const sh = lit ? { shade: false } : {};
-  // 工作中：Forge 的 forge_data 让这个元素按满光照画（暗处也亮；原版忽略这个键）
-  const glow = lit ? { forge_data: { block_light: 15, sky_light: 15 } } : {};
+  // 工作中：shade:false 让屏幕不按朝向压暗（1.20.1 只认元素级 shade，写在面上不生效）；
+  // Forge 的 forge_data 让这个元素按满光照画（暗处也亮；原版忽略这个键）
+  const glow = lit ? { shade: false, forge_data: { block_light: 15, sky_light: 15 } } : {};
   return [el('thermo display', [1, 7, 0.5], [5, 10, 1], {
-    north: ['#display', [0, 0, 4, 3], sh], west: ['#display', [4, 0, 4.5, 3]], east: ['#display', [4, 0, 4.5, 3]],
+    north: ['#display', [0, 0, 4, 3]], west: ['#display', [4, 0, 4.5, 3]], east: ['#display', [4, 0, 4.5, 3]],
     down: ['#display', [0, 3, 4, 3.5]] }, glow)];
 }
 /** 掀盖 + 铜把手；open 时绕后沿铰链 (y16, z16) 沿 x 轴翻起 45°。 */

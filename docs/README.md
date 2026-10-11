@@ -56,6 +56,7 @@ WOK 主 mod（`modid=miningdim`）的全部设计文档入口。截至 2026-10-0
 | [Armorer_Armor_System_DesignSpec](Armorer_Armor_System_DesignSpec.md) — 护甲、纳米/电浆护盾 | 千年工程师 |
 | [Fishing_Journal_Framework](Fishing_Journal_Framework.md) — 渔业图鉴的数据格式与网络协议 | 渔夫 |
 | [Ore_Fish_And_Soup](Ore_Fish_And_Soup.md) — 矿石鱼与鱼羹的数值与验证记录 | 渔夫 |
+| [chef-rework/README](chef-rework/README.md) — 厨师重构设计资料：效果池、菜品星级与效果、烹饪台分配、掌勺小游戏规格（目前只落地九台烹饪台方块，其余未实现；调味台现状仍以主规格为准） | 厨师 |
 
 ---
 

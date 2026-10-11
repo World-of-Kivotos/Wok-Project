@@ -320,7 +320,7 @@
 | 回甘 | 吃下当刻清 N 个：只清 `minecraft` 命名空间且分类为 HARMFUL 的效果（不清 VulnerabilityEffect 等模组效果）。缩短走公共底座第 7 条的手段，只对来源为非玩家生物或环境的效果；TarotEffectEngine.targetPotion / towerStrike、ChampionVisualDisruptionHandler、ChampionDotTickHandler、厨师翻车负面、月光坏结果的 addEffect 外面包 `ChefDebuffShortening.bypass(...)`（ThreadLocal 标记）。失明 / 黑暗与夜照取较高值。 |
 | 辣味 | LivingHurtEvent：直接近战（directEntity == entity），攻击者是非玩家且不属于玩家 → 掷几率，对攻击者 setSecondsOnFire(3)，5 秒内置冷却。 |
 | 饱餐 | LivingDeathEvent：击杀者带效果、死者 instanceof Enemy → heal（基准血 × x），2 秒冷却。 |
-| 夜照 | 抽公共工具 NightVisionLease：记录一组所有者（矿鱼汤、厨师），任一所有者有效就续 400 tick、隐藏粒子的夜视，全部失效才移除；只认时长 ≤ 400 的短夜视，不碰私酿的 30 天夜视；MoonshinePerk.java:147 的 removeEffect 会在下次续期时补回。缩短部分同回甘。 |
+| 夜照 | 抽公共工具 NightVisionLease：记录一组所有者（矿鱼汤、厨师），任一所有者有效就续 400 tick、隐藏粒子的夜视，全部失效才移除；只认时长 ≤ 400 的短夜视，不碰私酿的 30 天夜视；`MoonshinePerk.remove`（`job/brewer/MoonshinePerk.java`）里对夜视的 removeEffect 会在下次续期时补回。缩短部分同回甘。 |
 | 潜鳃 | LivingBreatheEvent：★1–★2 每 tick 以（1 − x）的概率扣 1、否则扣 0（或累加器）；★3 起 canBreathe。游速用 ForgeMod.SWIM_SPEED 修饰，按脱战挂摘。★5 起水下挖掘：BreakSpeed 在 isEyeInFluidType 时 ×5，且 !onGround 时再 ×5，两端执行。 |
 | 赶路 | MOVEMENT_SPEED MULTIPLY_BASE（固定 UUID），按脱战状态挂摘。 |
 | 巧手 | PlayerEvent.BreakSpeed ×（1 + x），两端执行、客户端读同步值（防幽灵方块）。不发原版急迫：白兰地永久急迫靠 duration > 72000 识别，厨师长时急迫会被误判。 |

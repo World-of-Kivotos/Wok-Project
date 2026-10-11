@@ -1068,7 +1068,7 @@ range(lo, hi) = lo + rnd(hi - lo + 1)  // 含两端
 
 ## 21. 与旧调味小游戏 / ChefConfig 的对应与替换
 
-旧实现位置：`E:\wok\Wok-Project.worktrees\chef-stations\src\main\java\com\miningdim\job\chef`。旧流程是「调味台：选目标品质 → 按住控火让热度停在绿区（ChefHeatGame）+ 随机位置 QTE（ChefQteTiming）→ 按命中率和等级算成功率掷骰下探（ChefQualityResolver）→ 从效果池掷效果（SeasoningEffectRoller）」。新流程是「四个烹饪台：掌勺小游戏 → 品质只看手艺 → 效果由菜固定」。调味台本身已拍板拆掉。
+旧实现位置：本仓库 `src/main/java/com/miningdim/job/chef/`。旧流程是「调味台：选目标品质 → 按住控火让热度停在绿区（ChefHeatGame）+ 随机位置 QTE（ChefQteTiming）→ 按命中率和等级算成功率掷骰下探（ChefQualityResolver）→ 从效果池掷效果（SeasoningEffectRoller）」。新流程是「四个烹饪台：掌勺小游戏 → 品质只看手艺 → 效果由菜固定」。调味台本身已拍板拆掉。
 
 ### 21.1 概念对应
 | 旧 | 新 | 说明 |
@@ -1100,7 +1100,7 @@ range(lo, hi) = lo + rnd(hi - lo + 1)  // 含两端
 | `SeasoningBias` / `SeasoningTag` | **保留** | 调料槽 → 饱食类加成映射 |
 | `SeasoningGameC2S`（START / HEAT_PRESS / HEAT_RELEASE / SEASON_HIT） | **替换** | `ZhangshaoStart` / `ZhangshaoInput` / `ZhangshaoAbort`（C2S）、`ZhangshaoSession` / `ZhangshaoResult` / `ZhangshaoSpectate`（S2C）。沿用它的处理卫生：`PlayerLoginGate` 校验、菜单有效性校验、拒绝只记 DEBUG 且不回包（防日志与出站放大） |
 | `SeasoningTableBlockEntity` | **拆台，逻辑迁移** | 新建共用的 `ZhangshaoSession`（服务端对局：锁台、暂存、回放、结算、出菜），供 FD 厨锅 mixin 和三台方块实体调用。可复用：操作者锁（`operatorUUID` / `operatorStillControlsTable`）、`isRemoved` 防崩（死亡到重生间读 capability 崩服）、`cancelCooking` 生命周期、`playFeedback`、`tryChargeTableUse`（改到开局、按份扣）、`produceSingleDish` → `produceDishes(N)`（改为进出品槽） |
-| `SeasoningTableBlock` / `SeasoningMenu` / `SeasoningTableGeoRenderer` | **删除**（调味台拆掉） | 三台的方块与菜单已在 feat/chef-stations；FD 厨锅界面用 mixin 注入按钮 |
+| `SeasoningTableBlock` / `SeasoningMenu` / `SeasoningTableGeoRenderer` | **删除**（调味台拆掉） | 三台的方块已在 feat/chef-stations，菜单与方块实体待做；FD 厨锅界面用 mixin 注入按钮 |
 | `client/SeasoningScreen` | **替换** | `ZhangshaoScreen`（一个界面四套皮，九个方块共用） |
 | `ChefQuality` | 保留 | 枚举、id、颜色、`noFailure` 保留；`maxEffects`、`combatUnlocked` 不再使用 |
 | `ChefQualityNbt.stamp(stack, quality, effects)` | 改签名 | 写品质 + 负面列表；`setOperator` 保留；新增 roundId |
@@ -1148,7 +1148,7 @@ range(lo, hi) = lo + rnd(hi - lo + 1)  // 含两端
 15. **旧菜兼容**：旧调味台盖过章的菜带「多个效果 + 旧品质」NBT，需要决定保留旧效果还是按新表重新解释。
 16. **与腐烂系统衔接**：锅内暂存的料、出品槽里的成品算不算腐烂，要和腐烂方案对齐（腐烂稿写了「厨师品质菜不进仓」）。
 17. **JS 与 Java 算岔**：任何一处用了浮点、用 `>>` 当除法、对负数取模、调换了 tick 内顺序、少抽或多抽一个随机数，两边都会算岔，而且很难查。golden 必须进 CI，代码评审清单专列一条。
-18. **校准草稿**（不是交付物）：`C:\Users\RogYukz\AppData\Local\Temp\claude\E--wok\b5d9df04-0f09-450f-80dc-eb201ea16741\scratchpad\final\`（kernel.mjs 按本规格实现；sim.mjs / table.mjs 是 bot 与分布统计）。正式原型按本规格重写到本目录 `sim\`，并配 golden.json 与 JAVA_PORTING.md。
+18. **校准草稿**（不是交付物，不入库；kernel.mjs 按本规格实现，sim.mjs / table.mjs 是 bot 与分布统计）。正式原型已按本规格重写到 `tools/chef_minigame/sim/`，并配 golden.json 与 JAVA_PORTING.md。
 
 ### 22.2 待用户拍板
 | # | 事项 | 默认 |
@@ -1274,4 +1274,4 @@ range(lo, hi) = lo + rnd(hi - lo + 1)  // 含两端
 - **反作弊**：挂机 100% 糊锅；乱按出中及以上 0.06%；交替宏出得了品质的局 100% 命中；人类机器人和 10 Hz 轻点误判 0%。
 
 ### 24.6 这次改了哪些文件
-`spec.md`（本文件）、`sim/sim.js`（v2 内核）、`sim/sim.inline.js`、`sim/bots.mjs`、`sim/tests.mjs`、`sim/gen-golden.mjs`、`sim/golden.json`、`sim/balance.md`、`sim/balance.json`、`sim/JAVA_PORTING.md`、`sim/java/*.java`（Java 参考实现同步到 v2）、新增 `sim/dish-play.mjs` / `dish-play.tsv` / `dish-play.json`；`web/game.js`、`web/template.html`、`build.mjs`、`minigame.html`、`publish-minigame.html`；`tools/shot.mjs`（加 `--touch`）、`tools/bot.js`、`tools/plan-*.json`、新增 `tools/find-radiant.mjs` / `radiant.js` / `radiant-inputs.json`；截图在 `shots/`。
+`minigame-spec.md`（本文件）、`sim/sim.js`（v2 内核）、`sim/sim.inline.js`、`sim/bots.mjs`、`sim/tests.mjs`、`sim/gen-golden.mjs`、`sim/golden.json`、`sim/balance.md`、`sim/balance.json`、`sim/JAVA_PORTING.md`、`sim/java/*.java`（Java 参考实现同步到 v2）、新增 `sim/dish-play.mjs` / `dish-play.tsv` / `dish-play.json`；`web/game.js`、`web/template.html`、`build.mjs`、`minigame.html`、`publish-minigame.html`；`tools/shot.mjs`（加 `--touch`）、`tools/bot.js`、`tools/plan-*.json`、新增 `tools/find-radiant.mjs` / `radiant.js` / `radiant-inputs.json`；截图在 `shots/`。

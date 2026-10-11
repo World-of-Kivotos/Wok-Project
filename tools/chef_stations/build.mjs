@@ -197,6 +197,7 @@ function assemble({ cdn, out, posters }) {
   // anywhere else (another folder or drive, e.g. a scratch dir) three.js is copied next to the page as ./vendor/
   let vendorRel = 'vendor/three.module.min.js';
   if (!cdn) {
+    if (!fs.existsSync(VENDOR)) throw new Error(`缺 ${VENDOR}: 先按 README.txt 第一节第 0 步下载 three r160 (${THREE_CDN}), 或改用 --cdn`);
     if (out.startsWith(here + path.sep)) vendorRel = path.relative(path.dirname(out), VENDOR).replace(/\\/g, '/');
     else {
       const copy = path.join(path.dirname(out), 'vendor', 'three.module.min.js');

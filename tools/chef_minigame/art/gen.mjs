@@ -4,11 +4,11 @@
 //   node gen.mjs                 在任何目录运行都行；只写本目录下的 sprites/ icons/ atlas/ preview/ manifest.json dishes.json
 //   WOK_MODS=<dir> node gen.mjs  换 mods 目录（默认 D:\WOK测试\versions\1.20.1-Forge_47.4.22\mods）
 //
-// 规格：../spec.md（§13 四台换皮、§10 调料瓶、§11 Perfect、§17.4 界面元素）。
+// 规格：docs/chef-rework/minigame-spec.md（§13 四台换皮、§10 调料瓶、§11 Perfect、§17.4 界面元素）。
 // 风格：原版容器界面（#c6c6c6 灰底、白/深灰斜边、1px 黑描边，像素图形状直接按原版 generic_54 / inventory 的边角逐像素写死）；
 //       四台换皮全部取九台定稿烹饪台（station-preview/designs、designs-more）和农夫乐事的原色，见 palettes 段每行注释。
 // 所有图都是 1x GUI 像素，只按整数倍放大（网页 image-rendering: pixelated；MC 用 GUI scale）。
-// 菜品图标：按 ../../dish-stars.tsv 的物品 ID 从 mod jar 里只读取原物品贴图（16×16，动画取第 0 帧）。
+// 菜品图标：按 docs/chef-rework/dish-stars.tsv 的物品 ID 从 mod jar 里只读取原物品贴图（16×16，动画取第 0 帧）。
 // lib/png.mjs、lib/zip.mjs 是 station-preview/lib 的原样拷贝。
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,7 +17,7 @@ import { makeCanvas, setPx, getPx, fillRect, strip, scale, write, decodePNG, rgb
 import { openZip } from './lib/zip.mjs';
 
 const ART = path.dirname(fileURLToPath(import.meta.url));
-const REWORK = path.resolve(ART, '..', '..');
+const REWORK = path.resolve(ART, '..', '..', '..', 'docs', 'chef-rework');
 const MODS = process.env.WOK_MODS || 'D:/WOK测试/versions/1.20.1-Forge_47.4.22/mods';
 const TSV = path.join(REWORK, 'dish-stars.tsv');
 const rel = f => path.relative(ART, f).split(path.sep).join('/');
@@ -971,7 +971,7 @@ function dishIcon(id) {
   for (const ref of layers) { const t = loadTexture(z, ref, ns); over(c, t.canvas, 0, 0); files.push(t.file); animated ||= t.animated; }
   return { canvas: c, jar, model: chain[0] || null, textures: files, animated };
 }
-const dishOut = { contentHash: null, source: { tsv: '../../dish-stars.tsv', modsDir: MODS }, note: '每台 ★1–★7 各一道示例菜。star = 这道菜在 dish-stars.tsv 里的真实星级；slotStar = 它在本台示例里代表的星级（不一致时见 note）。icon = 原物品贴图 16×16；trackIcon = 加 1px 深色描边的 18×18（画在轨道上更清楚）。', stations: {} };
+const dishOut = { contentHash: null, source: { tsv: '../../../docs/chef-rework/dish-stars.tsv', modsDir: MODS }, note: '每台 ★1–★7 各一道示例菜。star = 这道菜在 dish-stars.tsv 里的真实星级；slotStar = 它在本台示例里代表的星级（不一致时见 note）。icon = 原物品贴图 16×16；trackIcon = 加 1px 深色描边的 18×18（画在轨道上更清楚）。', stations: {} };
 const dishGrid = { raw: makeCanvas(7 * 16, 4 * 16), track: makeCanvas(7 * 18, 4 * 18) };
 Object.entries(PICKS).forEach(([s, list], row) => {
   if (list.length !== 7) throw new Error(`${s}: need 7 picks`);
@@ -1205,7 +1205,7 @@ const manifest = {
   title: '掌勺小游戏 · 像素素材',
   contentHash: stamp,
   generator: 'gen.mjs（node gen.mjs 重跑；不要手改 PNG）',
-  spec: '../spec.md',
+  spec: '../../../docs/chef-rework/minigame-spec.md',
   conventions: {
     pixels: '所有尺寸都是 1x GUI 像素。只按整数倍放大：网页 image-rendering: pixelated（canvas 关 imageSmoothingEnabled）；MC 端用 GuiGraphics.blit，跟随 GUI scale。',
     slice: '九宫格：left/top/right/bottom = 四边不拉伸的像素；mode = repeat（中段与四边按原像素平铺）或 stretch（拉伸；纯色区两者一样）。宽或高固定的条（轨道、火候条、油温计）同样按九宫格写，固定的那一维直接用源图尺寸。',

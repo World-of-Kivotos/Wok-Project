@@ -8,7 +8,10 @@
 
 一、平常的流程
 ----------------
-1. node extract-refs.mjs          从测试端 jar 取参照方块到 refs/（只读 jar，换 MOD 版本后重跑）
+0. 第一次用时下载 three r160 到 vendor/three.module.min.js（不入库）：
+   https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js
+   只做发布版（--cdn）可以跳过这一步。
+1. node extract-refs.mjs         从测试端 jar 取参照方块到 refs/（只读 jar，换 MOD 版本后重跑）
 2. 在 designs/<key>/ 下写方案（格式见第三节），一个方案一个文件夹，A/B/C 各一个
 3. node check.mjs <key>           按原版规则查错；有 ERROR 时退出码为 1
 4. node build.mjs                 生成 preview.html
@@ -138,7 +141,7 @@ cullface（贴着整格不透明方块的面不画）、背面剔除、最近邻
   lib/png.mjs                   PNG 编解码（读：调色板/RGB/RGBA/灰度、1–16 位、tRNS、隔行；写：RGBA8）+ 画贴图的小工具：
                                 makeCanvas(w,h,fill?)  setPx  getPx  fillRect  outline  blit  strip(帧数组→动画竖条)  scale  write(c, 路径)  read(路径)
   lib/zip.mjs                   只读 jar/zip   lib/static.mjs  静态服务器
-  vendor/three.module.min.js    three r160（本地版用）
+  vendor/three.module.min.js    three r160（本地版用；不入库，按第一节第 0 步下载）
   refs/                         参照（extract-refs.mjs 生成，可随时重建）
   designs/                      方案（build 的输入）
   plans/                        截图计划

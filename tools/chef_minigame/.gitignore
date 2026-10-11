@@ -1,0 +1,11 @@
+# 生成物与第三方派生素材，不入库（见 README.md）
+/art/sprites/
+/art/icons/
+/art/atlas/
+/art/preview/
+/art/manifest.json
+/art/dishes.json
+/minigame.html
+/publish-minigame.html
+/shots*/
+/tools/.scratch/

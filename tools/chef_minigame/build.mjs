@@ -5,7 +5,7 @@
 //   publish-minigame.html  发布版：只有页面内容（开头 <title> 再 <style>，不写 doctype/html/head/body），给 Artifact 发布用
 // 输入：web/template.html + web/game.js（界面层）、sim/sim.inline.js（规则内核，原样内联）、
 //       art/manifest.json + art/atlas/*.png + art/dishes.json（素材，内嵌为 data URI）、sim/balance.md（难度一览）、
-//       ../dish-effects.tsv（每道菜的厨师效果、类别，结果卡和战斗菜门槛用）、sim/dish-play.json（备餐台拍数）。
+//       ../../docs/chef-rework/dish-effects.tsv（每道菜的厨师效果、类别，结果卡和战斗菜门槛用）、sim/dish-play.json（备餐台拍数）。
 // 只用 Node 自带模块。
 import fs from 'node:fs';
 import path from 'node:path';
@@ -69,10 +69,10 @@ const missing = [...used].filter((k) => !spr[k]);
 if (missing.length) throw new Error('页面用到但 manifest 没有的精灵：' + missing.join(', '));
 
 const dishes = JSON.parse(rd('art/dishes.json'));
-// 厨师效果（../dish-effects.tsv，已拍板）：按物品 id 并入 类别 / 效果名 / 效果数值
+// 厨师效果（docs/chef-rework/dish-effects.tsv，已拍板）：按物品 id 并入 类别 / 效果名 / 效果数值
 const effects = new Map();
 {
-  const lines = norm(fs.readFileSync(abs('../dish-effects.tsv'), 'utf8')).replace(/^﻿/, '').split('\n').filter(Boolean);
+  const lines = norm(fs.readFileSync(abs('../../docs/chef-rework/dish-effects.tsv'), 'utf8')).replace(/^﻿/, '').split('\n').filter(Boolean);
   const head = lines[0].split('\t');
   const col = (name) => { const i = head.indexOf(name); if (i < 0) throw new Error('dish-effects.tsv 缺列：' + name); return i; };
   const ci = { id: col('物品ID'), cat: col('类别'), eff: col('效果名'), val: col('效果数值') };

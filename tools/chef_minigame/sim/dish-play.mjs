@@ -1,6 +1,6 @@
 // 菜表 → 掌勺用的「台 / 性子 / 翻面 / 拍数 / 冷饮」五列（spec §13.3–§13.6 的规则逐道套一遍）。
 //   node dish-play.mjs        → 写 dish-play.tsv（给人看）和 dish-play.json（给 bots.mjs 按真实菜品加权）
-// 输入：../../dish-stars.tsv（204 道菜的星级表，只读）和 ../../stations.md 的分台口径（写在下面的规则里）。
+// 输入：docs/chef-rework/dish-stars.tsv（204 道菜的星级表，只读）和 docs/chef-rework/stations.md 的分台口径（写在下面的规则里）。
 // 这是给菜表补列的提案：正式菜表加上 motion / flips / beats 列以后，以菜表为准，本文件只做核对。
 import fs from 'node:fs';
 
@@ -69,7 +69,7 @@ export function loadDishes(tsvPath) {
 
 const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/').split('/').pop());
 if (isMain) {
-  const dishes = loadDishes(new URL('../../dish-stars.tsv', import.meta.url));
+  const dishes = loadDishes(new URL('../../../docs/chef-rework/dish-stars.tsv', import.meta.url));
   const out = ['物品ID\t菜名\t★\t台\t性子\t翻面\t拍数\t冷饮\t性子依据'];
   for (const d of dishes) out.push([d.id, d.name, d.star, ST_NAMES[d.station], MOTION_NAMES[d.motion], d.flips || '', d.beats || '', d.drink ? '是' : '', d.why].join('\t'));
   fs.writeFileSync(new URL('./dish-play.tsv', import.meta.url), out.join('\n') + '\n');

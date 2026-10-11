@@ -2,7 +2,7 @@
   "name": "zhangshao-sim",
   "private": true,
   "type": "module",
-  "description": "掌勺小游戏确定性内核（spec.md v1）",
+  "description": "掌勺小游戏确定性内核（minigame-spec.md v2）",
   "scripts": {
     "test": "node tests.mjs",
     "build": "node build-inline.mjs",

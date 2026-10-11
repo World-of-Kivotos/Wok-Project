@@ -1,6 +1,6 @@
 # 掌勺内核 · Java 1:1 复刻说明（simVersion 2）
 
-> 权威实现是 `sim.js`（规则来源 `../spec.md` §3–§14、§18.2、§18.4、§18.7、§19）。
+> 权威实现是 `sim.js`（规则来源 `docs/chef-rework/minigame-spec.md` §3–§14、§18.2、§18.4、§18.7、§19）。
 > Java 参考实现已经同步到 v2 并对拍通过：`java/ZhangshaoKernel.java`（内核）、`java/ZhangshaoConfig.java`（服务端构造参数块）、`java/GoldenCheck.java`（无依赖对拍程序）。
 > 对拍结果（JDK 17）：`golden.json` 的 PRNG/哈希向量 + 15 组用例全部逐位一致；另用同格式随机生成 1,885 组用例（4 台 × ★1–7 × L1–10 × 5 性子 × 手熟/批量/翻面数/拍数/冷饮/改过配置 × 13 种输入源 × 随机 `ext.gold`）也全部一致（未入库）。
 > 移植进主 MOD 时**直接拷这三个文件**（改包名即可），再按本文 §10 把 `GoldenCheck` 换成 JUnit / GameTest。

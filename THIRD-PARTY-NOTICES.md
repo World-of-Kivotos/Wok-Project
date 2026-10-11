@@ -56,8 +56,43 @@
 `cooking_pot_tray_side.png` 的逐字节拷贝，只改了文件名和命名空间，因而**随我方产物 jar 分发**。
 
 许可取自该 jar 的 `META-INF/mods.toml`：`license = "MIT License"`，`authors = "vectorwing"`，项目主页
-https://github.com/vectorwing/FarmersDelight 。jar 内不含 LICENSE 全文，版权行与许可全文以项目主页为准，
-按第六节纪律记作"许可全文待补"。MIT 允许复制与再分发，义务是保留版权声明与许可声明。
+https://github.com/vectorwing/FarmersDelight 。该 jar 内不含 LICENSE 文件，版权行与许可全文取自上游仓库
+1.20 分支根目录的 `LICENSE`（见下）。MIT 允许复制与再分发，义务是在副本中保留版权声明与许可声明：
+这份全文随产物放在 jar 内的 `META-INF/licenses/FarmersDelight-LICENSE.txt`
+（源文件 `src/main/resources/META-INF/licenses/FarmersDelight-LICENSE.txt`）。
+
+取证记录：上游 1.20 分支提交 `40328878`（`8a2fab99` 把这两张图改名为 `heating_tray_*` 之前的最后一版）中
+`cooking_pot_tray_top.png` / `cooking_pot_tray_side.png` 的 sha256 为
+`48baf0e2f5911116ac9f9d6cb67f8b57f1903b8efd673f5534efc720c6b016e2` /
+`b98bb589c0b5263530b17fd1465d4fa9357e95a2b5053a2cb690bd5f38f64371`，与我方两张图一致。同一提交的
+`assets/farmersdelight/models/block/cooking_pot_tray.json` 里用托架贴图的 5 个元素（托架板与四条腿），坐标、
+旋转与 UV 和我方 `deep_fryer_rustic_tray.json` / `deep_fryer_rustic_on_tray.json` 中的对应元素逐项相同，
+同样受此许可约束。仓库内另有同一对贴图的副本 `tools/chef_stations/designs/A/textures/block/fryer_a_tray_top.png` /
+`fryer_a_tray_side.png`（造型工具的方案源文件，不进 jar）。
+
+```
+MIT License
+
+Copyright (c) 2020 vectorwing
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
 拷贝而不是继续跨 mod 引用 `farmersdelight:block/cooking_pot_tray_*` 的原因：农夫乐事 1.3.x 已把这两张图
 改名为 `heating_tray_*`（侧面那张像素也变了），跨 mod 引用在 1.3.x 下会显示成紫黑格。

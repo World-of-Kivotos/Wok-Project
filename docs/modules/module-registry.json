@@ -503,7 +503,8 @@
         "data/miningdim/tags/items/seasonings.json",
         "data/miningdim/tags/items/unseasonable.json",
         "data/miningdim/tags/items/chef_amplify_item_blacklist.json",
-        "data/miningdim/tags/mob_effect/chef_amplify_effect_blacklist.json"
+        "data/miningdim/tags/mob_effect/chef_amplify_effect_blacklist.json",
+        "META-INF/licenses/FarmersDelight-LICENSE.txt"
       ],
       "resourceNamePrefixes": [
         "seasoning",

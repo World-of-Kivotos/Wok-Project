@@ -87,15 +87,10 @@ public final class StovetopFryerBlock extends CookingStationBlock {
         builder.add(SUPPORT);
     }
 
-    @Nullable
     @Override
     public BlockState getStateForPlacement(BlockPlaceContext context) {
-        BlockState placed = super.getStateForPlacement(context);
-        if (placed == null) {
-            return null;
-        }
         BlockState below = context.getLevel().getBlockState(context.getClickedPos().below());
-        return placed.setValue(SUPPORT, supportFor(below));
+        return super.getStateForPlacement(context).setValue(SUPPORT, supportFor(below));
     }
 
     @Override

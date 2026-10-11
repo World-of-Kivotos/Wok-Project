@@ -10,7 +10,6 @@ import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BooleanProperty;
-import org.jetbrains.annotations.Nullable;
 
 /**
  * 冷藏备餐台 (备餐台 B 不锈钢): 工作中掀盖绕后沿铰链翻起 45°, 盖子和铜把手最高到 y≈22.4, 会伸进上方那一格。
@@ -21,6 +20,7 @@ import org.jetbrains.annotations.Nullable;
  *
  * "有东西"按上方方块的选择框 (getShape) 是否为空判断, 比方案说明里写的"碰撞形状非空"更严: 火把、花、
  * 告示牌这类没有碰撞箱、但看得见的方块同样会和翻开的盖子穿模, 也要让盖子合着。
+ * 盖子合着时方案"开盖时从食材格冒冷气"的粒子也随之收掉, 只留冷柜门缝那一缕。
  */
 public final class RefrigeratedPrepBlock extends CookingStationBlock {
 
@@ -38,15 +38,11 @@ public final class RefrigeratedPrepBlock extends CookingStationBlock {
         builder.add(LID_BLOCKED);
     }
 
-    @Nullable
     @Override
     public BlockState getStateForPlacement(BlockPlaceContext context) {
-        BlockState placed = super.getStateForPlacement(context);
-        if (placed == null) {
-            return null;
-        }
         BlockPos above = context.getClickedPos().above();
-        return placed.setValue(LID_BLOCKED, blocksLid(context.getLevel().getBlockState(above), context.getLevel(), above));
+        return super.getStateForPlacement(context)
+                .setValue(LID_BLOCKED, blocksLid(context.getLevel().getBlockState(above), context.getLevel(), above));
     }
 
     @Override
@@ -56,6 +52,12 @@ public final class RefrigeratedPrepBlock extends CookingStationBlock {
             return state;
         }
         return state.setValue(LID_BLOCKED, blocksLid(neighborState, level, neighborPos));
+    }
+
+    /** 掀盖合着时食材格被盖住, 不再从那里冒冷气, 只剩冷柜门缝那一缕。 */
+    @Override
+    StationParticles.Emitter particles(BlockState state) {
+        return state.getValue(LID_BLOCKED) ? StationParticles.REFRIGERATED_PREP_DOOR : super.particles(state);
     }
 
     /** 上方方块是否会挡住翻开的掀盖: 它的选择框不为空。 */

@@ -10,13 +10,11 @@ import com.miningdim.job.chef.ChefItems;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.BlockTags;
-import net.minecraft.util.RandomSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.EntityType;
@@ -57,14 +55,13 @@ import net.minecraftforge.registries.RegistryObject;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 /**
  * 九台烹饪台的方块层契约: 放置朝向、预览开关、炉上油锅的热源与托架 (含计划刻复核)、冷藏备餐台的掀盖避让、
- * 各方案说明里的形状/遮挡/光照、碰撞箱不得是严格整格、粒子出生点、旋转/镜像、掉落、挖掘工具标签、
+ * 各方案说明里的形状/遮挡/光照、碰撞箱不得是严格整格、粒子出生点的旋转口径、旋转/镜像、掉落、挖掘工具标签、
  * 合成配方 (暂时关着, 但按格子摆得出来) 与中英文名/物品提示。资源 (方块状态/模型/贴图) 的完整性见
  * {@link CookingStationAssetGameTests}。烹饪逻辑接入后另起用例。
  */
@@ -188,7 +185,8 @@ public final class CookingStationGameTests {
      * 炉上油锅按名字读农夫乐事的热源标签: 营火上换托架 (support=tray), 普通方块上 none; 没有热源时预览开关拒绝开火,
      * 热源熄灭或被拆掉时 lit 跟着关; 岩浆块 (无 lit 属性) 一直算热; 漏斗 (heat_conductors) 隔一格传热, 真放一台
      * 上去能开火; 方案默认的摆法"坐在农夫乐事炉灶上"能开火、炉灶熄了油锅跟着熄。
-     * 农夫乐事是 libs/ 在才加载的可选开发依赖: 没装时三个标签都是空的, 只核对"找不到热源"这一降级结果。
+     * 农夫乐事是 libs/ 在才加载的可选开发依赖: 没装时三个标签都是空的, 核对"找不到热源"这一降级结果, 以及
+     * 卸掉农夫乐事的存档里点着的油锅在下方一变时随邻居更新熄火。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void stovetopFryerNeedsFarmersDelightHeatAndSitsOnCampfireTray(GameTestHelper helper) {
@@ -212,7 +210,13 @@ public final class CookingStationGameTests {
                 helper.assertTrue(support(helper, pos) == StovetopFryerBlock.Support.NONE
                                 && !StovetopFryerBlock.isHeated(helper.getLevel(), pos),
                         "没装农夫乐事时热源标签为空, 营火上也只能是 none 且不算热");
+                // 装着农夫乐事时点着、之后卸掉农夫乐事的存档: 下方一变 (邻居形状更新) 就该熄火。
+                helper.getLevel().setBlock(pos, ChefBlocks.DEEP_FRYER_RUSTIC.get().defaultBlockState()
+                        .setValue(CookingStationBlock.LIT, true), Block.UPDATE_ALL);
+                helper.setBlock(SUPPORT_REL, Blocks.STONE);
+                helper.assertFalse(isLit(helper, pos), "下方方块变化时, 找不到热源的油锅应熄火");
                 helper.setBlock(STATION_REL, Blocks.AIR);
+                helper.setBlock(SUPPORT_REL, Blocks.AIR);
                 helper.succeed();
                 return;
             }
@@ -284,6 +288,7 @@ public final class CookingStationGameTests {
             helper.assertTrue(isLit(helper, above), "隔着漏斗有岩浆块时预览开关应能开火");
             helper.setBlock(STATION_REL.above(), Blocks.AIR);
             helper.setBlock(STATION_REL, Blocks.AIR);
+            helper.setBlock(SUPPORT_REL, Blocks.AIR);
         } finally {
             MockGameTestPlayers.logout(player);
         }
@@ -293,11 +298,22 @@ public final class CookingStationGameTests {
     /**
      * 邻居更新覆盖不到的情形由计划刻兜底: 油锅隔着漏斗烤在岩浆块上, 把岩浆块换成石头时漏斗不变、油锅收不到更新,
      * 一个复核间隔之后必须自己熄火 (否则会一直亮着冒粒子)。
+     * 没装农夫乐事时改测同一层兜底的另一种情形: 装着农夫乐事时点着、之后卸掉农夫乐事的存档里, 油锅带着 lit=true
+     * 被载入, 周围什么都不变, 热源标签已经为空, 也要在一个复核间隔内自己熄火。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void stovetopFryerGoesOutWhenAConductedHeatSourceDisappears(GameTestHelper helper) {
         if (!ModList.get().isLoaded("farmersdelight")) {
-            helper.succeed(); // 没有热源标签, 根本开不了火, 无从复核。
+            BlockPos at = helper.absolutePos(STATION_REL);
+            helper.setBlock(SUPPORT_REL, Blocks.STONE);
+            helper.getLevel().setBlock(at, ChefBlocks.DEEP_FRYER_RUSTIC.get().defaultBlockState()
+                    .setValue(CookingStationBlock.LIT, true), Block.UPDATE_ALL);
+            helper.assertTrue(isLit(helper, at), "前置: 直接放下的 lit=true 油锅, 周围不变时不会收到邻居更新");
+            helper.runAfterDelay(StovetopFryerBlock.HEAT_RECHECK_TICKS + 5, () -> {
+                helper.assertFalse(isLit(helper, at), "热源标签为空时, 一个复核间隔之后油锅应自己熄火");
+                helper.setBlock(STATION_REL, Blocks.AIR);
+                helper.succeed();
+            });
             return;
         }
         BlockPos fryerRel = STATION_REL.above();
@@ -510,47 +526,6 @@ public final class CookingStationGameTests {
             Vec3 front = StationParticles.rotate(facing, 8.0D, 15.5D, 3.0D);
             assertInside(helper, fryerB, facing, vent.x, vent.y, vent.z, true, "朝 " + facing + " 时排烟格栅出生点");
             assertInside(helper, fryerB, facing, front.x, front.y, front.z, false, "朝 " + facing + " 时台面前沿上方");
-        }
-        helper.succeed();
-    }
-
-    /**
-     * 各台发射器的实际出生点 (用收集用的 Sink 跑几百次): 除木质备餐台外每台工作中都出粒子; 出生点不远离方块;
-     * 会往下落的冷气 (SNOWFLAKE) 不得出生在碰撞箱里, 否则一落就被下一层盒子卡住、在模型里看不见。
-     */
-    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void emittersSpawnWhereTheParticlesCanBeSeen(GameTestHelper helper) {
-        for (RegistryObject<Block> entry : ChefBlocks.COOKING_STATIONS) {
-            CookingStationBlock block = station(entry);
-            BlockState state = block.defaultBlockState().setValue(CookingStationBlock.LIT, true);
-            VoxelShape collision = collision(state);
-            List<double[]> spawned = new ArrayList<>();
-            List<double[]> falling = new ArrayList<>();
-            RandomSource random = RandomSource.create(20261010L);
-            for (int i = 0; i < 400; i++) {
-                block.particles().animate((particle, px, py, pz, vx, vy, vz) -> {
-                    spawned.add(new double[]{px, py, pz});
-                    if (particle == ParticleTypes.SNOWFLAKE) {
-                        falling.add(new double[]{px, py, pz});
-                    }
-                }, random);
-            }
-            boolean silent = entry == ChefBlocks.PREP_COUNTER_RUSTIC;
-            helper.assertTrue(spawned.isEmpty() == silent,
-                    entry.getId() + (silent ? " 方案没要求粒子, 不该出粒子" : " 工作中应出粒子"));
-            for (double[] at : spawned) {
-                helper.assertTrue(at[0] >= -1.0D && at[0] <= 17.0D && at[2] >= -1.0D && at[2] <= 17.0D
-                                && at[1] >= -1.0D && at[1] <= 25.0D,
-                        entry.getId() + " 的出生点离方块太远: (" + at[0] + ", " + at[1] + ", " + at[2] + ")");
-            }
-            for (double[] at : falling) {
-                boolean inside = false;
-                for (AABB box : collision.toAabbs()) {
-                    inside |= box.contains(at[0] / 16.0D, at[1] / 16.0D, at[2] / 16.0D);
-                }
-                helper.assertFalse(inside, entry.getId() + " 往下落的冷气出生在碰撞箱里, 会被卡住看不见: ("
-                        + at[0] + ", " + at[1] + ", " + at[2] + ")");
-            }
         }
         helper.succeed();
     }

@@ -117,8 +117,8 @@ public class CookingStationBlock extends HorizontalDirectionalBlock {
         return decorRisesAbove;
     }
 
-    /** 工作中的粒子发射器; GameTest 用它核对出生点。 */
-    StationParticles.Emitter particles() {
+    /** 这个状态工作时的粒子发射器; 掀盖合着的冷藏备餐台另有取法, 见 {@link RefrigeratedPrepBlock}。 */
+    StationParticles.Emitter particles(BlockState state) {
         return particles;
     }
 
@@ -127,7 +127,6 @@ public class CookingStationBlock extends HorizontalDirectionalBlock {
         builder.add(FACING, LIT);
     }
 
-    @Nullable
     @Override
     public BlockState getStateForPlacement(BlockPlaceContext context) {
         return defaultBlockState()
@@ -196,7 +195,7 @@ public class CookingStationBlock extends HorizontalDirectionalBlock {
     @Override
     public void animateTick(BlockState state, Level level, BlockPos pos, RandomSource random) {
         if (state.getValue(LIT)) {
-            particles.animate(StationParticles.into(level, pos, state.getValue(FACING)), random);
+            particles(state).animate(level, pos, state.getValue(FACING), random);
         }
     }
 }

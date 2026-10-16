@@ -377,6 +377,72 @@ public final class MarketFreshnessGameTests {
     }
 
     // ============================================================
+    // 7. 物品详情的三个标签
+    // ============================================================
+
+    /**
+     * 物品详情要给出三个标签里的一个: 有保质期报 `fresh.hours:<小时>`、已腐烂报 `fresh.rotten`、
+     * 不在任何易腐类别里报 `fresh.untimed`。
+     *
+     * 判的是**整件东西含嵌套内容的最坏一层**: 一盒面包的"还剩几小时"必须等于盒子里最先坏的那一件 ——
+     * 详情页与市场页对同一件东西给出两个不同的数, 玩家没法判断该信哪个。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void itemDetailCarriesExactlyOneFreshnessTag(GameTestHelper helper) {
+        Fixture fx = Fixture.open(helper);
+        try {
+            ServerPlayer viewer = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            long now = fx.engine.nowMinute();
+
+            // 有保质期: 单件 20 小时。
+            viewer.getInventory().setItem(0, stampedFood(Items.BREAD, 1, now, 20L * 60L, helper));
+            JsonObject bread = handle(PlayerWebUiActions.ITEM_DETAIL, viewer, slotPayload(0));
+            helper.assertTrue(freshnessTags(bread).size() == 1,
+                    "三个标签只能出现一个, 实得 " + freshnessTags(bread));
+            helper.assertTrue("fresh.hours:20.0".equals(freshnessTags(bread).get(0).getAsString()),
+                    "20 小时的面包应当报 fresh.hours:20.0, 实得 " + freshnessTags(bread).get(0));
+
+            // 已腐烂: 标签换成 rotten, 不再报小时数 (报 0.0 会让前端显示「还剩 0 小时」而不是「已腐烂」)。
+            viewer.getInventory().setItem(1, stampedFood(Items.BREAD, 1, now, -60L, helper));
+            JsonObject rotten = handle(PlayerWebUiActions.ITEM_DETAIL, viewer, slotPayload(1));
+            helper.assertTrue(freshnessTags(rotten).size() == 1
+                            && "fresh.rotten".equals(freshnessTags(rotten).get(0).getAsString()),
+                    "烂掉的面包应当只报 fresh.rotten, 实得 " + freshnessTags(rotten));
+
+            // 不在任何易腐类别里: untimed。
+            viewer.getInventory().setItem(2, new ItemStack(Items.STONE, 64));
+            JsonObject stone = handle(PlayerWebUiActions.ITEM_DETAIL, viewer, slotPayload(2));
+            helper.assertTrue(freshnessTags(stone).size() == 1
+                            && "fresh.untimed".equals(freshnessTags(stone).get(0).getAsString()),
+                    "石头应当报 fresh.untimed, 实得 " + freshnessTags(stone));
+
+            // 嵌套: 详情报的是盒子里最先坏的那一件 (3 小时), 不是盒子本身 (不腐烂)。
+            viewer.getInventory().setItem(3,
+                    shulkerWith(stampedFood(Items.BREAD, 1, now, 30L * 60L, helper),
+                            stampedFood(Items.COOKED_BEEF, 1, now, 3L * 60L, helper)));
+            JsonObject box = handle(PlayerWebUiActions.ITEM_DETAIL, viewer, slotPayload(3));
+            helper.assertTrue(freshnessTags(box).size() == 1
+                            && "fresh.hours:3.0".equals(freshnessTags(box).get(0).getAsString()),
+                    "盒子应当报里面最先坏的那一件 (3 小时), 实得 " + freshnessTags(box));
+            helper.succeed();
+        } finally {
+            fx.close();
+        }
+    }
+
+    /** 详情回执里以 fresh. 开头的标签。 */
+    private static JsonArray freshnessTags(JsonObject detail) {
+        JsonArray all = detail.getAsJsonArray("tags");
+        JsonArray fresh = new JsonArray();
+        for (int i = 0; i < all.size(); i++) {
+            String tag = all.get(i).getAsString();
+            if (tag.startsWith("fresh.")) {
+                fresh.add(tag);
+            }
+        }
+        return fresh;
+    }
+    // ============================================================
     // 夹具
     // ============================================================
 

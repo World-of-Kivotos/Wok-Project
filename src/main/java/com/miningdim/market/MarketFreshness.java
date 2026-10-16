@@ -1,5 +1,8 @@
 package com.miningdim.market;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.miningdim.freshness.FreshnessNested;
 import com.miningdim.webui.server.WebUiErrorCodes;
 
@@ -83,5 +86,50 @@ public final class MarketFreshness {
      */
     public static long remainingMinutes(ItemStack escrow, long nowMinute) {
         return FreshnessNested.minRemainingMinutes(escrow, nowMinute);
+    }
+
+    /**
+     * 剩余分钟数折成「小时」的展示值 (一位小数): 市场列表与物品详情共用同一个折算,
+     * 免得同一件东西在两个页面上显示成 12.4 与 12.5。
+     */
+    public static double hoursValue(long remainingMinutes) {
+        return Math.round(remainingMinutes / 6.0D) / 10.0D;
+    }
+
+    // ---- 物品详情的三个标签 (规格「消费点改造 · 市场」末句) ----
+
+    /** 剩余小时数标签 (带一位小数的参数)。 */
+    public static final String TAG_HOURS = "fresh.hours";
+    /** 已腐烂标签 (无参数)。 */
+    public static final String TAG_ROTTEN = "fresh.rotten";
+    /** 不腐烂标签 (无参数): 石头、工具这类, 面板据此不显示倒计时。 */
+    public static final String TAG_UNTIMED = "fresh.untimed";
+
+    /**
+     * 给物品详情的 {@code tags} 数组补一个新鲜度标签 (三选一: 有保质期报小时数, 已腐烂报 rotten,
+     * 不在任何易腐类别里报 untimed)。
+     *
+     * 三个标签与 market.list 的 freshHours / freshRotten / freshUntimed 是同一份判定的两种形状:
+     * 列表里是结构化字段, 详情里是翻译键标签 (前端一套渲染)。
+     *
+     * 判的是**整件东西含嵌套内容的最坏一层**: 一盒面包的"还剩几小时"就是盒子里最先坏的那一件,
+     * 否则详情页说"还有 3 天"、市场页说"还剩 2 小时", 玩家没法判断该信哪个。
+     *
+     * {@code tags} 缺席或不是数组时**什么都不做**: 详情回执的形状由 {@code WebUiItemDetailJson} 保证,
+     * 这里不替它造半个契约。
+     */
+    public static void appendItemDetailTags(JsonObject detail, ItemStack stack, long nowMinute) {
+        JsonElement tagsElement = detail.get("tags");
+        if (!(tagsElement instanceof JsonArray tags)) {
+            return;
+        }
+        long remaining = remainingMinutes(stack, nowMinute);
+        if (remaining == Long.MAX_VALUE) {
+            tags.add(TAG_UNTIMED);
+        } else if (remaining <= 0L) {
+            tags.add(TAG_ROTTEN);
+        } else {
+            tags.add(TAG_HOURS + ":" + hoursValue(remaining));
+        }
     }
 }

@@ -290,7 +290,7 @@ public final class MarketActions {
         if (untimed) {
             o.add("freshHours", JsonNull.INSTANCE);
         } else {
-            o.addProperty("freshHours", rotten ? 0.0D : Math.round(remaining / 6.0D) / 10.0D);
+            o.addProperty("freshHours", rotten ? 0.0D : MarketFreshness.hoursValue(remaining));
         }
         o.addProperty("freshRotten", rotten);
         o.addProperty("freshUntimed", untimed);

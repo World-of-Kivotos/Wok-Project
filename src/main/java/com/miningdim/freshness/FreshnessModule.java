@@ -59,6 +59,12 @@ public final class FreshnessModule implements Subsystem {
         forgeBus.addListener(FreshnessVillagerGoods::onVillagerTrades);
         forgeBus.addListener(FreshnessVillagerGoods::onWandererTrades);
         forgeBus.addListener(FreshnessVillagerGoods::onEntityJoinLevel);
+        // 开服迁移: 定启用时刻与老玩家名单、区块存档里的老货、实体内容、老玩家第一次登录 (规格「开服迁移」)。
+        // 四个入口都是 HIGHEST 优先级: 默认优先级那一批观察点会把没章的东西当场盖成"现在", 迁移必须抢在它们之前。
+        forgeBus.addListener(FreshnessMigrationHooks::onServerStarted);
+        forgeBus.addListener(FreshnessMigrationHooks::onChunkLoad);
+        forgeBus.addListener(FreshnessMigrationHooks::onEntityJoinLevel);
+        forgeBus.addListener(FreshnessMigrationHooks::onPlayerLoggedIn);
         forgeBus.addListener(FreshnessCommands::register);
         LOGGER.info("[miningdim] {} registered (clock + item data + categories + rot item + 观察点; mixin 那批与粮仓在后续切片)",
                 MODULE_ID);

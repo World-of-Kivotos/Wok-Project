@@ -45,10 +45,10 @@ public final class GranaryDeposit {
     }
 
     /** 被跳过的原因分类 (提示里逐条报, 不混成一个数)。 */
-    public record Skips(int exhausted, int fresh, int rotten, int noRoom) {
+    public record Skips(int exhausted, int fresh, int rotten, int migrated, int noRoom) {
 
         public int total() {
-            return exhausted + fresh + rotten + noRoom;
+            return exhausted + fresh + rotten + migrated + noRoom;
         }
     }
 
@@ -116,14 +116,14 @@ public final class GranaryDeposit {
         ResourceLocation dimension = level.dimension().location();
         // 开放名单先判: 私有的囤除了囤主谁都存不进去 (房主也不例外, 反漏洞 #68)。
         if (!GranaryAccess.mayStore(bin.owner(), bin.access(), player.getUUID())) {
-            return new Result(0, 0, new Skips(0, 0, 0, 0), Rejection.NOT_ALLOWED);
+            return new Result(0, 0, new Skips(0, 0, 0, 0, 0), Rejection.NOT_ALLOWED);
         }
         if (!data.binState(dimension, bin.getBlockPos()).acceptsDeposits()) {
-            return new Result(0, 0, new Skips(0, 0, 0, 0), Rejection.NOT_ACTIVE);
+            return new Result(0, 0, new Skips(0, 0, 0, 0, 0), Rejection.NOT_ACTIVE);
         }
         GranaryRecord record = data.granary(data.granaryOfBin(dimension, bin.getBlockPos()));
         if (record == null || !record.acceptsDeposits()) {
-            return new Result(0, 0, new Skips(0, 0, 0, 0), Rejection.GRANARY_DOWN);
+            return new Result(0, 0, new Skips(0, 0, 0, 0, 0), Rejection.GRANARY_DOWN);
         }
         GranaryTier tier = record.tier();
 
@@ -138,6 +138,7 @@ public final class GranaryDeposit {
         int exhausted = 0;
         int fresh = 0;
         int rotten = 0;
+        int migrated = 0;
         for (int slot : slots) {
             ItemStack stack = player.getInventory().getItem(slot);
             if (stack.isEmpty() || !FreshnessCategories.spoils(stack) || FreshnessCategories.isExempt(stack)) {
@@ -146,6 +147,17 @@ public final class GranaryDeposit {
             int shelfLifeHours = FreshnessCategories.shelfLifeHours(stack);
             if (FreshnessData.isRotten(stack, shelfLifeHours, nowMinute)) {
                 rotten++;
+                continue;
+            }
+            /*
+             * 开服迁移的老货不能进仓 (规格「开服迁移」/反漏洞 #21): 它们的停表额度**已经记满**, 进仓再停表
+             * 等于白送 21 天; 而且它们带迁移标记, 永不和新货合并 —— 留在背包里按 6 小时宽限处理才是本意。
+             *
+             * 这一条排在"额度用完"**前面**: 迁移货的额度天然是满的, 先判额度的话它们会被记成"额度用完",
+             * 玩家看到的原因是错的那个, 也就不知道这批东西为什么进不去。
+             */
+            if (FreshnessData.isMigrated(stack)) {
+                migrated++;
                 continue;
             }
             if (GranarySettle.capExhausted(stack)) {
@@ -169,7 +181,7 @@ public final class GranaryDeposit {
                 stack.setCount(before);
             }
         }
-        return new Result(items, stacks, new Skips(exhausted, fresh, rotten, 0), Rejection.NONE);
+        return new Result(items, stacks, new Skips(exhausted, fresh, rotten, migrated, 0), Rejection.NONE);
     }
 
     // ============================================================

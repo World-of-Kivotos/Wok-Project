@@ -150,6 +150,46 @@ public final class GranaryDepositGameTests {
     // 防新货蹭老格子
     // ============================================================
 
+    /**
+     * 开服迁移的老货**不进仓** (规格「开服迁移」: 启用时只剩 6 小时、不能进仓): 它们的停表额度已经记满,
+     * 进仓再停表等于白送 21 天; 一键存入里点名跳过, 界面上那一格也放不进去 (两条路必须给同一个答案)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void migratedGoodsAreSkippedAndNeverStored(GameTestHelper helper) {
+        int slot = 4;
+        Fixture fixture = accept(helper, slot);
+        ServerPlayer player = fixture.owner();
+
+        ItemStack migrated = new ItemStack(Items.WHEAT, 5);
+        // 启用时刻取"现在": 迁移货在启用那一刻正好剩宽限小时, 所以它是**能吃但进不了仓**的那一类
+        // (取成 30 天前的话它会先被判成腐烂, 测的就变成腐烂那条路了)。
+        helper.assertTrue(com.miningdim.freshness.FreshnessMigration.stampMigrated(migrated,
+                        fixture.nowMinute(), FreshnessConstants.MIGRATION_GRACE_HOURS,
+                        FreshnessConstants.STOP_CAP_HOURS),
+                "夹具: 这一堆要是迁移货 (带章 + 额度记满 + m 标记)");
+        helper.assertTrue(FreshnessData.isMigrated(migrated) && GranarySettle.capExhausted(migrated),
+                "前提: 迁移货的额度本来就是满的 (所以「额度用完」那条判据也会命中它 —— 顺序写反就会报错原因)");
+        ItemStack keep = new ItemStack(Items.WHEAT, 6);
+        FreshnessData.stamp(keep, fixture.nowMinute());
+        player.getInventory().setItem(9, migrated);
+        player.getInventory().setItem(10, keep);
+
+        GranaryDeposit.Result result = fixture.deposit(helper, player);
+        helper.assertTrue(result.items() == 6, "只有那 6 个好的收进来, 实际 " + result.items());
+        helper.assertTrue(result.skips().migrated() == 1,
+                "迁移货要被单独点名 (混进别的计数里就没人知道它为什么没进去), 实得 " + result.skips());
+        GranaryBinBlockEntity bin = fixture.bin(helper);
+        helper.assertTrue(bin.getItem(0).is(Items.WHEAT) && bin.getItem(0).getCount() == 6
+                        && !FreshnessData.isMigrated(bin.getItem(0)),
+                "进仓的必须是那一堆好货");
+
+        // 界面那条路: 同一堆迁移货在这一格的 mayPlace 必须是 false。
+        GranaryBinMenu menu = new GranaryBinMenu(0, player.getInventory(), bin);
+        helper.assertTrue(!menu.slots.get(0).mayPlace(migrated),
+                "界面也不许把迁移货放进囤 (与一键存入同一个答案)");
+        helper.assertTrue(menu.slots.get(0).mayPlace(keep), "好货照常放得进");
+        helper.succeed();
+    }
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void oldSlotsOnlyAcceptThisHoursBatch(GameTestHelper helper) {
         int slot = 3;

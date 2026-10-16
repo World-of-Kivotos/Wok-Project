@@ -655,6 +655,7 @@ public final class GranaryCommands {
         int exhausted = 0;
         int fresh = 0;
         int rotten = 0;
+        int migrated = 0;
         boolean blocked = false;
         for (GranaryQuery.BinRow row : mine) {
             if (!(level.getBlockEntity(row.pos()) instanceof GranaryBinBlockEntity bin)) {
@@ -680,8 +681,9 @@ public final class GranaryCommands {
         int finalExhausted = exhausted;
         int finalFresh = fresh;
         int finalRotten = rotten;
+        int finalMigrated = migrated;
         source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.deposit",
-                finalItems, finalStacks, finalExhausted, finalFresh, finalRotten), false);
+                finalItems, finalStacks, finalExhausted, finalFresh, finalRotten, finalMigrated), false);
         source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.deposit_hint"),
                 false);
         return items;

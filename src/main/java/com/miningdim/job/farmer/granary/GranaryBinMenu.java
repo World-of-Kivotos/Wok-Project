@@ -1,5 +1,6 @@
 package com.miningdim.job.farmer.granary;
 
+import com.miningdim.freshness.FreshnessData;
 import com.miningdim.job.farmer.granary.block.GranaryBinBlockEntity;
 import com.miningdim.menu.AbstractMiningMenu;
 import com.miningdim.menu.MenuValidity;
@@ -76,7 +77,9 @@ public final class GranaryBinMenu extends AbstractMiningMenu {
                 this.addSlot(new Slot(be, index, x, y) {
                     @Override
                     public boolean mayPlace(ItemStack stack) {
-                        return mayStore();
+                        // 开服迁移的老货不能进仓 (规格「开服迁移」): 它们的停表额度已经记满, 进仓再停表等于白送额度。
+                        // 一并放在这里, 是为了让界面与「一键存入」给出同一个答案 (那条路在 GranaryDeposit 里跳过并点名)。
+                        return mayStore() && !FreshnessData.isMigrated(stack);
                     }
 
                     @Override

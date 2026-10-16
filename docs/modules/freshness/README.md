@@ -73,7 +73,7 @@ FD 与 BnC/refurbished 兼容 mixin、物品栏保鲜条按设计文档后续切
 
 ### Java 源码
 
-- `src/main/java/com/miningdim/freshness/`（46 个文件，含 `item/`、`mixin/` 两个子包与 10 个测试类）。
+- `src/main/java/com/miningdim/freshness/`（49 个文件，含 `item/`、`mixin/` 两个子包与 11 个测试类）。
 
 ### 专属资源
 
@@ -94,7 +94,7 @@ FD 与 BnC/refurbished 兼容 mixin、物品栏保鲜条按设计文档后续切
 
 - `miningdim-freshness.toml`（SERVER，注册点 `freshness/FreshnessModule`）：`mode` 三档总开关、
   `[shelfLife]` 六类保质期、`[granary]` 停表上限与门槛、`[consume]` 村民货与市场上架门槛、`[merge]` 合并窗口、
-  `[migration]` 开服迁移（enabled / enabledAtEpochMinute / graceHours）。
+  `[migration]` 开服迁移（enabled / enabledAtEpochMinute / graceHours）、`[recipes]` 压缩块拆回过滤（removeUnsquashRecipes / unsquashWhitelist）。
 
 ## 3. 冻结的兼容身份
 
@@ -156,6 +156,8 @@ freshness/
   FreshnessMigration.java   开服迁移的纯逻辑（迁移章的唯一正源 + NBT 递归 + 容器逐格）
   FreshnessMigrationData.java  主世界 SavedData（启用时刻 / 老玩家名单 / 已迁移的人）
   FreshnessMigrationHooks.java 四个迁移入口（开服、区块、实体、老玩家登录，全 HIGHEST）
+  FreshnessRecipeFilter.java   压缩块拆回的判据（规则 1）与收集/重建/白名单/日志
+  FreshnessRecipeFilterHooks.java  reload 与开服两个入口，把配方表整体换成筛过的副本
   FreshnessProcessing.java  加工继承的纯策略（取最差、加热加成、封顶、下限、停表取大）
   FreshMerge.java           同种合并的纯核心（三条门槛 + 加权平均 + 配方书取最老）
   FreshnessHooks.java       mixin 适配层（薄）
@@ -178,7 +180,7 @@ freshness/
 
 ## 7. 验证清单
 
-当前十个测试类共 64 条 GameTest：
+当前十一个测试类共 68 条 GameTest：
 
 - `FreshnessGameTests`（batch `freshness_foundation`，13 条）
   - 时钟：首次观察、正常前进、停服按整小时补偿、运行中跳变补「差值 − 1」、挂钟回跳只增不减、测试偏移入口钳负值。
@@ -216,7 +218,13 @@ freshness/
   - 判定与盖章：最少剩余与「最早腐烂时刻」都取最坏的那一层（没有烂层时是哨兵值，不是 0）；
     `stampDeep` 必须把章**写回容器 NBT**（`ItemStack.of` 读出来的是副本，只给副本盖章等于什么都没做），
     且对已有章的层幂等。
-- `FreshnessMigrationGameTests`（batch `freshness_migration`，6 条）
+- `FreshnessRecipeFilterGameTests`（batch `freshness_recipes`，4 条）
+  - 判据正反两侧：不腐烂的压缩块 → 9 件易腐品要删；产出 3 件、原料也会腐烂、产物不腐烂、两种原料、
+    特殊配方（结果不随材料变化）一律不许动。
+  - 收集与重建：白名单里的配方留着（整合包有正当的 1 料多产配方时靠它）；命中的从**新副本**里消失，
+    而原表一个字节都不许变（它是 `ImmutableMap`，就地改会抛）。
+  - 端到端：开服之后服务端的配方表里真的没有 `minecraft:wheat`（干草块 → 9 小麦）了，而没命中的配方还在
+    —— 这一条同时是"反射取私有表"那一步的守卫。- `FreshnessMigrationGameTests`（batch `freshness_migration`，6 条）
   - 迁移章：启用那一刻正好剩 6 小时、停表额度记满、带 `m` 标记，且随后照常变少（迁移是宽限，不是停表）；
     已经盖过章的老货、不腐烂的东西、豁免品一律不动。
   - 存档 NBT：认「有 id 与 Count」的条目而不认容器形状（箱子里的面包 + 潜影盒里的面包一次覆盖），

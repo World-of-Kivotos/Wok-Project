@@ -28,7 +28,8 @@ import java.util.UUID;
  * 停表结算 (EntryHours / CreditedHours / BinState / Access) 与粮仓结构判定随它们各自的分片加入 ——
  * 这些字段一旦发布就不能改, 所以没有对应功能之前不预埋。
  */
-public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyContainer {
+public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyContainer,
+        net.minecraft.world.MenuProvider {
 
     private static final String KEY_SLOTS = "Slots";
     private static final String KEY_INV = "Inv";
@@ -221,6 +222,10 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
     public ItemStack removeItem(int slot, int amount) {
         ItemStack removed = ContainerHelper.removeItem(items, slot, amount);
         if (!removed.isEmpty()) {
+            // 格子被拿空了: 账目跟着清掉 (入仓时刻与已计停表都不该留给下一个放进来的人)。
+            if (items.get(slot).isEmpty()) {
+                markTaken(slot);
+            }
             setChanged();
         }
         return removed;
@@ -228,13 +233,43 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
 
     @Override
     public ItemStack removeItemNoUpdate(int slot) {
-        return ContainerHelper.takeItem(items, slot);
+        ItemStack removed = ContainerHelper.takeItem(items, slot);
+        if (!removed.isEmpty() && items.get(slot).isEmpty()) {
+            markTaken(slot);
+        }
+        return removed;
     }
 
+    /**
+     * 写入一格。
+     *
+     * 除了存物品, 这里还是**账目的唯一入口**: 空格子被放上东西就从这一刻开始算 (没盖章的当场盖章、
+     * 记下入仓时刻), 原来有东西的格子被清空就把账清掉。经界面 (27 格界面) 放进去的东西因此与
+     * 「一键存入」放进去的完全一样 —— 否则界面放的东西 entryHour 是 0, 一整天都不会停表。
+     *
+     * 往**已有东西**的格子追加 (合并) 不动账: 老格子的入仓时刻不能被顶掉, 那等于给老货续命
+     * (规格「防新货蹭老格子」)。
+     */
     @Override
     public void setItem(int slot, ItemStack stack) {
+        ItemStack previous = items.get(slot);
+        boolean wasEmpty = previous.isEmpty();
         items.set(slot, stack);
+        if (wasEmpty && !stack.isEmpty()) {
+            stampAndStartClock(slot, stack);
+        } else if (!wasEmpty && stack.isEmpty()) {
+            markTaken(slot);
+        }
         setChanged();
+    }
+
+    /** 空格子进新东西: 盖章 + 记入仓时刻 (挂钟从方块实体自己取, 与粮仓其余账目同一把钟)。 */
+    private void stampAndStartClock(int slot, ItemStack stack) {
+        if (level instanceof net.minecraft.server.level.ServerLevel serverLevel) {
+            long nowMinute = com.miningdim.freshness.FreshnessClockData.nowMinute(serverLevel);
+            com.miningdim.freshness.FreshnessData.stamp(stack, nowMinute);
+            markStored(slot, nowMinute / 60L);
+        }
     }
 
     @Override
@@ -242,6 +277,22 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
         return level != null && level.getBlockEntity(worldPosition) == this
                 && player.distanceToSqr(worldPosition.getX() + 0.5D, worldPosition.getY() + 0.5D,
                 worldPosition.getZ() + 0.5D) <= 64.0D;
+    }
+
+    // ============================================================
+    // 界面 (MenuProvider): 右键开的是这个囤自己的 27 格界面
+    // ============================================================
+
+    @Override
+    public net.minecraft.network.chat.Component getDisplayName() {
+        return net.minecraft.network.chat.Component.translatable("container.miningdim.granary_bin");
+    }
+
+    @Override
+    public net.minecraft.world.inventory.AbstractContainerMenu createMenu(int windowId,
+                                                                         net.minecraft.world.entity.player.Inventory inventory,
+                                                                         Player player) {
+        return new com.miningdim.job.farmer.granary.GranaryBinMenu(windowId, inventory, this);
     }
 
     @Override

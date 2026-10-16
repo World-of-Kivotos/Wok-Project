@@ -384,6 +384,8 @@
   "message.miningdim.granary.command.store_not_allowed": "This bin is not open to you (private bins take only their owner''s goods).",
   "message.miningdim.granary.command.store_not_active": "This bin cannot take deposits right now (waiting, suspended, or the granary is not inspected / damaged).",
   "message.miningdim.granary.command.audit_trust": "   owner %s opened the bin to %s (%s)",
+  "container.miningdim.granary_bin": "Storage Bin",
+  "message.miningdim.granary.bin_not_allowed": "This bin is not open to you (a private bin opens only for its owner).",
   "tooltip.miningdim.freshness.category.fresh": "Fresh",
   "tooltip.miningdim.freshness.category.produce": "Produce",
   "tooltip.miningdim.freshness.category.cooked": "Cooked",

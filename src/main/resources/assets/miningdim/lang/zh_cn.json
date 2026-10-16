@@ -384,6 +384,8 @@
   "message.miningdim.granary.command.store_not_allowed": "这个囤没开放给你 (私有囤只有囤主能存)。",
   "message.miningdim.granary.command.store_not_active": "这个囤现在不能存 (待启用、停用, 或者粮仓没验收/损坏)。",
   "message.miningdim.granary.command.audit_trust": "   囤主 %s 开放给 %s (%s)",
+  "container.miningdim.granary_bin": "储粮囤",
+  "message.miningdim.granary.bin_not_allowed": "这个囤没开放给你 (私有囤只有囤主能开)。",
   "tooltip.miningdim.freshness.category.fresh": "生鲜",
   "tooltip.miningdim.freshness.category.produce": "果蔬",
   "tooltip.miningdim.freshness.category.cooked": "熟食",

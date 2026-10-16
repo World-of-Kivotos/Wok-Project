@@ -1,5 +1,6 @@
 package com.miningdim.job.farmer.granary.block;
 
+import com.miningdim.job.farmer.granary.GranaryAccess;
 import com.miningdim.job.farmer.granary.GranaryClock;
 import com.miningdim.job.farmer.granary.GranaryPending;
 import com.miningdim.job.farmer.granary.GranaryRecord;
@@ -12,6 +13,8 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Containers;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -21,7 +24,12 @@ import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraftforge.common.util.FakePlayer;
+import net.minecraftforge.network.NetworkHooks;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.UUID;
 
@@ -38,6 +46,8 @@ import java.util.UUID;
  * </ul>
  */
 public final class GranaryBinBlock extends BaseEntityBlock {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/granary");
 
     public GranaryBinBlock(Properties properties) {
         super(properties);
@@ -68,7 +78,43 @@ public final class GranaryBinBlock extends BaseEntityBlock {
     }
 
     /**
-     * 拆囤的三条前置: 囤主或 OP; 房主可以拆本房间里**未入册**的空囤; 必须先把东西取空。
+     * 右键开这个囤自己的 27 格界面 (Spoilage_Granary_DesignSpec「界面」)。
+     *
+     * 开门三判: 假玩家不给开; 名单上没他也没权限就不给开 (房主一样, 反漏洞 #68); OP 能开但记一行日志
+     * (规格权限表里 OP 那一栏写的是「能 (记日志)」)。开之前先把账结到这一刻 —— 打开界面看到的就是
+     * 结算后的数, 与「菜单开着每到整点先结算」是同一条规矩。
+     */
+    @Override
+    public InteractionResult use(BlockState state, Level level, BlockPos pos, Player player,
+                                 InteractionHand hand, BlockHitResult hit) {
+        if (level.isClientSide) {
+            return InteractionResult.SUCCESS;
+        }
+        if (!(player instanceof ServerPlayer serverPlayer) || player instanceof FakePlayer) {
+            return InteractionResult.CONSUME;
+        }
+        if (!(level.getBlockEntity(pos) instanceof GranaryBinBlockEntity bin)) {
+            return InteractionResult.CONSUME;
+        }
+        UUID owner = bin.owner();
+        boolean allowed = GranaryAccess.mayStore(owner, bin.access(), serverPlayer.getUUID())
+                || GranaryAccess.mayTake(owner, bin.access(), serverPlayer.getUUID());
+        if (!allowed && !serverPlayer.hasPermissions(2)) {
+            serverPlayer.displayClientMessage(Component.translatable(
+                    "message.miningdim.granary.bin_not_allowed"), true);
+            return InteractionResult.CONSUME;
+        }
+        if (!allowed) {
+            // OP 打开别人的囤: 记下来 (运营审计要看得到谁动过谁的东西)。
+            LOGGER.info("granary bin at {} in {} opened by operator {} (owner {})",
+                    pos, level.dimension().location(), serverPlayer.getGameProfile().getName(), owner);
+        }
+        bin.settleAll(GranaryClock.nowHour(level.getServer().overworld()));
+        NetworkHooks.openScreen(serverPlayer, bin, buffer -> buffer.writeBlockPos(pos));
+        return InteractionResult.CONSUME;
+    }
+
+    /** 拆囤的三条前置: 囤主或 OP; 房主可以拆本房间里**未入册**的空囤; 必须先把东西取空。
      * 返回 false 即取消这次破坏。
      */
     @Override

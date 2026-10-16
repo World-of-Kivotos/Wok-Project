@@ -50,6 +50,8 @@ public final class GranarySystem {
     /** 农夫模块装配时调用。 */
     public static void register(IEventBus modBus, IEventBus forgeBus) {
         GranaryBlocks.register(modBus);
+        GranaryMenus.register(modBus);
+        GranaryMenus.touch();
         GranaryCommands.register(forgeBus);
         forgeBus.addListener(EventPriority.LOWEST, GranarySystem::onBlockPlaced);
         forgeBus.addListener(GranarySystem::onPlayerLoggedIn);

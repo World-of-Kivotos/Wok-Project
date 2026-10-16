@@ -2,7 +2,9 @@ package com.miningdim.job.farmer.granary;
 
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
+import com.miningdim.job.farmer.granary.block.GranaryBinBlockEntity;
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.commands.CommandSourceStack;
@@ -13,6 +15,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -49,6 +52,11 @@ public final class GranaryCommands {
         dispatcher.register(Commands.literal("granary")
                 .then(Commands.literal("status").executes(GranaryCommands::status))
                 .then(Commands.literal("bins").executes(GranaryCommands::bins))
+                .then(Commands.literal("deposit").executes(GranaryCommands::deposit))
+                .then(Commands.literal("keephotbar")
+                        .executes(GranaryCommands::keepHotbarQuery)
+                        .then(Commands.argument("value", BoolArgumentType.bool())
+                                .executes(GranaryCommands::keepHotbarSet)))
                 .then(Commands.literal("rescan")
                         .requires(source -> source.hasPermission(OP_LEVEL))
                         .executes(GranaryCommands::rescan))
@@ -106,9 +114,99 @@ public final class GranaryCommands {
     }
 
     // ============================================================
-    // 管理命令
+    // 一键存入 (按钮做出来之前先用命令触发)
     // ============================================================
 
+    /**
+     * 一键存入: 把背包里的易腐品按**启用顺序**依次放进自己在这座粮仓里的囤。
+     *
+     * 与规格里的按钮是同一个入口 ({@link GranaryDeposit#deposit}): 界面做出来之后按钮直接调它,
+     * 判定与提示原样复用; 「保留快捷栏」按玩家记住 (persistentData), 这里只读它。
+     */
+    private static int deposit(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        ServerLevel level = player.serverLevel();
+        Optional<GranaryQuery.Nearby> nearby = GranaryQuery.nearest(level, player.position());
+        if (nearby.isEmpty()) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.none_nearby"));
+            return 0;
+        }
+        List<GranaryQuery.BinRow> mine = new ArrayList<>();
+        for (GranaryQuery.BinRow row : GranaryQuery.binsOf(level, nearby.get().gid())) {
+            if (player.getUUID().equals(GranarySavedData.get(level.getServer().overworld())
+                    .ownerOf(row.dimension(), row.pos()))) {
+                mine.add(row);
+            }
+        }
+        if (mine.isEmpty()) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.deposit_no_bins"));
+            return 0;
+        }
+        int items = 0;
+        int stacks = 0;
+        int exhausted = 0;
+        int fresh = 0;
+        int rotten = 0;
+        boolean blocked = false;
+        for (GranaryQuery.BinRow row : mine) {
+            if (!(level.getBlockEntity(row.pos()) instanceof GranaryBinBlockEntity bin)) {
+                continue;
+            }
+            GranaryDeposit.Result result = GranaryDeposit.deposit(level, bin, player);
+            if (!result.accepted()) {
+                blocked = true;
+                continue;
+            }
+            items += result.items();
+            stacks += result.stacks();
+            exhausted += result.skips().exhausted();
+            fresh += result.skips().fresh();
+            rotten += result.skips().rotten();
+        }
+        if (stacks == 0 && blocked) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.deposit_blocked"));
+            return 0;
+        }
+        int finalItems = items;
+        int finalStacks = stacks;
+        int finalExhausted = exhausted;
+        int finalFresh = fresh;
+        int finalRotten = rotten;
+        source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.deposit",
+                finalItems, finalStacks, finalExhausted, finalFresh, finalRotten), false);
+        source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.deposit_hint"),
+                false);
+        return items;
+    }
+
+    /** 看「保留快捷栏」现在是开还是关。 */
+    private static int keepHotbarQuery(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        boolean keep = GranaryDeposit.keepsHotbar(player);
+        context.getSource().sendSuccess(() -> Component.translatable(
+                "message.miningdim.granary.command.keephotbar", onOff(keep)), false);
+        return keep ? 1 : 0;
+    }
+
+    /** 设置「保留快捷栏」(按玩家记住, 规格: 玩家 persistentData)。 */
+    private static int keepHotbarSet(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        boolean keep = BoolArgumentType.getBool(context, "value");
+        GranaryDeposit.setKeepsHotbar(player, keep);
+        context.getSource().sendSuccess(() -> Component.translatable(
+                "message.miningdim.granary.command.keephotbar_set", onOff(keep)), false);
+        return keep ? 1 : 0;
+    }
+
+    private static Component onOff(boolean value) {
+        return Component.translatable(value
+                ? "message.miningdim.granary.command.on" : "message.miningdim.granary.command.off");
+    }
+
+    // ============================================================
+    // 管理命令
+    // ============================================================
     /** 立刻复查站着的那座 (不走队列与冷却)。 */
     private static int rescan(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         CommandSourceStack source = context.getSource();

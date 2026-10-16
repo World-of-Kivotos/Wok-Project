@@ -46,7 +46,10 @@ public final class GranarySystem {
         if (event.isCanceled() || !(event.getLevel() instanceof ServerLevel level)) {
             return;
         }
-        if (!(event.getPlacedBlock().getBlock() instanceof GranaryBinBlock)) {
+        boolean isBin = event.getPlacedBlock().getBlock() instanceof GranaryBinBlock;
+        boolean isCenter = event.getPlacedBlock().getBlock()
+                instanceof com.miningdim.job.farmer.granary.block.GranaryCenterBlock;
+        if (!isBin && !isCenter) {
             return;
         }
         // 假玩家 (机器、Deployer) 一律放不了: 额度不能记在假玩家名下。
@@ -56,6 +59,18 @@ public final class GranarySystem {
             return;
         }
         GranarySavedData data = GranarySavedData.get(level);
+        if (isCenter) {
+            int centers = data.centerCount(player.getUUID());
+            if (centers >= GranaryConfig.maxCentersPerPlayer()) {
+                event.setCanceled(true);
+                player.displayClientMessage(Component.translatable(
+                        "message.miningdim.granary.center_cap_reached",
+                        GranaryConfig.maxCentersPerPlayer()), true);
+                return;
+            }
+            data.claimCenter(level.dimension().location(), event.getPos(), player.getUUID());
+            return;
+        }
         int farmerLevel = JobServices.jobService().level(player, JobId.FARMER);
         int alreadyPlaced = data.binCount(player.getUUID());
         GranaryBinGuard.PlaceResult result =
@@ -84,9 +99,24 @@ public final class GranarySystem {
         bin.assignOwner(player.getUUID(), data.binCount(player.getUUID()));
     }
 
-    /** 方块被移除时归还额度 (唯一回收点由 {@link GranaryBinBlock#onRemove} 调)。 */
+    /** 账台归属 (谁放的账台谁就是房主)。 */
+    public static void bindCenterOwner(ServerLevel level, net.minecraft.core.BlockPos pos,
+                                       com.miningdim.job.farmer.granary.block.GranaryCenterBlockEntity center,
+                                       ServerPlayer player) {
+        if (center.owner() != null) {
+            return;
+        }
+        center.assignOwner(player.getUUID(), 0L, level.getGameTime());
+    }
+
+    /** 方块被移除时归还额度 (唯一回收点由方块的 onRemove 调)。 */
     public static void releaseBin(ServerLevel level, net.minecraft.core.BlockPos pos) {
         GranarySavedData.get(level).releaseBin(level.dimension().location(), pos);
+    }
+
+    /** 账台被移除时归还账台额度。 */
+    public static void releaseCenter(ServerLevel level, net.minecraft.core.BlockPos pos) {
+        GranarySavedData.get(level).releaseCenter(level.dimension().location(), pos);
     }
 
     /** 某人当前占用的储粮囤数 (界面与提示用)。 */

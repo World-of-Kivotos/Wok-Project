@@ -52,12 +52,42 @@ public final class GranaryBlocks {
             BLOCK_ENTITIES.register("granary_bin",
                     () -> BlockEntityType.Builder.of(GranaryBinBlockEntity::new, BIN.get()).build(null));
 
+    /** 账台: 粮仓的大脑, 本身不装东西; 可以嵌在墙上。 */
+    public static final RegistryObject<Block> CENTER = BLOCKS.register("granary_center",
+            () -> new GranaryCenterBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.WOOD)
+                    .strength(2.0F, 1200.0F)
+                    .pushReaction(PushReaction.BLOCK)
+                    .sound(SoundType.WOOD)));
+
+    public static final RegistryObject<Item> CENTER_ITEM = ITEMS.register("granary_center",
+            () -> new BlockItem(CENTER.get(), new Item.Properties()));
+
+    public static final RegistryObject<BlockEntityType<GranaryCenterBlockEntity>> CENTER_ENTITY =
+            BLOCK_ENTITIES.register("granary_center",
+                    () -> BlockEntityType.Builder.of(GranaryCenterBlockEntity::new, CENTER.get()).build(null));
+
+    /** 气窗: 嵌在外墙上, 每 4 个储粮囤要 1 扇; 判定时算墙。 */
+    public static final RegistryObject<Block> VENT = BLOCKS.register("granary_vent",
+            () -> new GranaryVentBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.WOOD)
+                    .strength(2.0F)
+                    .sound(SoundType.WOOD)
+                    .noOcclusion()));
+
+    public static final RegistryObject<Item> VENT_ITEM = ITEMS.register("granary_vent",
+            () -> new BlockItem(VENT.get(), new Item.Properties()));
+
     /** 农夫模块自己的创造页 (粮仓部件都进这里, 不碰中央创造栏)。 */
     public static final RegistryObject<CreativeModeTab> TAB = TABS.register("farmer_granary",
             () -> CreativeModeTab.builder()
                     .title(Component.translatable("itemGroup.miningdim.granary"))
                     .icon(() -> new ItemStack(BIN_ITEM.get()))
-                    .displayItems((params, output) -> output.accept(BIN_ITEM.get()))
+                    .displayItems((params, output) -> {
+                        output.accept(CENTER_ITEM.get());
+                        output.accept(BIN_ITEM.get());
+                        output.accept(VENT_ITEM.get());
+                    })
                     .build());
 
     private GranaryBlocks() {

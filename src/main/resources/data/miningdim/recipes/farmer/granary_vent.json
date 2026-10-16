@@ -1,0 +1,14 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "F",
+    "T",
+    "T"
+  ],
+  "key": {
+    "F": { "item": "minecraft:oak_fence" },
+    "T": { "item": "minecraft:oak_trapdoor" }
+  },
+  "result": { "item": "miningdim:granary_vent", "count": 2 }
+}

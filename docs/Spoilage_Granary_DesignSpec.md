@@ -1002,7 +1002,7 @@ P1 是开服关卡前的全部工作；P1b 不卡开服，跟厨师重构同一�
 | --- | --- |
 | 待拍板清单 14 项 | **全部按推荐值拍板**，状态列已改 DECIDED |
 | 精妙背包（sophisticatedbackpacks） | **不上正式服**（与第五节「各持有点处理」「反漏洞 #16」一致） |
-| Create 机械动力 | **本体服装**（测试实例与开发运行时当前都没装，见下） |
+| Create 机械动力 | **本体服装**（已装进 `…47.4.22` 测试实例；开发运行时按离线核对流程，不装，见下） |
 | 「农夫模块前置修复」 | 即 **FD 1.2.9 适配**，本轮已收口（见二） |
 | 线上环境三项（keepInventory、Flan、维护排期） | 线上尚未定，**先按本地测试环境推进**，三项保留为风险 |
 
@@ -1030,7 +1030,7 @@ P1 是开服关卡前的全部工作；P1b 不卡开服，跟厨师重构同一�
 
 **不在整合包里、但规格按「要覆盖」写过的模组：Dumplings、Crabber's Delight、Delightful、casualness_delight** —— 类别标签工程（原估 2.5 人日 / 12 个模组 / 500–800 种食物）的范围按实测缩小到实际在位的模组；标签按「可缺省 + 按模组拆子标签」写，仍然兼容以后加包。
 
-**Create 机械动力：** 本体测试实例（`D:\WOK测试\versions\1.20.1-Forge_47.4.20`、`…47.4.22`）与开发运行时**都没有**；整合包实例里是 `create_consblocks.jar`（`modId=create` `version=6.0.8`，jarjar 内嵌 flywheel 1.0.6-beta-266 / Ponder 1.0.91 / Registrate 1.3.3）。开发侧仍按既有流程用 `-PcreateJar=<该 jar 路径>` 做离线注入点核对，不把 Create 塞进 GameTest 运行时。
+**Create 机械动力：** 服主 2026-10-15 拍板**本体服装**。拍板前实测：本体测试实例与开发运行时都没有 Create；整合包实例里是 `create_consblocks.jar`（`modId=create` `version=6.0.8`，jarjar 内嵌 flywheel 1.0.6-beta-266 / Ponder 1.0.91 / Registrate 1.3.3 / mixinextras 0.4.1）。据此本轮做了两件事：① 把整合包同版 jar 装进与整合包同基线的测试实例 `D:\WOK测试\versions\1.20.1-Forge_47.4.22\mods`（SHA256 `3650CE4A33EC06BF85FFD6B8ABE9F6C0394F5A4A35FB8D333F935B3B93EC2A1D`，删除该 jar 即回滚；`…47.4.20` 的 FD 仍是 1.3.2、基线不同，未动）；② 开发运行时仍不装 Create，按既有流程用 `-PcreateJar=<该 jar 路径>` 做离线注入点核对 —— 本轮对整合包 jar 实测为 `district Create offline check: 25 handler(s) in 19 mixin(s)` / `19 hook(s)`，2098 项全绿。
 
 ### 四、本机未取证的三项（线上是远程主机）
 

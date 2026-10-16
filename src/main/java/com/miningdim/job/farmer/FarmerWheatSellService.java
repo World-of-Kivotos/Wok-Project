@@ -1,12 +1,20 @@
 package com.miningdim.job.farmer;
 
 import com.miningdim.economy.EconomyServices;
+import com.miningdim.freshness.FreshnessCategories;
+import com.miningdim.freshness.FreshnessClockData;
+import com.miningdim.freshness.FreshnessData;
+import com.miningdim.freshness.FreshnessObservation;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.farmer.item.FarmerItems;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.SimpleContainer;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 
@@ -81,6 +89,9 @@ public final class FarmerWheatSellService {
         if (JobServices.jobService().level(player, JobId.FARMER) < FarmerConstants.SELL_MIN_MASTERY_LEVEL) {
             return SellResult.masteryDenied();
         }
+        // 先结算背包再计数 (规格「消费点改造 · 卖麦」): 试运行档只盖章, 开启档会把过期小麦先换成腐烂物,
+        // 于是「卖出去的那批」永远是还没烂的; 少了这一步, 玩家能把已经烂掉的麦子照价卖给系统。
+        FreshnessObservation.settlePlayer(player);
         int owned = countWheat(player);
         int toSell = Math.min(owned, requestedAmount);
         if (toSell <= 0) {
@@ -140,10 +151,47 @@ public final class FarmerWheatSellService {
                 stack -> stack.is(FarmerItems.FARMER_WHEAT.get()), 0, new SimpleContainer(0));
     }
 
-    /** 从玩家库存扣除 amount 个 mod 小麦, 返回实际扣除数。 */
+    /**
+     * 从玩家库存扣除 amount 个 mod 小麦, 返回实际扣除数。
+     *
+     * <b>按剩余时间从少到多扣</b> (规格「消费点改造 · 卖麦」: 先扣最老的)。原版的
+     * {@code clearOrCountMatchingItems} 按槽位顺序扣, 于是玩家永远先卖掉新麦、把最老的留到最后 ——
+     * 那正好是「挑着卖」把腐烂成本转嫁给系统。副手一起算 (与任务上交同一口径), 不碰盔甲槽。
+     */
     private static int chargeWheat(ServerPlayer player, int amount) {
-        return player.getInventory().clearOrCountMatchingItems(
-                stack -> stack.is(FarmerItems.FARMER_WHEAT.get()), amount, new SimpleContainer(0));
+        long nowMinute = FreshnessClockData.nowMinute(player.serverLevel());
+        List<ItemStack> candidates = new ArrayList<>();
+        collectWheat(player.getInventory().items, candidates);
+        collectWheat(player.getInventory().offhand, candidates);
+        candidates.sort(Comparator.comparingLong(stack -> remainingMinutes(stack, nowMinute)));
+        int remaining = amount;
+        for (ItemStack stack : candidates) {
+            if (remaining <= 0) {
+                break;
+            }
+            int take = Math.min(stack.getCount(), remaining);
+            stack.shrink(take);
+            remaining -= take;
+        }
+        if (remaining < amount) {
+            player.getInventory().setChanged();
+        }
+        return amount - remaining;
+    }
+
+    private static void collectWheat(List<ItemStack> stacks, List<ItemStack> out) {
+        for (ItemStack stack : stacks) {
+            if (!stack.isEmpty() && stack.is(FarmerItems.FARMER_WHEAT.get())) {
+                out.add(stack);
+            }
+        }
+    }
+
+    /** 这一堆还剩多少分钟 (不腐烂的东西排到最后)。 */
+    private static long remainingMinutes(ItemStack stack, long nowMinute) {
+        int shelfLife = FreshnessCategories.shelfLifeHours(stack);
+        return shelfLife <= 0 ? Long.MAX_VALUE
+                : FreshnessData.remainingMinutes(stack, shelfLife, nowMinute);
     }
 
     /**

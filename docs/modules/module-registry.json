@@ -372,7 +372,8 @@
         "wok-core",
         "wok-economy",
         "wok-webui",
-        "wok-enchant"
+        "wok-enchant",
+        "wok-freshness"
       ],
       "optionalIntegrations": [
         "tacz"

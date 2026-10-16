@@ -894,6 +894,72 @@ public final class QuestGameTests {
     }
 
     /**
+     * 上交只收**没腐烂**的 (规格「消费点改造 · 任务上交」: 加「未腐烂」条件), 而腐肉任务不受影响
+     * (腐肉在豁免标签 `miningdim:freshness_exempt` 里, 「不腐烂的东西永远不算烂」)。
+     *
+     * 删掉 {@code takeFrom} 里那道腐烂判定, 第二段会在"烂掉的面包一个都不许收"上挂; 若把口径写成
+     * 「shelfLife 为 0 也算烂」, 第一段 (腐肉) 会立刻挂 —— 这正是那道判定存在的理由。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void turnInRefusesRottenFoodButAcceptsExemptItems(GameTestHelper helper) {
+        IEconomyService previous = currentEconomy();
+        registerFreshEconomy();
+        try {
+            ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            QuestPool pool = QuestPool.builtin();
+            QuestService service = new QuestService(pool);
+            player.getInventory().clearContent();
+
+            // 第一段: 腐肉 (豁免品) 照旧能交。
+            QuestDefinition flesh = pool.byId("daily.turnin.rotten");
+            int fleshRequired = flesh.objective().requiredCount();
+            QuestBoard board = service.boardOf(player);
+            board.restorePeriodic(QuestClock.currentUtcDayStamp(),
+                    List.of(new QuestProgress(flesh)), QuestClock.currentUtcWeekStamp(), List.of());
+            player.getInventory().add(new ItemStack(Items.ROTTEN_FLESH, fleshRequired));
+            QuestService.TurnInResult fleshResult = service.turnIn(player, flesh.id());
+            helper.assertTrue(fleshResult.outcome() == QuestService.TurnInOutcome.TURNED_IN
+                            && fleshResult.count() == fleshRequired,
+                    "腐肉任务不受腐烂门槛影响, 实得 " + fleshResult.outcome() + " x" + fleshResult.count());
+
+            // 第二段: 自己造一条收面包的上交任务, 面包烂透了 -> 一个都不收。
+            helper.assertTrue(com.miningdim.freshness.FreshnessCategories.spoils(new ItemStack(Items.BREAD)),
+                    "夹具: 面包是会烂的东西");
+            net.minecraft.world.item.ItemStack rotten = new ItemStack(Items.BREAD, 8);
+            long nowMinute = com.miningdim.freshness.FreshnessClockData.nowMinute(player.serverLevel());
+            int shelfLife = com.miningdim.freshness.FreshnessCategories.shelfLifeHours(rotten);
+            com.miningdim.freshness.FreshnessData.stampAt(rotten, nowMinute - (long) shelfLife * 60L - 60L, 0);
+            helper.assertTrue(com.miningdim.freshness.FreshnessCheck.isRottenNow(rotten, nowMinute),
+                    "夹具: 这批面包已经烂了");
+            player.getInventory().add(rotten);
+
+            QuestDefinition bread = new QuestDefinition("test.turnin.bread",
+                    com.miningdim.quest.QuestSource.DAILY, "交面包",
+                    new com.miningdim.quest.objective.TurnInItemObjective(Items.BREAD, 4), 1);
+            QuestBoard breadBoard = service.boardOf(player);
+            breadBoard.restorePeriodic(QuestClock.currentUtcDayStamp(),
+                    List.of(new QuestProgress(bread)), QuestClock.currentUtcWeekStamp(), List.of());
+            QuestService.TurnInResult breadResult = service.turnIn(player, bread.id());
+            helper.assertTrue(breadResult.outcome() == QuestService.TurnInOutcome.NOTHING_TO_TURN_IN,
+                    "烂掉的面包一个都不许收, 实得 " + breadResult.outcome());
+            helper.assertTrue(countInInventory(player, Items.BREAD) == 8, "被拒的上交一个物品都不许扣");
+
+            // 同一条任务, 换成新鲜面包就能交。
+            player.getInventory().clearContent();
+            net.minecraft.world.item.ItemStack fresh = new ItemStack(Items.BREAD, 4);
+            com.miningdim.freshness.FreshnessData.stamp(fresh, nowMinute);
+            player.getInventory().add(fresh);
+            QuestService.TurnInResult freshResult = service.turnIn(player, bread.id());
+            helper.assertTrue(freshResult.outcome() == QuestService.TurnInOutcome.TURNED_IN
+                            && freshResult.count() == 4,
+                    "新鲜面包照常能交, 实得 " + freshResult.outcome() + " x" + freshResult.count());
+        } finally {
+            restoreEconomy(previous);
+        }
+        helper.succeed();
+    }
+
+    /**
      * 倾泻火力算的是<b>击发</b>, 不是击杀也不是命中。
      *
      * 第二行是要害: 把 {@code AmmoSpentObjective.match} 错接到 GunKill 上, 这条任务就变成了"击杀 N 只",

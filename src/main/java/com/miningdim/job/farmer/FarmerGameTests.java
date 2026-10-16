@@ -820,6 +820,61 @@ public final class FarmerGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void sellChargesTheOldestWheatFirst(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        player.getInventory().clearContent();
+        setFarmerLevel(player, FarmerConstants.SELL_MIN_MASTERY_LEVEL);
+        IEconomyService prev = currentEconomy();
+        registerFreshEconomy();
+        try {
+            long nowMinute = com.miningdim.freshness.FreshnessClockData.nowMinute(player.serverLevel());
+            ItemStack old = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 20);
+            com.miningdim.freshness.FreshnessData.stampAt(old, nowMinute - 100L * 60L, 0);   // 100 小时前收的
+            ItemStack justHarvested = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 20);
+            com.miningdim.freshness.FreshnessData.stamp(justHarvested, nowMinute);
+            player.getInventory().setItem(9, old);
+            player.getInventory().setItem(10, justHarvested);
+
+            FarmerWheatSellService.SellResult result = FarmerWheatSellService.sell(player, 5);
+
+            helper.assertTrue(result.soldCount() == 5, "卖掉 5 株, 实得 " + result.soldCount());
+            helper.assertTrue(player.getInventory().getItem(9).getCount() == 15,
+                    "先扣最老的那一堆 (20 → 15), 实得 " + player.getInventory().getItem(9).getCount());
+            helper.assertTrue(player.getInventory().getItem(10).getCount() == 20,
+                    "刚收的那一堆一点没动, 实得 " + player.getInventory().getItem(10).getCount());
+            helper.succeed();
+        } finally {
+            restoreEconomy(prev);
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void sellSettlesTheInventoryBeforeCounting(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        player.getInventory().clearContent();
+        setFarmerLevel(player, FarmerConstants.SELL_MIN_MASTERY_LEVEL);
+        IEconomyService prev = currentEconomy();
+        registerFreshEconomy();
+        try {
+            // 没盖章的 10 株: 卖之前那一步结算要先把它们盖上章 (规格「卖麦: 先结算背包再计数」)。
+            ItemStack loose = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 10);
+            player.getInventory().setItem(9, loose);
+            helper.assertTrue(!com.miningdim.freshness.FreshnessData.isStamped(loose), "夹具: 一开始没有章");
+
+            FarmerWheatSellService.SellResult result = FarmerWheatSellService.sell(player, 4);
+
+            helper.assertTrue(result.soldCount() == 4, "卖掉 4 株, 实得 " + result.soldCount());
+            ItemStack kept = player.getInventory().getItem(9);
+            helper.assertTrue(kept.getCount() == 6, "剩下的 6 株还在, 实得 " + kept.getCount());
+            helper.assertTrue(com.miningdim.freshness.FreshnessData.isStamped(kept),
+                    "结算过的那一批必须有章 (没盖章的货会被后来的观察点当成新货重新起算)");
+            helper.succeed();
+        } finally {
+            restoreEconomy(prev);
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void sellWhenEconomyUnregisteredIsOffline(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         player.getInventory().clearContent();

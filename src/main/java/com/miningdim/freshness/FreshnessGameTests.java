@@ -189,6 +189,40 @@ public final class FreshnessGameTests {
     }
 
     // ============================================================
+    // 给消费点用的查询 (FreshnessCheck)
+    // ============================================================
+
+    /**
+     * 消费点 (`/farmer sell`、酿酒台、任务上交、市场) 用的那两个查询: **不腐烂的东西永远不算烂**。
+     *
+     * 这是一道很贵的门槛: 直接拼 `isRotten(stack, shelfLifeHours(stack), now)` 时, 骨头、火药、
+     * 下界之星这些 `shelfLife == 0` 的上交物会被算成「剩余 0 分钟」而整批拒收 —— 这条用例就是钉它的。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void checkTreatsNonPerishablesAsNeverRotten(GameTestHelper helper) {
+        long now = 500_000L * 60L;
+        helper.assertTrue(!FreshnessCheck.isRottenNow(new ItemStack(Items.STONE, 1), now),
+                "石头不腐烂, 永远不算烂");
+        helper.assertTrue(!FreshnessCheck.isRottenNow(new ItemStack(Items.ROTTEN_FLESH, 1), now),
+                "腐肉是豁免品 (它本来就是烂的), 任务上交照收");
+        helper.assertTrue(!FreshnessCheck.isRottenNow(ItemStack.EMPTY, now), "空栈不算烂");
+        helper.assertTrue(FreshnessCheck.remainingMinutes(new ItemStack(Items.STONE, 1), now) == Long.MAX_VALUE,
+                "不腐烂的东西排到最后 (消费点按「先扣最老的」排序时不会被当成最老的那批)");
+
+        // 会腐烂的: 盖一个过期的章就算烂, 没盖章的按整段保质期算 (不烂)。
+        ItemStack rotten = new ItemStack(Items.BREAD, 1);
+        int shelfLife = FreshnessCategories.shelfLifeHours(rotten);
+        FreshnessData.stampAt(rotten, now - (long) shelfLife * 60L - 60L, 0);
+        helper.assertTrue(FreshnessCheck.isRottenNow(rotten, now), "过期一小时的面包算烂");
+        helper.assertTrue(!FreshnessCheck.isRottenNow(new ItemStack(Items.BREAD, 1), now),
+                "没盖章的面包按整段保质期算, 不算烂");
+        helper.assertTrue(FreshnessCheck.remainingMinutes(new ItemStack(Items.BREAD, 1), now)
+                        == (long) shelfLife * 60L,
+                "没盖章的面包剩余 = 一整个保质期");
+        helper.succeed();
+    }
+
+    // ============================================================
     // 类别与豁免判定顺序
     // ============================================================
 

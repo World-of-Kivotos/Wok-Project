@@ -23,7 +23,7 @@
 | `wok-quest` | WOK-任务模块 | 35 | 49 | `QuestSystem` | 核心、经济、WebUI、附魔；TaCZ 可选 |
 | `wok-enchant` | WOK-附魔模块 | 7 | 9 | `EnchantmentSystem` | 核心、经济 |
 | `wok-job-miner` | WOK-矿工模块 | 28 | 47 | `MinerSystem` | 核心、职业框架、矿区、经济、战斗框架、WebUI |
-| `wok-job-farmer` | WOK-农夫模块 ‡‡ | 47 | 81 | `FarmerModule` | 核心、全服经验、职业框架、经济、WebUI、腐烂底座；Farmer's Delight 可选 |
+| `wok-job-farmer` | WOK-农夫模块 ‡‡ | 49 | 87 | `FarmerModule` | 核心、全服经验、职业框架、经济、WebUI、腐烂底座；Farmer's Delight 可选 |
 | `wok-job-armorer` | WOK-铸甲师模块 | 124 | 82 | `EngineerSystem` | 核心、职业框架、精英怪、WebUI；TaCZ 可选 |
 | `wok-job-chef` | WOK-厨师模块 | 35 | 34 | `ChefModule` | 核心、全服经验、职业框架、战斗框架、经济、WebUI；Farmer's Delight、Flavor Immersed Daily 可选 |
 | `wok-job-fisher` | WOK-渔夫模块 † | 39 | 37 | `FishingSystem` | 核心、存储、经济、厨师；Farmer's Delight、Tide 可选 |
@@ -82,6 +82,7 @@ GameTest 位于主源码集是本仓库既有约定，因此 Java 文件数包�
 - 粮仓的其余部分（冷源清单扩展、合建成员与待领粮单、界面与命令）随设计文档后续分片加入，届时 `GranarySavedData` 的字段与 `granary_` 资源会继续增长。
 - 粮仓第四块（2026-10-15，验收分档、启用裁决与登记项存档，提交 `3029d5b5`）补测为 47 个文件、81 条 GameTest：新增 5 个类（`GranaryTier` 三档并档与每档要求、`GranaryAcceptance` 纯函数验收裁决与逐条清单、`GranaryEnablement` 可支撑数与 128 上限、`GranaryBinState` 启用/待启用/停用三态、`GranaryRecord` 登记项）与 1 个测试类 `GranaryAcceptanceGameTests`（7 条，batch `granary_acceptance`，粮仓子包至此 22 个文件、28 条用例、四个批次）。
 - `GranarySavedData` 这一块新增 `granaries`（房主/档位/验收人/验收时刻/状态/损坏时刻）、`binGranary`（囤 → 粮仓）、`binStates`（每个囤的启用状态）与 `nextGid`，并把存档键收拢进 `GranaryConstants` 作为对外契约；连线与启用状态按**派生索引**读档（悬空即丢），坏结构（版本不符、编号重复、囤重复入册、状态认不出）仍直接抛错。没有新增依赖、没有新增资源。
+- 粮仓第五块（2026-10-15，账台门面：登记、验收与启用重排，提交 `6c2b3e4a`）补测为 49 个文件、87 条 GameTest：新增 2 个类 `GranaryInspection`（验算 → 连囤 → 排启用 → 裁决/验收的唯一入口）与 `GranaryInspectionGameTests`（6 条，batch `granary_inspect`），粮仓子包至此 24 个文件、34 条用例、五个批次；`GranaryStructureScanner.ScanResult` 多了屋里囤的坐标列表，`GranarySavedData` 的账台条目多了 `Gid`（账本才是权威，方块实体上的编号只是给界面看的镜像）并新增全局入册序号水位 `NextSeq`，中英文语言文件各多 19 个键。没有新增依赖与资源。
 
 ※ `wok-freshness` 这一行是 2026-10-15 腐烂底座前五个切片落地后的实测值：① 模块骨架 + 时钟 + 物品保鲜章 + 类别与豁免判定；② 腐烂物终态 + 无需 mixin 的观察点；③ 加工继承策略 + 合成格/熔炉三件套/漏斗三个原版 mixin；④ 同种食物合并核心 + 拾取入包/点击叠放/配方书追加三个入口；⑤ 开服标签自检 + 按小时统计环（保留 30 天）+ `/freshness` 命令。
 - 32 个文件：`freshness/` 26 个（含 5 个测试类）、`freshness/item/` 1 个、`freshness/mixin/` 5 个；42 条 GameTest，分五个批次 `freshness_foundation`（12）、`freshness_settle`（5）、`freshness_processing`（8）、`freshness_merge`（10）、`freshness_stats`（7）。

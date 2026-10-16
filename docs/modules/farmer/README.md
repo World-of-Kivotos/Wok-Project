@@ -5,8 +5,8 @@
 当前入口：`com.miningdim.job.farmer.FarmerModule`
 
 当前状态：已启用独立模块装配入口，并通过职业框架策略注册契约清偿反向依赖；Java 包、资源 ID 和注册项保持兼容。
-粮仓子包 `job/farmer/granary` 已落地四块：储粮囤额度与归属记账、账台 / 气窗与房间结构判定、停表结算、
-验收分档与启用裁决（含登记项与启用状态存档）；
+粮仓子包 `job/farmer/granary` 已落地五块：储粮囤额度与归属记账、账台 / 气窗与房间结构判定、停表结算、
+验收分档与启用裁决（含登记项与启用状态存档）、账台门面（放置开号、右键看结构、潜行右键验收、部件变动后重排启用）；
 冷源清单扩展、损坏与宽限、合建成员与待领粮单、界面与命令按 `docs/Spoilage_Granary_DesignSpec.md` 后续分片推进。
 
 ## 1. 功能边界
@@ -31,7 +31,10 @@
   **验收分档与启用裁决**（粮棚 L1 / 冷库 L5 / 官仓 L7 三档并档，档位只管能存什么与功能、不给容量，
   按**验收人的农夫等级**在点击那一刻判定且只升不降；验收清单逐条报实际数字；每个囤的启用状态分
   启用 / 待启用 / 停用三态，按入册先后截出启用集合，待启用的不占格数要求，原来启用、部件被拆撑不住的
-  记「停用」走宽限期；粮仓登记项与编号水位落盘）。
+  记「停用」走宽限期；粮仓登记项与编号水位落盘）；
+  **账台门面**（放下账台就开号并落一条未验收的登记项，方块实体上的编号只是镜像、账本才是权威；
+  右键账台看状态与逐条清单，潜行右键验收，服务器在点击那一刻读验收人的等级并记下「谁替谁验收」；
+  每次验算把屋里的囤连到这座粮仓并按部件重排启用名单，拆掉账台就解散粮仓、把囤的连线清掉）。
   粮仓的其余部分（冷源清单扩展、损坏与宽限、合建与待领粮单、界面与命令）
   在同一份设计文档的后续分片里。
 
@@ -90,8 +93,12 @@
 - 储粮囤的格账键：`EntryHours`（每格原始入仓时刻）、`CreditedHours`（每格本次已计停表）、
   `Stopping`（是否正在停表）；停表口径 24 小时起算、每件 504 小时封顶。
 - 粮仓存档键（`GranaryConstants`，迁移与存档体检按同一套键读旧档）：`Version`、`Bins`、`Centers`、
-  `Granaries`、`BinGranary`、`BinStates`、`NextGid`，以及条目内的 `Dim`、`Pos`、`Owner`、`Seq`、
+  `Granaries`、`BinGranary`、`BinStates`、`NextGid`、`NextSeq`，以及条目内的 `Dim`、`Pos`、`Owner`、`Seq`、
   `Gid`、`State`、`Id`、`Tier`、`AcceptedBy`、`AcceptedAt`、`Status`、`DamagedAt`。
+  账台条目里的 `Gid` 是「这座账台开的是哪座粮仓」：账本是权威（拆账台、解散粮仓、日后的损坏复查都读它），
+  方块实体上的 `Gid` 只是给界面看的镜像。
+- 入册序号是全服单调递增的（`NextSeq` 水位）：同一座粮仓里可能有多人的囤，启用顺序要在同一条序列上分先后，
+  不能用「某人第几个囤」。
 - 验收口径（改了会让已有粮仓的档位判定变化）：三档门槛 L1/L5/L7；室内基础格数 18/36/72 且每个入册的囤 9 格；
   气窗每 4 个囤 1 扇、至少 1 扇；冷源自冷库起每 2 个囤 1 个、至少 2 个；单座粮仓最多启用 128 个囤；
   档位在验收那一刻锁定、之后升级降级都不追溯。
@@ -156,8 +163,9 @@ job/farmer/
 | `granary/GranaryStructureGameTests` | `granary_structure` | 账台 / 气窗 / 冷源与房间结构判定 |
 | `granary/GranarySettleGameTests` | `granary_settle` | 停表算术（四组钉死的数字与中途结算不重置） |
 | `granary/GranaryAcceptanceGameTests` | `granary_acceptance` | 验收分档门槛、清单实际数字、启用先后与启用状态存档 |
+| `granary/GranaryInspectionGameTests` | `granary_inspect` | 账台开号与解散、右键报告与潜行右键验收、结构不成立不收囤、升档的等级门、部件被拆转停用 |
 
-只看 `farmer` batch 会漏掉整条 WebUI 面板链路与全部粮仓规则，六个 batch 都要绿。
+只看 `farmer` batch 会漏掉整条 WebUI 面板链路与全部粮仓规则，七个 batch 都要绿。
 
 `farmer` batch 覆盖范围包括：
 
@@ -176,7 +184,7 @@ job/farmer/
 - 耕地放置归属索引：认领与回收计在放置者而非破坏者头上，无玩家破坏也要还配额，旧计数迁移为溢出额且不跨认领/释放重复计数。
 - 五档耕地活塞不可推（`PushReaction.BLOCK`），封死推走耕地绕过放置上限的路径。
 
-`granary_*` 四个 batch 覆盖范围包括：
+`granary_*` 五个 batch 覆盖范围包括：
 
 - 额度与归属：L1 3 个、每级 +1、L10 共 13 个；放置事件在 `EventPriority.LOWEST` 上裁决，假玩家一律拒绝；
   认领与归还在坐标上记账、拆除才归还、同一坐标换主人必须被拒。
@@ -186,12 +194,15 @@ job/farmer/
 - 验收与启用：档位门槛 L1/L5/L7 与「只升不降、到顶无可验收档位」；清单报实际数字（格数 / 气窗 / 冷源 / 账台数 / 不算数的囤）；
   待启用的囤不占格数要求；按入册先后启用，部件被拆时原来启用的转「停用」、从来没启用的保持「待启用」，补齐后转回启用；
   登记项状态机（未验收 → 完好 → 损坏 → 修好）与登记项 / 连线 / 启用状态的存档往返；悬空索引读档时丢弃、编号水位按已用编号抬高。
+- 账台门面：放下账台开号并落未验收登记项（方块实体上的编号是账本那份的镜像）、拆掉账台解散粮仓并清掉囤的连线；
+  右键只报告不改状态、潜行右键才验收；结构不成立（漏风等）时既不收囤也不给验收；升档要点击者本人的农夫等级
+  且验收人不必是房主；部件被拆时原来启用的囤转「停用」，装回去又转回启用。
 
 每个农夫模块整理提交至少执行：
 
 1. `gradlew.bat compileJava`
 2. `gradlew.bat processResources`
-3. `gradlew.bat runGameTestServer`，确认 `farmer`、`webui_w3` 与 `granary_bins` / `granary_structure` / `granary_settle` / `granary_acceptance` 六个 batch 全部通过。判定以日志里的 `All N required tests passed` 为准：服务端数据包加载崩溃时 gradle 仍可能返回 0，只看退出码是已知假阳性。
+3. `gradlew.bat runGameTestServer`，确认 `farmer`、`webui_w3` 与 `granary_bins` / `granary_structure` / `granary_settle` / `granary_acceptance` / `granary_inspect` 七个 batch 全部通过。判定以日志里的 `All N required tests passed` 为准：服务端数据包加载崩溃时 gradle 仍可能返回 0，只看退出码是已知假阳性。
 4. `gradlew.bat verifyModuleBoundaries`，确认 Java 包与资源所有权没有漂移
 5. 对冻结注册 ID 和 `miningdim_farmer` 做文本回归搜索
 6. 验证未安装 Farmer's Delight 时仍能启动和使用原生农夫内容

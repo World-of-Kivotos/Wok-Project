@@ -8,8 +8,8 @@
 ③ 加工继承策略 + 三个原版 mixin 观察点（合成格、熔炉三件套、漏斗）与两份 mixin 配置；
 ④ 同种食物合并（核心 + 拾取入包 / 点击叠放 / 配方书追加三个入口）；
 ⑤ 开服标签自检 + 按小时统计环（保留 30 天）+ `/freshness` 命令。
-类别标签工程的第三方条目、Shift 快移的合并入口、开服迁移、
-FD 与 BnC/refurbished 兼容 mixin、物品栏保鲜条与粮仓联动按设计文档后续切片推进。
+类别标签工程的第三方条目、Shift 快移的合并入口、
+FD 与 BnC/refurbished 兼容 mixin、物品栏保鲜条按设计文档后续切片推进。
 
 设计真源：[`../../Spoilage_Granary_DesignSpec.md`](../../Spoilage_Granary_DesignSpec.md)（14 项已按推荐拍板，
 2026-10-15；P0 环境核实记录在该文末）。
@@ -47,6 +47,10 @@ FD 与 BnC/refurbished 兼容 mixin、物品栏保鲜条与粮仓联动按设计
   已接线：卖麦（先结算背包再计数、扣麦按剩余从少到多）、酿酒台（统计投料时跳过已腐烂的，扣料先扣最老的）、
   任务上交（已腐烂的不收；腐肉在豁免标签里，照旧能交）、市场（上架盖章 + 不足 6 小时拒 / 不足 12 小时提示、
   购买时任意一层已腐烂就拒、浏览隐藏已腐烂的、腐烂满 30 天的挂单自动关闭、物品详情带 fresh.hours/fresh.rotten/fresh.untimed 三个标签）。
+- **开服迁移**：启用之前就存在的老货补一次「启用时刻正好剩 6 小时 + 停表额度记满 + m 标记」的章
+  （`FreshnessMigration`），三个入口分别覆盖存档 NBT（区块加载那一刻递归改方块实体数据，认「有 id 与 Count」
+  的条目而不认容器形状）、容器逐格（老玩家第一次登录的背包与末影箱）与实体内容；四个入口都是 `HIGHEST`
+  优先级，必须抢在观察点把没章的东西盖成「现在」之前。粮仓侧迁移货**不能进仓**。
 - **村民货**：村民与流浪商人卖出的易腐食物在报价生成时打 `MiningFresh.v`（报价那一刻**不盖章**——
   报价是开服登记的，那时盖章玩家买到手就是烂的），老村民进世界时补一次；**到手那一刻**由结算那一条路
   把剩余压到 6 小时（幂等：只在剩余多于 6 小时时压，压过之后只会继续变少）。村民收作物不拦。
@@ -55,7 +59,7 @@ FD 与 BnC/refurbished 兼容 mixin、物品栏保鲜条与粮仓联动按设计
   跟着区块存盘、跟着区块消失。记录只在服务端内存里维护，卸载时丢内存那一条。
   消费点拦截（市场；卖麦、酿酒台与任务上交已接线）；机器输出合并取最老；放置食物记录的**取份继承**（第三方盛宴那一路，
   随兼容分片接）；
-  开服迁移；FD / BnC / refurbished 兼容 mixin（走可选配置）；类别标签工程的第三方条目；
+  FD / BnC / refurbished 兼容 mixin（走可选配置）；类别标签工程的第三方条目；
   物品栏保鲜条与 WebUI 物品详情贡献者；粮仓在 `wok-job-farmer`。
 
 本模块不负责：
@@ -69,7 +73,7 @@ FD 与 BnC/refurbished 兼容 mixin、物品栏保鲜条与粮仓联动按设计
 
 ### Java 源码
 
-- `src/main/java/com/miningdim/freshness/`（42 个文件，含 `item/`、`mixin/` 两个子包与 9 个测试类）。
+- `src/main/java/com/miningdim/freshness/`（46 个文件，含 `item/`、`mixin/` 两个子包与 10 个测试类）。
 
 ### 专属资源
 
@@ -89,14 +93,15 @@ FD 与 BnC/refurbished 兼容 mixin、物品栏保鲜条与粮仓联动按设计
 ### 配置文件
 
 - `miningdim-freshness.toml`（SERVER，注册点 `freshness/FreshnessModule`）：`mode` 三档总开关、
-  `[shelfLife]` 六类保质期、`[granary]` 停表上限与门槛、`[consume]` 村民货与市场上架门槛、`[merge]` 合并窗口。
+  `[shelfLife]` 六类保质期、`[granary]` 停表上限与门槛、`[consume]` 村民货与市场上架门槛、`[merge]` 合并窗口、
+  `[migration]` 开服迁移（enabled / enabledAtEpochMinute / graceHours）。
 
 ## 3. 冻结的兼容身份
 
 后续切片不得修改（改了会废掉旧存档或让同一批货叠不上）：
 
 - 物品数据根键：`MiningFresh`；子键 `h`（批次时刻，IntTag）、`f`（已停表小时，IntTag）、`m`（迁移货）、`v`（村民货）。
-- SavedData 名：`miningdim_freshness_clock`（主世界）。
+- SavedData 名：`miningdim_freshness_clock`（时钟）、`miningdim_freshness_migration`（开服迁移状态：启用时刻 / 老玩家名单 / 已迁移的人），都在主世界。
 - 物品 tag：`miningdim:freshness/{fresh,produce,cooked,root,grain,preserved}`、`miningdim:freshness_exempt`。
 - mixin 配置名：`miningdim.freshness.mixins.json`（必需）、`miningdim.freshness.compat.mixins.json`（可选）；
   mixin 包：`com.miningdim.freshness.mixin`、`com.miningdim.freshness.mixin.compat`。
@@ -146,6 +151,11 @@ freshness/
   FreshnessClockData.java   主世界 SavedData（心跳 + 偏移）
   FreshnessData.java        物品章的唯一 writer
   FreshnessSettle.java      结算（盖章 / 换腐烂物），全模块唯一
+  FreshnessCheck.java       给别的模块的两道查询（不腐烂的永远不算烂）
+  FreshnessNested.java      嵌套容器下钻（读内容物 / 逐层盖章 / 最少剩余 / 最早腐烂时刻）
+  FreshnessMigration.java   开服迁移的纯逻辑（迁移章的唯一正源 + NBT 递归 + 容器逐格）
+  FreshnessMigrationData.java  主世界 SavedData（启用时刻 / 老玩家名单 / 已迁移的人）
+  FreshnessMigrationHooks.java 四个迁移入口（开服、区块、实体、老玩家登录，全 HIGHEST）
   FreshnessProcessing.java  加工继承的纯策略（取最差、加热加成、封顶、下限、停表取大）
   FreshMerge.java           同种合并的纯核心（三条门槛 + 加权平均 + 配方书取最老）
   FreshnessHooks.java       mixin 适配层（薄）
@@ -168,7 +178,7 @@ freshness/
 
 ## 7. 验证清单
 
-当前九个测试类共 58 条 GameTest：
+当前十个测试类共 64 条 GameTest：
 
 - `FreshnessGameTests`（batch `freshness_foundation`，13 条）
   - 时钟：首次观察、正常前进、停服按整小时补偿、运行中跳变补「差值 − 1」、挂钟回跳只增不减、测试偏移入口钳负值。
@@ -205,7 +215,14 @@ freshness/
     抛出去就是一个畸形潜影盒把面板打不开。
   - 判定与盖章：最少剩余与「最早腐烂时刻」都取最坏的那一层（没有烂层时是哨兵值，不是 0）；
     `stampDeep` 必须把章**写回容器 NBT**（`ItemStack.of` 读出来的是副本，只给副本盖章等于什么都没做），
-    且对已有章的层幂等。- `FreshnessAuditGameTests`（batch `freshness_audit`，4 条）
+    且对已有章的层幂等。
+- `FreshnessMigrationGameTests`（batch `freshness_migration`，6 条）
+  - 迁移章：启用那一刻正好剩 6 小时、停表额度记满、带 `m` 标记，且随后照常变少（迁移是宽限，不是停表）；
+    已经盖过章的老货、不腐烂的东西、豁免品一律不动。
+  - 存档 NBT：认「有 id 与 Count」的条目而不认容器形状（箱子里的面包 + 潜影盒里的面包一次覆盖），
+    第二遍不再改动任何东西；畸形条目（id 非法、缺 id、缺 Count、id 不是字符串）跳过而不抛。
+  - 容器与名单：容器逐格只迁移一次；启用时刻不许被重启推后；老玩家名单只记一次（新玩家不许补进来）；
+    启用时刻 / 名单 / 已迁移集合都要经得起存读；存档里的脏 UUID 跳过。- `FreshnessAuditGameTests`（batch `freshness_audit`，4 条）
   - 巡查：只数已加载容器里的未盖章/已腐烂易腐品、件数按**物品个数**算、干净的容器与不是容器的方块不算；
     邻居容器的残留不污染自己的计数（按坐标断言）；**绝不为巡查加载区块**；命令在真实派发器上给操作员报告。
 - `FreshnessPlacedFoodGameTests`（batch `freshness_placed`，4 条）

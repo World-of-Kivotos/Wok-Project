@@ -45,7 +45,8 @@ FD 与 BnC/refurbished 兼容 mixin、物品栏保鲜条与粮仓联动按设计
 - **给消费点用的查询**：`FreshnessCheck.isRottenNow` / `remainingMinutes` —— 把「**不腐烂的东西永远不算烂**」
   固定在一处（`shelfLife == 0` 的骨头、火药、下界之星直接拼 `isRotten` 会被算成「剩余 0 分钟」而整批拒收）。
   已接线：卖麦（先结算背包再计数、扣麦按剩余从少到多）、酿酒台（统计投料时跳过已腐烂的，扣料先扣最老的）、
-  任务上交（已腐烂的不收；腐肉在豁免标签里，照旧能交）。市场随后。
+  任务上交（已腐烂的不收；腐肉在豁免标签里，照旧能交）、市场（上架盖章 + 不足 6 小时拒 / 不足 12 小时提示、
+  购买时任意一层已腐烂就拒、浏览隐藏已腐烂的、腐烂满 30 天的挂单自动关闭）。
 - **村民货**：村民与流浪商人卖出的易腐食物在报价生成时打 `MiningFresh.v`（报价那一刻**不盖章**——
   报价是开服登记的，那时盖章玩家买到手就是烂的），老村民进世界时补一次；**到手那一刻**由结算那一条路
   把剩余压到 6 小时（幂等：只在剩余多于 6 小时时压，压过之后只会继续变少）。村民收作物不拦。
@@ -68,7 +69,7 @@ FD 与 BnC/refurbished 兼容 mixin、物品栏保鲜条与粮仓联动按设计
 
 ### Java 源码
 
-- `src/main/java/com/miningdim/freshness/`（40 个文件，含 `item/`、`mixin/` 两个子包与 8 个测试类）。
+- `src/main/java/com/miningdim/freshness/`（42 个文件，含 `item/`、`mixin/` 两个子包与 9 个测试类）。
 
 ### 专属资源
 
@@ -167,7 +168,7 @@ freshness/
 
 ## 7. 验证清单
 
-当前八个测试类共 54 条 GameTest：
+当前九个测试类共 58 条 GameTest：
 
 - `FreshnessGameTests`（batch `freshness_foundation`，13 条）
   - 时钟：首次观察、正常前进、停服按整小时补偿、运行中跳变补「差值 − 1」、挂钟回跳只增不减、测试偏移入口钳负值。
@@ -197,7 +198,14 @@ freshness/
   - 命令：`/freshness`、`stats`、`clock`、`dump` 四个入口在真实命令派发器上跑通（dump 会真的落盘）。
   - 消费点查询的口径：`FreshnessCheck` 对不腐烂的东西（`shelfLife == 0`）永远判「不烂」、剩余报 `Long.MAX_VALUE`
     —— 任务上交会整批拒收的那条坑就钉在这里。
-- `FreshnessAuditGameTests`（batch `freshness_audit`，4 条）
+- `FreshnessNestedGameTests`（batch `freshness_nested`，4 条）
+  - 嵌套容器下钻：登记过的两条存放键（`BlockEntityTag.Items` 与 FD 厨锅的 `BlockEntityTag.Inventory.Items`）
+    都要读得到，盒子里装厨锅这种两层嵌套也要钻得到；六层套娃只展开到深度上限（本体 + 3 层）；
+    脏 NBT（标签类型不对、id 非法、缺 id）一律当作「没装东西」而不抛 —— 这条路同时服务只读预判与上架，
+    抛出去就是一个畸形潜影盒把面板打不开。
+  - 判定与盖章：最少剩余与「最早腐烂时刻」都取最坏的那一层（没有烂层时是哨兵值，不是 0）；
+    `stampDeep` 必须把章**写回容器 NBT**（`ItemStack.of` 读出来的是副本，只给副本盖章等于什么都没做），
+    且对已有章的层幂等。- `FreshnessAuditGameTests`（batch `freshness_audit`，4 条）
   - 巡查：只数已加载容器里的未盖章/已腐烂易腐品、件数按**物品个数**算、干净的容器与不是容器的方块不算；
     邻居容器的残留不污染自己的计数（按坐标断言）；**绝不为巡查加载区块**；命令在真实派发器上给操作员报告。
 - `FreshnessPlacedFoodGameTests`（batch `freshness_placed`，4 条）

@@ -23,7 +23,7 @@
 | `wok-quest` | WOK-任务模块 | 35 | 49 | `QuestSystem` | 核心、经济、WebUI、附魔；TaCZ 可选 |
 | `wok-enchant` | WOK-附魔模块 | 7 | 9 | `EnchantmentSystem` | 核心、经济 |
 | `wok-job-miner` | WOK-矿工模块 | 28 | 47 | `MinerSystem` | 核心、职业框架、矿区、经济、战斗框架、WebUI |
-| `wok-job-farmer` | WOK-农夫模块 | 25 | 51 | `FarmerModule` | 核心、全服经验、职业框架、经济、WebUI；Farmer's Delight 可选 |
+| `wok-job-farmer` | WOK-农夫模块 ‡‡ | 34 | 59 | `FarmerModule` | 核心、全服经验、职业框架、经济、WebUI；Farmer's Delight 可选 |
 | `wok-job-armorer` | WOK-铸甲师模块 | 124 | 82 | `EngineerSystem` | 核心、职业框架、精英怪、WebUI；TaCZ 可选 |
 | `wok-job-chef` | WOK-厨师模块 | 35 | 34 | `ChefModule` | 核心、全服经验、职业框架、战斗框架、经济、WebUI；Farmer's Delight、Flavor Immersed Daily 可选 |
 | `wok-job-fisher` | WOK-渔夫模块 † | 39 | 37 | `FishingSystem` | 核心、存储、经济、厨师；Farmer's Delight、Tide 可选 |
@@ -74,6 +74,12 @@
 - 冒烟测试回写 (2026-09-30, 设计文档 22.4 末尾、23.11) 补测为 184 个文件、312 条 GameTest，测试类仍是 30 个：没有新文件，`CreateGuardGameTests` 多了 1 条 (`ignored_void` 命名空间默认算机械动力)，`DistrictCommandGameTests` 两条 status 用例多核对命名空间一行。没有新增依赖。
 
 GameTest 位于主源码集是本仓库既有约定，因此 Java 文件数包含测试类。`wok-champion` 的测试数量较高，是精英词条和红线组合测试形成的结果。
+
+‡‡ `wok-job-farmer` 这一行是 2026-10-15 粮仓第一块（`job/farmer/granary`：储粮囤额度、归属记账与放置裁决）落地后的实测值：34 个文件、59 条 GameTest（原基线 25 / 51，粮仓新增 9 个文件与 6 条 `granary_bins` 批次用例）。
+- 粮仓新增的文件：`granary/GranaryConstants`、`GranaryConfig`（`miningdim-farmer.toml` 的 `[granary]` 段）、`GranaryBinGuard`（纯裁决）、`GranarySavedData`（按坐标的归属账本 + 派生计数）、`GranarySystem`（放置/归还/等级读取）、`granary/block/` 三个（方块、方块实体、注册）与 `GranaryGameTests`。
+- 资源前缀多了 `granary_`（方块状态、模型、贴图、掉落表），配方落在既有的 `data/miningdim/recipes/farmer/` 下。
+- 依赖没有新增：等级仍走职业门面的 `JobServices`，放置事件用 Forge 的 `BlockEvent.EntityPlaceEvent`。
+- 粮仓的其余部分（账台、气窗、冷源、自由房间判定、停表结算、合建成员与待领粮单、界面与命令）随设计文档后续分片加入，届时 `GranarySavedData` 的字段与 `granary_` 资源会继续增长。
 
 ※ `wok-freshness` 这一行是 2026-10-15 腐烂底座前五个切片落地后的实测值：① 模块骨架 + 时钟 + 物品保鲜章 + 类别与豁免判定；② 腐烂物终态 + 无需 mixin 的观察点；③ 加工继承策略 + 合成格/熔炉三件套/漏斗三个原版 mixin；④ 同种食物合并核心 + 拾取入包/点击叠放/配方书追加三个入口；⑤ 开服标签自检 + 按小时统计环（保留 30 天）+ `/freshness` 命令。
 - 32 个文件：`freshness/` 26 个（含 5 个测试类）、`freshness/item/` 1 个、`freshness/mixin/` 5 个；42 条 GameTest，分五个批次 `freshness_foundation`（12）、`freshness_settle`（5）、`freshness_processing`（8）、`freshness_merge`（10）、`freshness_stats`（7）。

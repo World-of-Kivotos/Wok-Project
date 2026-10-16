@@ -20,10 +20,10 @@
 | `wok-title` | WOK-称号模块 ‡ | 35 | 38 | `TitleSystem` | 核心、存储、WebUI；SQLite 可选 |
 | `wok-market` | WOK-市场模块 | 25 | 62 | `MarketSubsystem` | 核心、存储、经济、WebUI、职业框架、塔罗师；SQLite 可选 |
 | `wok-power` | WOK-电力模块 | 133 | 100 | `PowerSystem` | 核心；Flux Networks、Jade、JEI 可选 |
-| `wok-quest` | WOK-任务模块 | 35 | 49 | `QuestSystem` | 核心、经济、WebUI、附魔；TaCZ 可选 |
+| `wok-quest` | WOK-任务模块 | 35 | 50 | `QuestSystem` | 核心、经济、WebUI、附魔、腐烂底座；TaCZ 可选 |
 | `wok-enchant` | WOK-附魔模块 | 7 | 9 | `EnchantmentSystem` | 核心、经济 |
 | `wok-job-miner` | WOK-矿工模块 | 28 | 47 | `MinerSystem` | 核心、职业框架、矿区、经济、战斗框架、WebUI |
-| `wok-job-farmer` | WOK-农夫模块 ‡‡ | 60 | 113 | `FarmerModule` | 核心、全服经验、职业框架、经济、WebUI、腐烂底座；Farmer's Delight 可选 |
+| `wok-job-farmer` | WOK-农夫模块 ‡‡ | 73 | 153 | `FarmerModule` | 核心、全服经验、职业框架、经济、WebUI、腐烂底座；Farmer's Delight 可选 |
 | `wok-job-armorer` | WOK-铸甲师模块 | 124 | 82 | `EngineerSystem` | 核心、职业框架、精英怪、WebUI；TaCZ 可选 |
 | `wok-job-chef` | WOK-厨师模块 | 35 | 34 | `ChefModule` | 核心、全服经验、职业框架、战斗框架、经济、WebUI；Farmer's Delight、Flavor Immersed Daily 可选 |
 | `wok-job-fisher` | WOK-渔夫模块 † | 39 | 37 | `FishingSystem` | 核心、存储、经济、厨师；Farmer's Delight、Tide 可选 |
@@ -37,7 +37,7 @@
 | `wok-stacking` | WOK-实体堆叠模块 | 11 | 33 | `StackingSystem` | 核心、精英怪 |
 | `wok-achievement` | WOK-成就模块 § | 84 | 81 | `AchievementSystem` | 核心、存储、称号、矿区、精英怪、经济、全服经验、职业框架、铸甲师、厨师、酿酒师、塔罗师、军火商、特勤干员、市场、开箱、任务、婚姻、WebUI；TaCZ、SQLite 可选 |
 | `wok-district` | WOK-自管区模块 ¶ | 184 | 312 | `DistrictSystem` | 核心、存储、经济、WebUI；SQLite、Flan、机械动力可选 |
-| `wok-freshness` | WOK-腐烂底座模块 ※ | 39 | 53 | `FreshnessModule` | 核心、WebUI；Farmer's Delight 可选 |
+| `wok-freshness` | WOK-腐烂底座模块 ※ | 40 | 54 | `FreshnessModule` | 核心、WebUI；Farmer's Delight 可选 |
 
 † `wok-job-fisher` 这一行是 2026-09-24 在 `feat/fish-quality-size` 分支上按同一口径单独重测的（新增 `quality`、`size` 两个子包；2026-09-06 首次补测时为 23 / 15），其余 25 行仍是第一段声明的 2026-08-30 基线。同一分支给 `wok-core` 新增了 `core/ItemRarityOverrides` 与 `mixin/ItemRarityOverrideMixin` 两个文件，该行未重测。另外它在登记表里的 `category` 虽然是 `job`，但这只是业务归类：`job/JobId.java` 的枚举至今只有八个常量、没有 `FISHER`，因此渔夫没有职业等级、没有经验轨道（对照 [`experience/README.md`](experience/README.md) 的八轨清单），也没有职业身份门；它对 `wok-store` 的依赖同样只出现在 GameTest 里，图鉴本身走原版 `FishingJournalSavedData`、个人钓获记录走玩家 `PlayerPersisted` NBT，都不落 SQLite。
 
@@ -73,6 +73,7 @@
 - 个人圈地限制的复核修正 (2026-09-30, 金锄头的陈旧编辑, 设计文档 22.22) 补测为 184 个文件、311 条 GameTest，测试类仍是 30 个：没有新文件，`FlanClaimGuardGameTests` 8 条变 10 条 (陈旧编辑被拒的两条用例)。没有新增依赖。
 - 冒烟测试回写 (2026-09-30, 设计文档 22.4 末尾、23.11) 补测为 184 个文件、312 条 GameTest，测试类仍是 30 个：没有新文件，`CreateGuardGameTests` 多了 1 条 (`ignored_void` 命名空间默认算机械动力)，`DistrictCommandGameTests` 两条 status 用例多核对命名空间一行。没有新增依赖。
 
+- 2026-10-15 补上**消费点两处**（卖麦按最老先扣、任务上交不收烂的，提交 `ec73e11e`）后补测为 40 个文件、54 条 GameTest：新增 1 个类 `FreshnessCheck`（给别的模块用的两道查询：`isRottenNow` 与 `remainingMinutes`，把「不腐烂的东西永远不算烂」这条口径固定在一处 —— `shelfLife == 0` 的骨头/火药/下界之星直接拼 `isRotten` 会被算成「剩余 0 分钟」而整批拒收）；`FreshnessGameTests` 多 1 条钉这条口径。`wok-job-farmer` 的卖麦（`FarmerWheatSellService`：先结算背包再计数、扣麦按剩余从少到多）与 `wok-quest` 的任务上交（`QuestService.takeFrom`：已腐烂的不收）各多 2 条与 1 条用例；**`wok-quest` 因此新增一条依赖 `wok-freshness`**（登记表与 `module-registry.json` 同步，登记表那一行仍是基线值）。同一提交还把 `wok-job-farmer` 与 `wok-quest` 各补了用例（卖麦 2 条、任务上交 1 条），两行补测为 73 / 153 与 35 / 50。没有新增资源。
 - 2026-10-15 补上**村民货**（报价打标记、到手压到剩 6 小时，提交 `b49c69c2`）后补测为 39 个文件、53 条 GameTest：新增 2 个类（`FreshnessVillagerGoods`：把 VillagerTradesEvent / WandererTradesEvent 的每条报价模板包一层、生成时给易腐产物打 `MiningFresh.v`，老村民进世界补一次，到手按剩 6 小时盖章；`FreshnessVillagerGoodsGameTests` 3 条，batch `freshness_villager`），`FreshnessData` 多一个只打标记不动章的写入器，`FreshnessSettle.settleSlot` 在结算前先做一次幂等的「村民货压到 6 小时」。批次至此八个：`freshness_foundation` 12、`freshness_settle` 5、`freshness_processing` 8、`freshness_merge` 10、`freshness_stats` 7、`freshness_audit` 4、`freshness_placed` 4、`freshness_villager` 3。没有新增依赖与资源，没有新增语言键。
 - 2026-10-15 补上**放置食物记录**（摆成方块的食物按记录继承，提交 `e7ee37f9`）后补测为 37 个文件、50 条 GameTest：新增 3 个类（`FreshnessPlacedFood`：每个已加载区块一份「位置 → 方块 id + 批次时刻 + 已停表小时」的记录，跟着区块存读；`FreshnessPlacedFoodHooks`：摆放、区块存/读/卸载四处接线；`FreshnessPlacedFoodGameTests` 4 条，batch `freshness_placed`），`FreshnessLootModifier` 在掉落生成时先按地点取记录（位置与方块 id 都对得上才算，取完就忘）。批次至此七个：`freshness_foundation` 12、`freshness_settle` 5、`freshness_processing` 8、`freshness_merge` 10、`freshness_stats` 7、`freshness_audit` 4、`freshness_placed` 4。没有新增依赖与资源，没有新增语言键。
 - 2026-10-15 补上 `/freshness audit`（巡查观察点覆盖不到的容器，提交 `be52e9d3`）后补测为 34 个文件、46 条 GameTest：新增 2 个类（`FreshnessAudit`：以某点为中心、给定半径内把所有**已加载**容器数一遍，只读、不加载区块；容器内容取 Forge 物品接口，没有接口的退回原版 `Container`；件数按物品个数算；`FreshnessAuditGameTests` 4 条，batch `freshness_audit`），`FreshnessCommands` 多一个 `audit [<半径>]`（默认 16、上限 64，返回需要处理的件数）。批次至此六个：`freshness_foundation` 12、`freshness_settle` 5、`freshness_processing` 8、`freshness_merge` 10、`freshness_stats` 7、`freshness_audit` 4。没有新增依赖与资源，没有新增语言键（`/freshness` 那几条命令一直是直接写字面量）。

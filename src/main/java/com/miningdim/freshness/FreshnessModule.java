@@ -70,6 +70,13 @@ public final class FreshnessModule implements Subsystem {
         forgeBus.addListener(FreshnessRecipeFilterHooks::onAddReloadListener);
         forgeBus.addListener(FreshnessRecipeFilterHooks::onServerStarted);
         forgeBus.addListener(FreshnessCommands::register);
+        // 客户端显示: channel 在公共装配窗口注册; 客户端那一半只在客户端调 (DistExecutor 隔离)。
+        modBus.addListener(this::onCommonSetup);
+        modBus.addListener(this::onRegisterItemDecorations);
+        forgeBus.addListener(this::onClientSetup);
+        forgeBus.addListener(this::onPlayerLoggedIn);
+        forgeBus.addListener(FreshnessRecipeFilterHooks::onAddReloadListener);
+        forgeBus.addListener(FreshnessRecipeFilterHooks::onServerStarted);
         LOGGER.info("[miningdim] {} registered (clock + item data + categories + rot item + 观察点; mixin 那批与粮仓在后续切片)",
                 MODULE_ID);
     }
@@ -81,6 +88,36 @@ public final class FreshnessModule implements Subsystem {
     private void onBuildTabContents(BuildCreativeModeTabContentsEvent event) {
         if (event.getTabKey().equals(CreativeModeTabs.INGREDIENTS)) {
             event.accept(FreshnessItems.ROT.get());
+        }
+    }
+
+    /** 公共装配: 注册 network channel (线程安全窗口, 与厨师那个 channel 同一范式)。 */
+    private void onCommonSetup(net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent event) {
+        event.enqueueWork(FreshnessNetwork::register);
+    }
+
+    /**
+     * 格子装饰器注册 (mod 总线; 这个事件只在客户端发, 服务端这一支永远不会被调到)。
+     * 注册对象是**每个物品**: 装饰器因此自动出现在快捷栏、背包、各种容器与主 MOD 自绘界面里。
+     */
+    private void onRegisterItemDecorations(
+            net.minecraftforge.client.event.RegisterItemDecorationsEvent event) {
+        net.minecraftforge.fml.DistExecutor.unsafeRunWhenOn(
+                net.minecraftforge.api.distmarker.Dist.CLIENT,
+                () -> () -> com.miningdim.freshness.client.FreshnessClientSetup.registerDecorations(event));
+    }
+
+    /** 客户端装配 (只在客户端跑; 整包 client 类引用集中在 FreshnessClientSetup 里)。 */
+    private void onClientSetup(net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent event) {
+        event.enqueueWork(() -> net.minecraftforge.fml.DistExecutor.unsafeRunWhenOn(
+                net.minecraftforge.api.distmarker.Dist.CLIENT,
+                () -> com.miningdim.freshness.client.FreshnessClientSetup::register));
+    }
+
+    /** 玩家登录: 立刻推一次钟与保质期 (客户端一进来就有正确的数)。 */
+    private void onPlayerLoggedIn(net.minecraftforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent event) {
+        if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
+            FreshnessSync.sendTo(player);
         }
     }
 
@@ -112,6 +149,10 @@ public final class FreshnessModule implements Subsystem {
         long wallHour = FreshnessClock.currentWallHour();
         long wallMinute = FreshnessClock.currentWallMinute();
         FreshnessClockData data = FreshnessClockData.get(server.overworld());
+        // 客户端显示的定时校准 (每 30 秒): 客户端两次同步之间靠自己流逝的时间往前推。
+        if (FreshnessSync.isSyncTick(server.getTickCount())) {
+            FreshnessSync.broadcast(server);
+        }
         data.touchHeartbeat(wallHour, wallMinute);
         if (wallHour == lastObservedHour) {
             return;

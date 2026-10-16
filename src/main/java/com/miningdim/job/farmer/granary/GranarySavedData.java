@@ -156,6 +156,15 @@ public final class GranarySavedData extends SavedData {
         return centerGranary.getOrDefault(new PosKey(dimension, pos.asLong()), 0L);
     }
 
+    /** 全部已登记的账台 (复查调度与诊断按它遍历)。 */
+    public List<PosKey> centers() {
+        List<PosKey> result = new ArrayList<>(centerOwners.keySet());
+        result.sort(Comparator
+                .comparing((PosKey key) -> key.dimension().toString())
+                .thenComparingLong(PosKey::packedPos));
+        return result;
+    }
+
     /** 全部粮仓登记项 (上线上门提醒、管理命令按它遍历)。 */
     public List<GranaryRecord> granaries() {
         List<GranaryRecord> result = new ArrayList<>(granaries.values());

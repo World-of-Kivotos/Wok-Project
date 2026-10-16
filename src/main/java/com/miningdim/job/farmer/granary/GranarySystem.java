@@ -14,9 +14,14 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.level.BlockEvent;
+import net.minecraftforge.event.level.ChunkEvent;
+import net.minecraftforge.event.level.ExplosionEvent;
+import net.minecraftforge.event.level.PistonEvent;
+import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.IEventBus;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -46,6 +51,83 @@ public final class GranarySystem {
         GranaryBlocks.register(modBus);
         forgeBus.addListener(EventPriority.LOWEST, GranarySystem::onBlockPlaced);
         forgeBus.addListener(GranarySystem::onPlayerLoggedIn);
+        // 损坏复查: 方块一变就打脏标记, 由每个 tick 的调度器排队真扫 (规格「发现损坏要快」)。
+        forgeBus.addListener(GranarySystem::onBlockBroken);
+        forgeBus.addListener(GranarySystem::onExplosion);
+        forgeBus.addListener(GranarySystem::onPiston);
+        forgeBus.addListener(GranarySystem::onChunkLoad);
+        forgeBus.addListener(GranarySystem::onServerStarted);
+        forgeBus.addListener(GranarySystem::onServerTick);
+    }
+
+    /** 开服清空调度队列 (调度状态不跨存档)。 */
+    public static void onServerStarted(net.minecraftforge.event.server.ServerStartedEvent event) {
+        GranaryRecheck.reset();
+    }
+
+    /** 每 tick 排队复查一座 (END 阶段: 这一 tick 的方块变动都落定了)。 */
+    public static void onServerTick(TickEvent.ServerTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) {
+            return;
+        }
+        GranaryRecheck.tick(event.getServer(), event.getServer().getTickCount());
+    }
+
+    /** 方块被挖 (事件在方块真正消失之前发, 同一 tick 的 END 阶段才复查, 所以看到的是挖完之后的样子)。 */
+    public static void onBlockBroken(BlockEvent.BreakEvent event) {
+        if (event.getLevel() instanceof ServerLevel level) {
+            GranaryRecheck.markDirty(level, event.getPos());
+        }
+    }
+
+    /** 被炸: 一次动一片, 按受影响方块的包围盒过一遍账本。 */
+    public static void onExplosion(ExplosionEvent.Detonate event) {
+        if (!(event.getLevel() instanceof ServerLevel level)) {
+            return;
+        }
+        List<BlockPos> affected = event.getAffectedBlocks();
+        if (affected.isEmpty()) {
+            double[] center = {event.getExplosion().getPosition().x,
+                    event.getExplosion().getPosition().y, event.getExplosion().getPosition().z};
+            GranaryRecheck.markDirty(level, BlockPos.containing(center[0], center[1], center[2]));
+            return;
+        }
+        int minX = Integer.MAX_VALUE;
+        int minY = Integer.MAX_VALUE;
+        int minZ = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int maxY = Integer.MIN_VALUE;
+        int maxZ = Integer.MIN_VALUE;
+        for (BlockPos pos : affected) {
+            minX = Math.min(minX, pos.getX());
+            minY = Math.min(minY, pos.getY());
+            minZ = Math.min(minZ, pos.getZ());
+            maxX = Math.max(maxX, pos.getX());
+            maxY = Math.max(maxY, pos.getY());
+            maxZ = Math.max(maxZ, pos.getZ());
+        }
+        GranaryRecheck.markDirtyArea(level, minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
+    /** 活塞推动: 推的那一串方块在活塞正前方最多 12 格, 按这条线打标记。 */
+    public static void onPiston(PistonEvent.Pre event) {
+        if (!(event.getLevel() instanceof ServerLevel level)) {
+            return;
+        }
+        BlockPos piston = event.getPos();
+        BlockPos far = piston.relative(event.getDirection(), 12);
+        GranaryRecheck.markDirtyArea(level,
+                Math.min(piston.getX(), far.getX()), Math.min(piston.getY(), far.getY()),
+                Math.min(piston.getZ(), far.getZ()),
+                Math.max(piston.getX(), far.getX()), Math.max(piston.getY(), far.getY()),
+                Math.max(piston.getZ(), far.getZ()));
+    }
+
+    /** 区块加载: 之前因为「跨到未加载区块」没判的粮仓, 这时候补一次。 */
+    public static void onChunkLoad(ChunkEvent.Load event) {
+        if (event.getLevel() instanceof ServerLevel level) {
+            GranaryRecheck.markChunkLoaded(level, event.getChunk().getPos());
+        }
     }
 
     /**
@@ -121,6 +203,8 @@ public final class GranarySystem {
         if (event.isCanceled() || !(event.getLevel() instanceof ServerLevel level)) {
             return;
         }
+        // 放过来了就算屋子范围变了: 先打脏标记 (粮仓本身之外的一砖一瓦同样要复查)。
+        GranaryRecheck.markDirty(level, event.getPos());
         boolean isBin = event.getPlacedBlock().getBlock() instanceof GranaryBinBlock;
         boolean isCenter = event.getPlacedBlock().getBlock()
                 instanceof com.miningdim.job.farmer.granary.block.GranaryCenterBlock;

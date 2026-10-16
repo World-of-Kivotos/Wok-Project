@@ -59,7 +59,9 @@ public final class GranaryDeposit {
         /** 这个囤不是启用状态 (待启用 / 停用 / 没入册)。 */
         NOT_ACTIVE,
         /** 粮仓没验收或者损坏了。 */
-        GRANARY_DOWN
+        GRANARY_DOWN,
+        /** 这个囤没开放给这位玩家 (私有囤, 或者名单上是别人)。 */
+        NOT_ALLOWED
     }
 
     /** 保留快捷栏的开关在玩家 persistentData 里的键 (规格: 按玩家记住)。 */
@@ -112,6 +114,10 @@ public final class GranaryDeposit {
         long nowHour = nowMinute / 60L;
         GranarySavedData data = GranarySavedData.get(level.getServer().overworld());
         ResourceLocation dimension = level.dimension().location();
+        // 开放名单先判: 私有的囤除了囤主谁都存不进去 (房主也不例外, 反漏洞 #68)。
+        if (!GranaryAccess.mayStore(bin.owner(), bin.access(), player.getUUID())) {
+            return new Result(0, 0, new Skips(0, 0, 0, 0), Rejection.NOT_ALLOWED);
+        }
         if (!data.binState(dimension, bin.getBlockPos()).acceptsDeposits()) {
             return new Result(0, 0, new Skips(0, 0, 0, 0), Rejection.NOT_ACTIVE);
         }

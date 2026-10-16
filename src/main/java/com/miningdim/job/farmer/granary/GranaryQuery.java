@@ -2,6 +2,7 @@ package com.miningdim.job.farmer.granary;
 
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
+import com.miningdim.job.farmer.granary.block.GranaryBinBlockEntity;
 import com.miningdim.job.farmer.granary.block.GranaryBlocks;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -38,6 +39,29 @@ public final class GranaryQuery {
     }
 
     private GranaryQuery() {
+    }
+
+    /**
+     * 玩家正看着的那个储粮囤 (够得着才算)。
+     *
+     * 界面做出来之前, 开放名单与「存进正看着的那个囤」都靠它选目标 —— 与右键同一个准星, 玩家不用记坐标。
+     *
+     * @param reach 能够到的距离 (格); 超过这个距离即使看着也不算
+     */
+    public static Optional<GranaryBinBlockEntity> lookedAtBin(ServerPlayer player, double reach) {
+        // partialTicks 取 1.0: 命令判的是「**现在**看着哪一格」, 而 0.0 会按上一 tick 的位置插值
+        // (刚传送过的玩家会从原地开始射一条线, 于是站在囤前面也选不中)。
+        net.minecraft.world.phys.BlockHitResult hit = (net.minecraft.world.phys.BlockHitResult) player.pick(
+                reach, 1.0F, false);
+        if (hit.getType() != net.minecraft.world.phys.HitResult.Type.BLOCK) {
+            return Optional.empty();
+        }
+        BlockPos pos = hit.getBlockPos();
+        if (player.distanceToSqr(pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D) > reach * reach) {
+            return Optional.empty();
+        }
+        return player.level().getBlockEntity(pos) instanceof GranaryBinBlockEntity bin
+                ? Optional.of(bin) : Optional.empty();
     }
 
     // ============================================================
@@ -103,8 +127,7 @@ public final class GranaryQuery {
     }
 
     /** 全服盘点 (按粮仓编号)。 */
-    public static List<AuditRow> audit(ServerLevel level) {
-        GranarySavedData data = GranarySavedData.get(level.getServer().overworld());
+    public static List<AuditRow> audit(ServerLevel level) {        GranarySavedData data = GranarySavedData.get(level.getServer().overworld());
         List<AuditRow> rows = new ArrayList<>();
         for (GranaryRecord record : data.granaries()) {
             int active = 0;

@@ -1,10 +1,13 @@
 package com.miningdim.job.farmer.granary.block;
 
+import com.miningdim.job.farmer.granary.GranaryAccess;
 import com.miningdim.job.farmer.granary.GranaryConfig;
+import com.miningdim.job.farmer.granary.GranaryConstants;
 import com.miningdim.job.farmer.granary.GranarySettle;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.NonNullList;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.world.ContainerHelper;
 import net.minecraft.world.WorldlyContainer;
@@ -14,6 +17,8 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.core.Direction;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -42,6 +47,8 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
     private int[] creditedHours;
     /** 是否正在停表: 要在一座已验收、完好的粮仓里且整个在屋里才算 (本片先由验收分片置位)。 */
     private boolean stopping;
+    /** 开放名单 (空 = 私有); 谁放下这个囤谁才能改它。 */
+    private List<GranaryAccess.Trustee> access = new ArrayList<>();
 
     public GranaryBinBlockEntity(BlockPos pos, BlockState state) {
         super(GranaryBlocks.BIN_ENTITY.get(), pos, state);
@@ -68,6 +75,39 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
         this.owner = owner;
         this.seq = seq;
         setChanged();
+    }
+
+    // ============================================================
+    // 开放名单 (每个囤单独设; 空 = 私有)
+    // ============================================================
+
+    /** 这个囤的开放名单 (空 = 私有)。返回的是副本, 改它不会动到囤。 */
+    public List<GranaryAccess.Trustee> access() {
+        return List.copyOf(access);
+    }
+
+    /** 整份替换 (读档、套用默认名单、清空都用它)。 */
+    public void setAccess(List<GranaryAccess.Trustee> list) {
+        this.access = new ArrayList<>(list);
+        setChanged();
+    }
+
+    /** 加一个人 / 改他的权限; 结果码交给命令回执。 */
+    public GranaryAccess.Status addTrustee(UUID player, GranaryAccess.Permission permission) {
+        GranaryAccess.Status status = GranaryAccess.add(access, owner, player, permission);
+        if (status != GranaryAccess.Status.IS_OWNER && status != GranaryAccess.Status.FULL) {
+            setChanged();
+        }
+        return status;
+    }
+
+    /** 移出一个人; 不在名单上返回 false。 */
+    public boolean removeTrustee(UUID player) {
+        boolean removed = GranaryAccess.remove(access, player);
+        if (removed) {
+            setChanged();
+        }
+        return removed;
     }
 
     // ============================================================
@@ -244,6 +284,7 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
         tag.putLongArray(KEY_ENTRY_HOURS, entryHours.clone());
         tag.putIntArray(KEY_CREDITED_HOURS, creditedHours.clone());
         tag.putBoolean(KEY_STOPPING, stopping);
+        tag.put(GranaryConstants.KEY_ACCESS, GranaryAccess.save(access));
     }
 
     @Override
@@ -263,6 +304,9 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
         entryHours = readLongs(tag, KEY_ENTRY_HOURS, size);
         creditedHours = readInts(tag, KEY_CREDITED_HOURS, size);
         stopping = tag.getBoolean(KEY_STOPPING);
+        // 名单是后加的字段: 老档没有就是私有 (按空名单读), 内容存在时照旧严格校验。
+        access = tag.get(GranaryConstants.KEY_ACCESS) instanceof ListTag list
+                ? new ArrayList<>(GranaryAccess.load(list)) : new ArrayList<>();
     }
 
     /** 格账长度必须与格数一致: 对不上说明存档被改过, 如实报错而不是静默截断。 */

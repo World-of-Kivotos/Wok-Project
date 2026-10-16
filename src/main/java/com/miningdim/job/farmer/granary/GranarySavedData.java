@@ -74,6 +74,11 @@ public final class GranarySavedData extends SavedData {
      * 这是**账**, 不是派生索引: 指向的粮仓没了也照留 (东西是玩家的, 不该因为房子塌了就没)。
      */
     private final Map<UUID, List<GranaryPending.Entry>> pending = new HashMap<>();
+    /**
+     * 默认开放名单: 玩家 → 他新放的囤自动套用的名单 (规格「用 /granary trust 设一份默认名单,
+     * 新放的囤自动套用」)。
+     */
+    private final Map<UUID, List<GranaryAccess.Trustee>> trustDefaults = new HashMap<>();
     private long nextGid = 1L;
     private int nextSeq = 1;
 
@@ -228,6 +233,27 @@ public final class GranarySavedData extends SavedData {
         List<UUID> result = new ArrayList<>(pending.keySet());
         result.sort(Comparator.comparing(UUID::toString));
         return result;
+    }
+
+    // ============================================================
+    // 默认开放名单
+    // ============================================================
+
+    /** 这位玩家的默认开放名单 (新放的囤自动套用; 空 = 新囤默认私有)。 */
+    public List<GranaryAccess.Trustee> trustDefault(UUID player) {
+        return List.copyOf(trustDefaults.getOrDefault(player, List.of()));
+    }
+
+    /** 整份替换默认名单 (空表就等于清掉)。 */
+    public void setTrustDefault(UUID player, List<GranaryAccess.Trustee> list) {
+        if (list.isEmpty()) {
+            if (trustDefaults.remove(player) != null) {
+                setDirty();
+            }
+            return;
+        }
+        trustDefaults.put(player, new ArrayList<>(list));
+        setDirty();
     }
 
     // ============================================================
@@ -578,6 +604,21 @@ public final class GranarySavedData extends SavedData {
                     }
                 });
         tag.put(GranaryConstants.KEY_PENDING, pendingList);
+
+        // 默认开放名单: 按玩家排序, 一人最多 16 条 (与囤上的名单同一个上限)。
+        ListTag trust = new ListTag();
+        trustDefaults.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey(Comparator.comparing(UUID::toString)))
+                .forEach(entry -> {
+                    for (GranaryAccess.Trustee trustee : entry.getValue()) {
+                        CompoundTag tagTrustee = new CompoundTag();
+                        tagTrustee.putUUID(GranaryConstants.KEY_PLAYER, entry.getKey());
+                        tagTrustee.putUUID(GranaryConstants.KEY_TRUSTEE, trustee.player());
+                        tagTrustee.putString(GranaryConstants.KEY_PERM, trustee.permission().name());
+                        trust.add(tagTrustee);
+                    }
+                });
+        tag.put(GranaryConstants.KEY_TRUST_DEFAULTS, trust);
         return tag;
     }
 
@@ -696,6 +737,29 @@ public final class GranarySavedData extends SavedData {
                 }
                 data.pending.computeIfAbsent(entry.getUUID(GranaryConstants.KEY_PLAYER),
                         key -> new ArrayList<>()).add(loaded);
+            }
+        }
+        // 默认开放名单同样是后加的表, 按可选读 (老档没有这个键就是「没设过默认名单」)。
+        if (tag.get(GranaryConstants.KEY_TRUST_DEFAULTS) instanceof ListTag trustList) {
+            if (!trustList.isEmpty() && trustList.getElementType() != Tag.TAG_COMPOUND) {
+                throw new IllegalArgumentException("Invalid granary list: "
+                        + GranaryConstants.KEY_TRUST_DEFAULTS);
+            }
+            for (int i = 0; i < trustList.size(); i++) {
+                CompoundTag entry = trustList.getCompound(i);
+                if (!entry.hasUUID(GranaryConstants.KEY_PLAYER)
+                        || !entry.hasUUID(GranaryConstants.KEY_TRUSTEE)) {
+                    throw new IllegalArgumentException("Granary trust default is missing its players");
+                }
+                UUID player = entry.getUUID(GranaryConstants.KEY_PLAYER);
+                List<GranaryAccess.Trustee> list = data.trustDefaults.computeIfAbsent(player,
+                        key -> new ArrayList<>());
+                // 复用名单那一套读取 (认不出的权限与超长直接报错), 单条喂进去。
+                ListTag single = new ListTag();
+                single.add(entry);
+                for (GranaryAccess.Trustee trustee : GranaryAccess.load(single)) {
+                    GranaryAccess.add(list, player, trustee.player(), trustee.permission());
+                }
             }
         }
         return data;

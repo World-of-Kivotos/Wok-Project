@@ -174,8 +174,9 @@ public final class GranaryCommandGameTests {
                 "每座粮仓一行: " + output.joined());
         helper.assertTrue(output.keys().contains("message.miningdim.granary.command.audit_accepted"),
                 "要列出「验收人 → 房主」配对: " + output.joined());
-        helper.assertTrue(output.keys().contains("message.miningdim.granary.command.audit_missing_pairs"),
-                "缺的两对配对要如实写明: " + output.joined());
+        // 三对配对至此齐全 (成员 → 房主 与 囤主 → 名单 由各自的批次钉住), 这里只钉「不再有缺哪对的说明」。
+        helper.assertTrue(!output.keys().contains("message.miningdim.granary.command.audit_missing_pairs"),
+                "三对配对齐全之后不该再有「还缺哪对」的话: " + output.joined());
         helper.assertTrue(output.numbers().contains(gid), "新验收的那座要出现在盘点里: " + output.joined());
         helper.succeed();
     }

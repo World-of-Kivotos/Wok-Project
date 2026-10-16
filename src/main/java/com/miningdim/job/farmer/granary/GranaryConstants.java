@@ -60,6 +60,12 @@ public final class GranaryConstants {
     public static final String KEY_ITEMS = "Items";
     public static final String KEY_CREDITED = "Credited";
 
+    /** 开放名单 (GranaryAccess) 的键: 每个囤一份, 账本里再存一份按玩家的默认名单。 */
+    public static final String KEY_ACCESS = "Access";
+    public static final String KEY_TRUSTEE = "Trustee";
+    public static final String KEY_PERM = "Perm";
+    public static final String KEY_TRUST_DEFAULTS = "TrustDefaults";
+
     /** 存档版本号。 */
     public static final int SAVE_VERSION = 1;
 

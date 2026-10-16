@@ -278,6 +278,8 @@ public final class GranarySystem {
         }
         GranarySavedData data = GranarySavedData.get(level);
         bin.assignOwner(player.getUUID(), data.binCount(player.getUUID()));
+        // 新放的囤套用玩家的默认开放名单 (规格「用 /granary trust 设一份默认名单, 新放的囤自动套用」)。
+        bin.setAccess(data.trustDefault(player.getUUID()));
     }
 
     /**

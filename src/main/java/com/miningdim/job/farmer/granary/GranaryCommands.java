@@ -42,6 +42,9 @@ public final class GranaryCommands {
     /** /granary audit 与 /granary rescan 的 OP 门槛 (与 /farmer admin 一致的管理操作等级)。 */
     private static final int OP_LEVEL = 2;
 
+    /** 准星选囤的够得着距离 (格): 与右键同一个准星, 略宽于生存交互距离。 */
+    private static final double LOOK_REACH = 5.0D;
+
     private GranaryCommands() {
     }
 
@@ -61,6 +64,39 @@ public final class GranaryCommands {
                         .then(Commands.argument("value", BoolArgumentType.bool())
                                 .executes(GranaryCommands::keepHotbarSet)))
                 .then(Commands.literal("claim").executes(GranaryCommands::claim))
+                .then(Commands.literal("store").executes(GranaryCommands::store))
+                .then(Commands.literal("access")
+                        .executes(GranaryCommands::accessReport)
+                        .then(Commands.literal("private").executes(GranaryCommands::accessPrivate))
+                        .then(Commands.literal("add")
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .executes(context -> accessChange(context,
+                                                GranaryAccess.Permission.STORE_ONLY))
+                                        .then(Commands.literal("take")
+                                                .executes(context -> accessChange(context,
+                                                        GranaryAccess.Permission.STORE_AND_TAKE)))
+                                        .then(Commands.literal("store")
+                                                .executes(context -> accessChange(context,
+                                                        GranaryAccess.Permission.STORE_ONLY)))))
+                        .then(Commands.literal("remove")
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .executes(GranaryCommands::accessRemove))))
+                .then(Commands.literal("trust")
+                        .executes(GranaryCommands::trustReport)
+                        .then(Commands.literal("clear").executes(GranaryCommands::trustClear))
+                        .then(Commands.literal("add")
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .executes(context -> trustChange(context,
+                                                GranaryAccess.Permission.STORE_ONLY))
+                                        .then(Commands.literal("take")
+                                                .executes(context -> trustChange(context,
+                                                        GranaryAccess.Permission.STORE_AND_TAKE)))
+                                        .then(Commands.literal("store")
+                                                .executes(context -> trustChange(context,
+                                                        GranaryAccess.Permission.STORE_ONLY)))))
+                        .then(Commands.literal("remove")
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .executes(GranaryCommands::trustRemove))))
                 .then(Commands.literal("member")
                         .then(Commands.literal("list").executes(GranaryCommands::memberList))
                         .then(Commands.literal("add")
@@ -166,6 +202,239 @@ public final class GranaryCommands {
         source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.claim",
                 result.claimed(), result.claimedBins(), result.remaining()), false);
         return result.claimed();
+    }
+
+    // ============================================================
+    // 开放名单 (界面做出来之前, 目标由准星选: 正看着的那个囤)
+    // ============================================================
+
+    /** 正看着的那个囤 (够得着才算)。 */
+    private static GranaryBinBlockEntity targetBin(ServerPlayer player) {
+        return GranaryQuery.lookedAtBin(player, LOOK_REACH).orElse(null);
+    }
+
+    /** 看一眼这个囤的开放名单 (谁都能看: 站在屋里的人知道自己能不能用)。 */
+    private static int accessReport(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        GranaryBinBlockEntity target = targetBin(player);
+        if (target == null) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.no_bin_in_sight"));
+            return 0;
+        }
+        List<GranaryAccess.Trustee> list = target.access();
+        source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.access_header",
+                GranaryQuery.nameOf(source.getServer(), target.owner()),
+                list.size(), GranaryAccess.takeCount(list)), false);
+        if (list.isEmpty()) {
+            source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.access_private"),
+                    false);
+            return 1;
+        }
+        for (GranaryAccess.Trustee trustee : list) {
+            source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.access_row",
+                    GranaryQuery.nameOf(source.getServer(), trustee.player()),
+                    Component.translatable(trustee.permission().translationKey())), false);
+        }
+        return list.size();
+    }
+
+    /** 设回私有 (只有囤主能改自己的囤)。 */
+    private static int accessPrivate(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        GranaryBinBlockEntity target = targetBin(player);
+        if (target == null) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.no_bin_in_sight"));
+            return 0;
+        }
+        if (!ownsBin(source, target, player)) {
+            return 0;
+        }
+        target.setAccess(List.of());
+        source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.access_cleared"),
+                true);
+        return 1;
+    }
+
+    /** 加一个人 / 改他的权限。 */
+    private static int accessChange(CommandContext<CommandSourceStack> context,
+                                    GranaryAccess.Permission permission) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        GranaryBinBlockEntity target = targetBin(player);
+        if (target == null) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.no_bin_in_sight"));
+            return 0;
+        }
+        if (!ownsBin(source, target, player)) {
+            return 0;
+        }
+        ServerPlayer guest = EntityArgument.getPlayer(context, "player");
+        GranaryAccess.Status status = target.addTrustee(guest.getUUID(), permission);
+        switch (status) {
+            case IS_OWNER -> {
+                source.sendFailure(Component.translatable("message.miningdim.granary.command.access_is_owner"));
+                return 0;
+            }
+            case FULL -> {
+                source.sendFailure(Component.translatable("message.miningdim.granary.command.access_full",
+                        GranaryAccess.MAX_TRUSTEES));
+                return 0;
+            }
+            default -> {
+                source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.access_added",
+                        GranaryQuery.nameOf(source.getServer(), guest.getUUID()),
+                        Component.translatable(permission.translationKey())), true);
+                return status == GranaryAccess.Status.ADDED ? 1 : 2;
+            }
+        }
+    }
+
+    /** 把一个人移出名单。 */
+    private static int accessRemove(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        GranaryBinBlockEntity target = targetBin(player);
+        if (target == null) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.no_bin_in_sight"));
+            return 0;
+        }
+        if (!ownsBin(source, target, player)) {
+            return 0;
+        }
+        ServerPlayer guest = EntityArgument.getPlayer(context, "player");
+        if (!target.removeTrustee(guest.getUUID())) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.access_not_listed"));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.access_removed",
+                GranaryQuery.nameOf(source.getServer(), guest.getUUID())), true);
+        return 1;
+    }
+
+    /** 只有囤主能改自己囤的名单 (房主也不行: 那是别人的囤)。 */
+    private static boolean ownsBin(CommandSourceStack source, GranaryBinBlockEntity target,
+                                   ServerPlayer player) {
+        if (player.getUUID().equals(target.owner())) {
+            return true;
+        }
+        source.sendFailure(Component.translatable("message.miningdim.granary.command.access_not_owner"));
+        return false;
+    }
+
+    // ============================================================
+    // 默认名单 (/granary trust): 新放的囤自动套用
+    // ============================================================
+
+    private static int trustReport(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        GranarySavedData data = GranarySavedData.get(player.getServer().overworld());
+        List<GranaryAccess.Trustee> list = data.trustDefault(player.getUUID());
+        source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.trust_header",
+                list.size(), GranaryAccess.takeCount(list)), false);
+        if (list.isEmpty()) {
+            source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.trust_empty"),
+                    false);
+            return 0;
+        }
+        for (GranaryAccess.Trustee trustee : list) {
+            source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.access_row",
+                    GranaryQuery.nameOf(source.getServer(), trustee.player()),
+                    Component.translatable(trustee.permission().translationKey())), false);
+        }
+        return list.size();
+    }
+
+    private static int trustChange(CommandContext<CommandSourceStack> context,
+                                   GranaryAccess.Permission permission) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        GranarySavedData data = GranarySavedData.get(player.getServer().overworld());
+        ServerPlayer guest = EntityArgument.getPlayer(context, "player");
+        List<GranaryAccess.Trustee> list = new ArrayList<>(data.trustDefault(player.getUUID()));
+        GranaryAccess.Status status = GranaryAccess.add(list, player.getUUID(), guest.getUUID(), permission);
+        switch (status) {
+            case IS_OWNER -> {
+                source.sendFailure(Component.translatable("message.miningdim.granary.command.access_is_owner"));
+                return 0;
+            }
+            case FULL -> {
+                source.sendFailure(Component.translatable("message.miningdim.granary.command.access_full",
+                        GranaryAccess.MAX_TRUSTEES));
+                return 0;
+            }
+            default -> {
+                data.setTrustDefault(player.getUUID(), list);
+                source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.trust_added",
+                        GranaryQuery.nameOf(source.getServer(), guest.getUUID()),
+                        Component.translatable(permission.translationKey())), true);
+                return status == GranaryAccess.Status.ADDED ? 1 : 2;
+            }
+        }
+    }
+
+    private static int trustRemove(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        GranarySavedData data = GranarySavedData.get(player.getServer().overworld());
+        ServerPlayer guest = EntityArgument.getPlayer(context, "player");
+        List<GranaryAccess.Trustee> list = new ArrayList<>(data.trustDefault(player.getUUID()));
+        if (!GranaryAccess.remove(list, guest.getUUID())) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.access_not_listed"));
+            return 0;
+        }
+        data.setTrustDefault(player.getUUID(), list);
+        source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.trust_removed",
+                GranaryQuery.nameOf(source.getServer(), guest.getUUID())), true);
+        return 1;
+    }
+
+    private static int trustClear(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        GranarySavedData.get(player.getServer().overworld()).setTrustDefault(player.getUUID(), List.of());
+        source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.trust_cleared"), true);
+        return 1;
+    }
+
+    // ============================================================
+    // 存进正看着的那个囤 (自己的, 或别人开放给你的)
+    // ============================================================
+
+    /**
+     * 把背包里的易腐品存进**正看着的那个囤**。
+     *
+     * 与「一键存入」用同一个引擎 ({@link GranaryDeposit}), 差别只在选哪个囤: 一键存入扫自己在这座粮仓里
+     * 的全部囤 (下线前点一下), 这条是「别人开放给我的囤」那条路在没有界面时的落点 —— 与界面做出来之后
+     * 的「打开开放给我的囤」是同一个判定。
+     */
+    private static int store(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        GranaryBinBlockEntity target = targetBin(player);
+        if (target == null) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.no_bin_in_sight"));
+            return 0;
+        }
+        GranaryDeposit.Result result = GranaryDeposit.deposit(player.serverLevel(), target, player);
+        if (!result.accepted()) {
+            source.sendFailure(Component.translatable(switch (result.rejection()) {
+                case NOT_ALLOWED -> "message.miningdim.granary.command.store_not_allowed";
+                case GRANARY_DOWN -> "message.miningdim.granary.command.deposit_blocked";
+                default -> "message.miningdim.granary.command.store_not_active";
+            }));
+            return 0;
+        }
+        if (result.items() == 0) {
+            source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.store_nothing"),
+                    false);
+            return 0;
+        }
+        source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.store",
+                result.items(), result.stacks()), false);
+        return result.items();
     }
 
     // ============================================================
@@ -476,10 +745,21 @@ public final class GranaryCommands {
                         GranaryQuery.nameOf(source.getServer(), member),
                         GranaryQuery.nameOf(source.getServer(), record.owner())), false);
             }
+            // 第三对配对: 谁把囤开放成了「可存可取 / 只存」(规格要的三对配对至此齐全)。
+            for (GranaryQuery.BinRow binRow : GranaryQuery.binsOf(level, record.id())) {
+                if (!(level.getBlockEntity(binRow.pos()) instanceof GranaryBinBlockEntity bin)
+                        || bin.access().isEmpty()) {
+                    continue;
+                }
+                for (GranaryAccess.Trustee trustee : bin.access()) {
+                    source.sendSuccess(() -> Component.translatable(
+                            "message.miningdim.granary.command.audit_trust",
+                            GranaryQuery.nameOf(source.getServer(), bin.owner()),
+                            GranaryQuery.nameOf(source.getServer(), trustee.player()),
+                            Component.translatable(trustee.permission().translationKey())), false);
+                }
+            }
         }
-        // 规格要的三对配对里, 现在只剩「把囤开放成可取给别人」随开放名单那一批落地。
-        source.sendSuccess(() -> Component.translatable(
-                "message.miningdim.granary.command.audit_missing_pairs"), false);
         return rows.size();
     }
 }

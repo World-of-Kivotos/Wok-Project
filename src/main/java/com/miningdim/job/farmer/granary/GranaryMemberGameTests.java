@@ -322,8 +322,10 @@ public final class GranaryMemberGameTests {
                 + ", after=" + after + ", keys=" + output.keys() + ")");
         helper.assertTrue(output.keys().contains("message.miningdim.granary.command.audit_row"),
                 "粮仓那一行照旧: " + output.joined());
-        helper.assertTrue(output.keys().contains("message.miningdim.granary.command.audit_missing_pairs"),
-                "缺的那一对要如实写明 (只剩开放取用): " + output.joined());
+        // 三对配对齐全之后不该再有「还缺哪对」的话 (开放名单那一批把最后
+        // 一对「囤主 → 名单」补上了)。
+        helper.assertTrue(!output.keys().contains("message.miningdim.granary.command.audit_missing_pairs"),
+                "不该再有缺配对的说明: " + output.joined());
         helper.succeed();
     }
 

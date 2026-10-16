@@ -23,7 +23,7 @@
 | `wok-quest` | WOK-任务模块 | 35 | 49 | `QuestSystem` | 核心、经济、WebUI、附魔；TaCZ 可选 |
 | `wok-enchant` | WOK-附魔模块 | 7 | 9 | `EnchantmentSystem` | 核心、经济 |
 | `wok-job-miner` | WOK-矿工模块 | 28 | 47 | `MinerSystem` | 核心、职业框架、矿区、经济、战斗框架、WebUI |
-| `wok-job-farmer` | WOK-农夫模块 ‡‡ | 54 | 102 | `FarmerModule` | 核心、全服经验、职业框架、经济、WebUI、腐烂底座；Farmer's Delight 可选 |
+| `wok-job-farmer` | WOK-农夫模块 ‡‡ | 58 | 107 | `FarmerModule` | 核心、全服经验、职业框架、经济、WebUI、腐烂底座；Farmer's Delight 可选 |
 | `wok-job-armorer` | WOK-铸甲师模块 | 124 | 82 | `EngineerSystem` | 核心、职业框架、精英怪、WebUI；TaCZ 可选 |
 | `wok-job-chef` | WOK-厨师模块 | 35 | 34 | `ChefModule` | 核心、全服经验、职业框架、战斗框架、经济、WebUI；Farmer's Delight、Flavor Immersed Daily 可选 |
 | `wok-job-fisher` | WOK-渔夫模块 † | 39 | 37 | `FishingSystem` | 核心、存储、经济、厨师；Farmer's Delight、Tide 可选 |
@@ -82,6 +82,7 @@ GameTest 位于主源码集是本仓库既有约定，因此 Java 文件数包�
 - 粮仓的其余部分（冷源清单扩展、合建成员与待领粮单、界面与命令）随设计文档后续分片加入，届时 `GranarySavedData` 的字段与 `granary_` 资源会继续增长。
 - 粮仓第四块（2026-10-15，验收分档、启用裁决与登记项存档，提交 `3029d5b5`）补测为 47 个文件、81 条 GameTest：新增 5 个类（`GranaryTier` 三档并档与每档要求、`GranaryAcceptance` 纯函数验收裁决与逐条清单、`GranaryEnablement` 可支撑数与 128 上限、`GranaryBinState` 启用/待启用/停用三态、`GranaryRecord` 登记项）与 1 个测试类 `GranaryAcceptanceGameTests`（7 条，batch `granary_acceptance`，粮仓子包至此 22 个文件、28 条用例、四个批次）。
 - `GranarySavedData` 这一块新增 `granaries`（房主/档位/验收人/验收时刻/状态/损坏时刻）、`binGranary`（囤 → 粮仓）、`binStates`（每个囤的启用状态）与 `nextGid`，并把存档键收拢进 `GranaryConstants` 作为对外契约；连线与启用状态按**派生索引**读档（悬空即丢），坏结构（版本不符、编号重复、囤重复入册、状态认不出）仍直接抛错。没有新增依赖、没有新增资源。
+- 粮仓第八块（2026-10-15，/granary 命令与查询面，提交 `bb38f298`）补测为 58 个文件、107 条 GameTest：新增 4 个类（`GranaryQuery` 命令与账台共用的查询面、`GranaryCommands` 四条命令、`GranaryClock` 挂钟换算、`GranaryCommandGameTests` 5 条 batch `granary_command`），粮仓子包至此 33 个文件、54 条用例、八个批次；中英文各多 14 个键。没有新增依赖与资源。
 - 粮仓第七块（2026-10-15，损坏复查的调度，提交 `65ee0b4c`）补测为 54 个文件、102 条 GameTest：新增 2 个类（`GranaryRecheck` 复查调度器、`GranaryRecheckGameTests` 7 条，batch `granary_recheck`），粮仓子包至此 29 个文件、49 条用例、七个批次；`GranaryRecheck` 是**不进存档**的调度状态（开服清空），`GranarySavedData` 只多了一个只读的 `centers()`。没有新增依赖与资源。
 - 粮仓第六块（2026-10-15，损坏判定与宽限期，提交 `03c0b6b0`）补测为 52 个文件、95 条 GameTest：新增 3 个类（`GranaryGrace` 宽限算术、`GranaryDamage` 损坏判据、`GranaryDamageGameTests` 8 条，batch `granary_damage`），粮仓子包至此 27 个文件、42 条用例、六个批次；`GranarySavedData` 的启用状态条目多了「停用时刻」并新增宽限锚点表（`GraceLogins`，按粮仓 + 囤主记「出事后第一次上线」），中英文各多 4 个键。没有新增依赖与资源。
 - 粮仓第五块（2026-10-15，账台门面：登记、验收与启用重排，提交 `6c2b3e4a`）补测为 49 个文件、87 条 GameTest：新增 2 个类 `GranaryInspection`（验算 → 连囤 → 排启用 → 裁决/验收的唯一入口）与 `GranaryInspectionGameTests`（6 条，batch `granary_inspect`），粮仓子包至此 24 个文件、34 条用例、五个批次；`GranaryStructureScanner.ScanResult` 多了屋里囤的坐标列表，`GranarySavedData` 的账台条目多了 `Gid`（账本才是权威，方块实体上的编号只是给界面看的镜像）并新增全局入册序号水位 `NextSeq`，中英文语言文件各多 19 个键。没有新增依赖与资源。

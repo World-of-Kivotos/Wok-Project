@@ -284,9 +284,11 @@ public final class FarmerSystem {
             Block.popResource(level, event.getPos(),
                     new ItemStack(requiredItem("farmersdelight", "rotten_tomato")));
         }
-        level.playSound(null, event.getPos(),
-                requiredSound("farmersdelight", "block.tomatoes.pick_tomatoes"),
-                SoundSource.BLOCKS, 1.0F, 0.8F + level.random.nextFloat() * 0.4F);
+        SoundEvent pickSound = farmersDelightPickSound();
+        if (pickSound != null) {
+            level.playSound(null, event.getPos(), pickSound,
+                    SoundSource.BLOCKS, 1.0F, 0.8F + level.random.nextFloat() * 0.4F);
+        }
         level.setBlock(event.getPos(), state.setValue(BlockStateProperties.AGE_3, 0), 2);
 
         FarmerExperience.awardPick(player,
@@ -304,13 +306,21 @@ public final class FarmerSystem {
         return item;
     }
 
-    private static SoundEvent requiredSound(String namespace, String path) {
-        ResourceLocation id = new ResourceLocation(namespace, path);
-        SoundEvent sound = ForgeRegistries.SOUND_EVENTS.getValue(id);
-        if (sound == null) {
-            throw new IllegalStateException("Required compatible crop sound is not registered: " + id);
+    /**
+     * 采摘音效按 FD 版本取第一个注册到的候选: 1.3.x 叫 block.tomatoes.pick_tomatoes, 1.2.9
+     * (整合包实际装的那一版) 叫 block.tomato_bush.pick_tomatoes。两版都没有时返回 null 并静默跳过:
+     * 音效属于表现层, 不能因为它缺席让整条采摘路径抛异常 (软联动模块的既有口径)。
+     */
+    private static SoundEvent farmersDelightPickSound() {
+        for (String path : new String[]{"block.tomatoes.pick_tomatoes",
+                "block.tomato_bush.pick_tomatoes"}) {
+            SoundEvent sound = ForgeRegistries.SOUND_EVENTS.getValue(
+                    new ResourceLocation("farmersdelight", path));
+            if (sound != null) {
+                return sound;
+            }
         }
-        return sound;
+        return null;
     }
 
     // ============================================================

@@ -258,7 +258,12 @@ public final class FarmerGameTests {
             return;
         }
 
-        BlockState cropState = matureFarmersDelightCrop("tomatoes_on_rope");
+        BlockState cropState = matureFarmersDelightCropOrNull("tomatoes_on_rope");
+        if (cropState == null) {
+            // FD 1.2.9 没有独立的吊挂番茄方块, 那一版的番茄本来就长在绳上, 由前一个用例覆盖。
+            helper.succeed();
+            return;
+        }
         net.minecraft.world.level.block.CropBlock crop =
                 (net.minecraft.world.level.block.CropBlock) cropState.getBlock();
         BlockPos relativeSoil = new BlockPos(1, 1, 1);
@@ -349,12 +354,15 @@ public final class FarmerGameTests {
         helper.assertTrue(itemCount(tomatoLoot, "rotten_tomato") <= 1,
                 "rare rotten tomato byproduct must not be multiplied");
 
-        BlockState hangingTomato = matureFarmersDelightCrop("tomatoes_on_rope");
-        helper.setBlock(relativeCrop, hangingTomato);
-        int hangingTomatoCount = itemCount(
-                cropDrops(helper, player, relativeCrop, hangingTomato), "tomato");
-        helper.assertTrue(hangingTomatoCount == 6 || hangingTomatoCount == 12,
-                "SUPREME hanging tomato produce must be 6 or 12, got " + hangingTomatoCount);
+        // 吊挂番茄只在 FD 1.3.x 是独立方块; 1.2.9 的番茄本身就是爬绳的那株, 已由上面 tomatoes 一段覆盖。
+        BlockState hangingTomato = matureFarmersDelightCropOrNull("tomatoes_on_rope");
+        if (hangingTomato != null) {
+            helper.setBlock(relativeCrop, hangingTomato);
+            int hangingTomatoCount = itemCount(
+                    cropDrops(helper, player, relativeCrop, hangingTomato), "tomato");
+            helper.assertTrue(hangingTomatoCount == 6 || hangingTomatoCount == 12,
+                    "SUPREME hanging tomato produce must be 6 or 12, got " + hangingTomatoCount);
+        }
 
         BlockState rice = requireFarmersDelightBlock("rice").defaultBlockState();
         BooleanProperty supporting = rice.getProperties().stream()
@@ -1145,6 +1153,24 @@ public final class FarmerGameTests {
             throw new IllegalStateException("Missing Farmer's Delight block: " + path);
         }
         return block;
+    }
+
+    /**
+     * 取不到就返回 null 的版本: 吊挂番茄 {@code tomatoes_on_rope} 是 FD 1.3.x 才从番茄里拆出来的独立方块,
+     * 整合包实际装的 1.2.9 里只有 {@code tomatoes} (TomatoVineBlock, 爬绳的那株)。两版都要能跑,
+     * 所以按方块在不在位决定用例走哪条分支, 而不是把 1.3.x 的方块 id 写死成硬断言。
+     */
+    private static Block farmersDelightBlockOrNull(String path) {
+        Block block = ForgeRegistries.BLOCKS.getValue(new ResourceLocation("farmersdelight", path));
+        return block == null || block == Blocks.AIR ? null : block;
+    }
+
+    private static BlockState matureFarmersDelightCropOrNull(String path) {
+        Block block = farmersDelightBlockOrNull(path);
+        if (!(block instanceof net.minecraft.world.level.block.CropBlock crop)) {
+            return null;
+        }
+        return crop.getStateForAge(crop.getMaxAge());
     }
 
     private static BlockState matureFarmersDelightCrop(String path) {

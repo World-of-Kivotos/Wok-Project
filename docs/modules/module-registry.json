@@ -590,6 +590,7 @@
         "wok-job-core",
         "wok-combat-core",
         "wok-job-farmer",
+        "wok-freshness",
         "wok-webui"
       ],
       "optionalIntegrations": [],

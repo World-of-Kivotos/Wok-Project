@@ -1,6 +1,9 @@
 package com.miningdim.job.brewer.station;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.freshness.FreshnessCategories;
+import com.miningdim.freshness.FreshnessCheck;
+import com.miningdim.freshness.FreshnessData;
 import com.miningdim.job.brewer.BrewerItems;
 import com.miningdim.job.brewer.WineType;
 import com.miningdim.job.farmer.item.FarmerItems;
@@ -29,6 +32,8 @@ public final class BrewingStationGameTests {
     private static final String EMPTY = "empty";
     private static final String BATCH = "brewer";
     private static final double EPS = 1e-9D;
+    /** 无腐烂参与时的取样时刻: 配方表的纯逻辑断言都在此刻做 (盖章物品另用显式时刻驱动)。 */
+    private static final long NOW = 0L;
 
     // ---- 品质骰子权重 ----
 
@@ -93,29 +98,29 @@ public final class BrewingStationGameTests {
         ItemStackHandler brandy = handler();
         brandy.setStackInSlot(0, new ItemStack(FarmerItems.FARMER_WHEAT.get(), 16));
         brandy.setStackInSlot(1, new ItemStack(Items.APPLE, 4));
-        helper.assertTrue(BrewRecipes.match(brandy) == WineType.BRANDY, "wheat16+apple4 -> BRANDY");
+        helper.assertTrue(BrewRecipes.match(brandy, NOW) == WineType.BRANDY, "wheat16+apple4 -> BRANDY");
 
         // 伏特加 = 纯小麦32。
         ItemStackHandler vodka = handler();
         vodka.setStackInSlot(0, new ItemStack(FarmerItems.FARMER_WHEAT.get(), 32));
-        helper.assertTrue(BrewRecipes.match(vodka) == WineType.VODKA, "wheat32 -> VODKA");
+        helper.assertTrue(BrewRecipes.match(vodka, NOW) == WineType.VODKA, "wheat32 -> VODKA");
 
         // 威士忌 = 纯小麦24 (与月光的小麦24 区分: 月光多糖8)。
         ItemStackHandler whiskey = handler();
         whiskey.setStackInSlot(0, new ItemStack(FarmerItems.FARMER_WHEAT.get(), 24));
-        helper.assertTrue(BrewRecipes.match(whiskey) == WineType.WHISKEY, "wheat24 -> WHISKEY");
+        helper.assertTrue(BrewRecipes.match(whiskey, NOW) == WineType.WHISKEY, "wheat24 -> WHISKEY");
 
         // 月光 = 小麦24 + 糖8 (精确匹配下不与威士忌混淆)。
         ItemStackHandler moonshine = handler();
         moonshine.setStackInSlot(0, new ItemStack(FarmerItems.FARMER_WHEAT.get(), 24));
         moonshine.setStackInSlot(1, new ItemStack(Items.SUGAR, 8));
-        helper.assertTrue(BrewRecipes.match(moonshine) == WineType.MOONSHINE, "wheat24+sugar8 -> MOONSHINE");
+        helper.assertTrue(BrewRecipes.match(moonshine, NOW) == WineType.MOONSHINE, "wheat24+sugar8 -> MOONSHINE");
 
         // 茅台 = 小麦16 + 小麦种子8。
         ItemStackHandler maotai = handler();
         maotai.setStackInSlot(0, new ItemStack(FarmerItems.FARMER_WHEAT.get(), 16));
         maotai.setStackInSlot(1, new ItemStack(Items.WHEAT_SEEDS, 8));
-        helper.assertTrue(BrewRecipes.match(maotai) == WineType.MAOTAI, "wheat16+seeds8 -> MAOTAI");
+        helper.assertTrue(BrewRecipes.match(maotai, NOW) == WineType.MAOTAI, "wheat16+seeds8 -> MAOTAI");
         helper.succeed();
     }
 
@@ -132,7 +137,7 @@ public final class BrewingStationGameTests {
                         "recipe " + type + " fits in input slots");
                 h.setStackInSlot(slot++, new ItemStack(ing.item(), ing.count()));
             }
-            helper.assertTrue(BrewRecipes.match(h) == type, "exact recipe of " + type + " matches " + type);
+            helper.assertTrue(BrewRecipes.match(h, NOW) == type, "exact recipe of " + type + " matches " + type);
         }
         helper.succeed();
     }
@@ -143,17 +148,17 @@ public final class BrewingStationGameTests {
         ItemStackHandler shortWheat = handler();
         shortWheat.setStackInSlot(0, new ItemStack(FarmerItems.FARMER_WHEAT.get(), 15));
         shortWheat.setStackInSlot(1, new ItemStack(Items.APPLE, 4));
-        helper.assertTrue(BrewRecipes.match(shortWheat) == null, "wheat15+apple4 -> no match (short wheat)");
+        helper.assertTrue(BrewRecipes.match(shortWheat, NOW) == null, "wheat15+apple4 -> no match (short wheat)");
 
         // 多料: 白兰地料齐但多投 1 胡萝卜 (精确匹配拒绝多余物品) -> 无匹配。
         ItemStackHandler extra = handler();
         extra.setStackInSlot(0, new ItemStack(FarmerItems.FARMER_WHEAT.get(), 16));
         extra.setStackInSlot(1, new ItemStack(Items.APPLE, 4));
         extra.setStackInSlot(2, new ItemStack(Items.CARROT, 1));
-        helper.assertTrue(BrewRecipes.match(extra) == null, "extra carrot -> no match (exact)");
+        helper.assertTrue(BrewRecipes.match(extra, NOW) == null, "extra carrot -> no match (exact)");
 
         // 空输入 -> null。
-        helper.assertTrue(BrewRecipes.match(handler()) == null, "empty input -> null");
+        helper.assertTrue(BrewRecipes.match(handler(), NOW) == null, "empty input -> null");
         helper.succeed();
     }
 
@@ -163,9 +168,9 @@ public final class BrewingStationGameTests {
         ItemStackHandler h = handler();
         h.setStackInSlot(0, new ItemStack(Items.SUGAR_CANE, 8));
         h.setStackInSlot(1, new ItemStack(FarmerItems.FARMER_WHEAT.get(), 16));
-        helper.assertTrue(BrewRecipes.match(h) == WineType.RUM, "sugarcane8+wheat16 -> RUM");
+        helper.assertTrue(BrewRecipes.match(h, NOW) == WineType.RUM, "sugarcane8+wheat16 -> RUM");
 
-        BrewRecipes.consume(h, WineType.RUM);
+        BrewRecipes.consume(h, WineType.RUM, NOW);
         // 精确配方全扣光: 两槽清空。
         helper.assertTrue(h.getStackInSlot(0).isEmpty(), "sugarcane consumed to empty");
         helper.assertTrue(h.getStackInSlot(1).isEmpty(), "wheat consumed to empty");
@@ -174,10 +179,81 @@ public final class BrewingStationGameTests {
         ItemStackHandler split = handler();
         split.setStackInSlot(0, new ItemStack(FarmerItems.FARMER_WHEAT.get(), 16));
         split.setStackInSlot(1, new ItemStack(FarmerItems.FARMER_WHEAT.get(), 8));
-        helper.assertTrue(BrewRecipes.match(split) == WineType.WHISKEY, "split wheat 16+8=24 -> WHISKEY");
-        BrewRecipes.consume(split, WineType.WHISKEY);
+        helper.assertTrue(BrewRecipes.match(split, NOW) == WineType.WHISKEY, "split wheat 16+8=24 -> WHISKEY");
+        BrewRecipes.consume(split, WineType.WHISKEY, NOW);
         helper.assertTrue(split.getStackInSlot(0).isEmpty() && split.getStackInSlot(1).isEmpty(),
                 "split wheat fully consumed across slots");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void matchSkipsRottenIngredientsAndStartsAgainOnceTheyAreGone(GameTestHelper helper) {
+        // 规格「消费点改造 · 酿酒台」: 统计投料时跳过已腐烂的 —— 拿烂料凑数凑不出配方。
+        // 同一份投料 (烂8 + 新16 = 24) 只需把烂的那堆换掉就变成 WHISKEY, 这是"跳过"而非"少算"的证据。
+        int shelfLife = FreshnessCategories.shelfLifeHours(new ItemStack(FarmerItems.FARMER_WHEAT.get()));
+        helper.assertTrue(shelfLife > 0, "farmer_wheat must be perishable, shelfLife=" + shelfLife);
+
+        ItemStack rotten = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 8);
+        FreshnessData.stampAt(rotten, NOW - (long) shelfLife * 60L - 60L, 0);
+        helper.assertTrue(FreshnessCheck.isRottenNow(rotten, NOW), "fixture wheat must be rotten at NOW");
+
+        ItemStackHandler h = handler();
+        h.setStackInSlot(0, rotten);
+        h.setStackInSlot(1, new ItemStack(FarmerItems.FARMER_WHEAT.get(), 16));
+        FreshnessData.stamp(h.getStackInSlot(1), NOW);
+        helper.assertTrue(BrewRecipes.match(h, NOW) == null,
+                "rotten8+fresh16 -> null (烂料不计入, 只剩 16 凑不出任何配方)");
+
+        // 换掉烂的那堆: 同样的 24 个小麦, 这次全部有效 -> WHISKEY。
+        ItemStack fresh = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 8);
+        FreshnessData.stamp(fresh, NOW);
+        h.setStackInSlot(0, fresh);
+        helper.assertTrue(BrewRecipes.match(h, NOW) == WineType.WHISKEY,
+                "fresh8+fresh16=24 -> WHISKEY (烂料被跳过, 不是被少算)");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void consumeTakesTheOldestIngredientsFirstAndLeavesRottenAlone(GameTestHelper helper) {
+        // 规格「消费点改造 · 酿酒台」: 扣料先扣最老的 —— 否则玩家永远先烧新料, 把陈料留到烂掉。
+        int shelfLife = FreshnessCategories.shelfLifeHours(new ItemStack(FarmerItems.FARMER_WHEAT.get()));
+        helper.assertTrue(shelfLife > 0, "farmer_wheat must be perishable, shelfLife=" + shelfLife);
+
+        ItemStack fresh = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 32);
+        FreshnessData.stamp(fresh, NOW);
+        ItemStack old = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 32);
+        // 还剩 1 小时 (没烂, 但最老): 排在最前。
+        FreshnessData.stampAt(old, NOW - (long) shelfLife * 60L + 60L, 0);
+        ItemStack rotten = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 32);
+        FreshnessData.stampAt(rotten, NOW - (long) shelfLife * 60L - 60L, 0);
+        helper.assertTrue(!FreshnessCheck.isRottenNow(old, NOW), "fixture old wheat must still be edible");
+        helper.assertTrue(FreshnessCheck.isRottenNow(rotten, NOW), "fixture rotten wheat must be rotten");
+
+        // 次序断言 (包内直取): 最老的排最前, 烂的整个不出现在扣料序列里。
+        ItemStackHandler order = handler();
+        order.setStackInSlot(0, fresh);
+        order.setStackInSlot(1, old);
+        order.setStackInSlot(2, rotten);
+        java.util.List<Integer> picked = BrewRecipes.oldestFirst(order, FarmerItems.FARMER_WHEAT.get(), NOW);
+        helper.assertTrue(picked.size() == 2, "rotten slot excluded from draw order, got " + picked);
+        helper.assertTrue(picked.get(0) == 1 && picked.get(1) == 0,
+                "oldest slot drawn first, got " + picked);
+
+        // 行为断言: 白兰地 = 鲜麦16 + 苹果4; 旁边那格烂麦16 扣料后必须原封不动。
+        ItemStackHandler h = handler();
+        ItemStack wheat = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 16);
+        FreshnessData.stamp(wheat, NOW);
+        h.setStackInSlot(0, wheat);
+        h.setStackInSlot(1, new ItemStack(FarmerItems.FARMER_WHEAT.get(), 16));
+        FreshnessData.stampAt(h.getStackInSlot(1), NOW - (long) shelfLife * 60L - 60L, 0);
+        h.setStackInSlot(2, new ItemStack(Items.APPLE, 4));
+        helper.assertTrue(BrewRecipes.match(h, NOW) == WineType.BRANDY, "fresh wheat16+apple4 -> BRANDY (烂麦不计)");
+
+        BrewRecipes.consume(h, WineType.BRANDY, NOW);
+        helper.assertTrue(h.getStackInSlot(0).isEmpty(), "fresh wheat consumed");
+        helper.assertTrue(h.getStackInSlot(2).isEmpty(), "apple consumed");
+        helper.assertTrue(h.getStackInSlot(1).getCount() == 16,
+                "rotten wheat must stay untouched, got " + h.getStackInSlot(1).getCount());
         helper.succeed();
     }
 
@@ -186,12 +262,12 @@ public final class BrewingStationGameTests {
         // 回归 (F029): 原版小麦不得再命中伏特加配方, 否则农夫供给约束被绕开。
         ItemStackHandler vanilla = handler();
         vanilla.setStackInSlot(0, new ItemStack(Items.WHEAT, 32));
-        helper.assertTrue(BrewRecipes.match(vanilla) == null,
+        helper.assertTrue(BrewRecipes.match(vanilla, NOW) == null,
                 "原版小麦不得再命中伏特加配方, 否则农夫供给约束被绕开");
 
         ItemStackHandler farmer = handler();
         farmer.setStackInSlot(0, new ItemStack(FarmerItems.FARMER_WHEAT.get(), 32));
-        helper.assertTrue(BrewRecipes.match(farmer) == WineType.VODKA,
+        helper.assertTrue(BrewRecipes.match(farmer, NOW) == WineType.VODKA,
                 "farmer_wheat32 -> VODKA (农夫小麦是唯一能满足酿造 sink 的小麦来源)");
         helper.succeed();
     }
@@ -224,13 +300,13 @@ public final class BrewingStationGameTests {
         // F029: 原版小麦不再命中任何配方; 农夫小麦32 精确命中 VODKA, consume 后该槽扣空 (无残留)。
         ItemStackHandler vanilla = handler();
         vanilla.setStackInSlot(0, new ItemStack(Items.WHEAT, 32));
-        helper.assertTrue(BrewRecipes.match(vanilla) == null, "原版小麦32 不命中任何配方");
+        helper.assertTrue(BrewRecipes.match(vanilla, NOW) == null, "原版小麦32 不命中任何配方");
 
         ItemStackHandler farmer = handler();
         farmer.setStackInSlot(0, new ItemStack(FarmerItems.FARMER_WHEAT.get(), 32));
-        helper.assertTrue(BrewRecipes.match(farmer) == WineType.VODKA, "农夫小麦32 命中 VODKA");
+        helper.assertTrue(BrewRecipes.match(farmer, NOW) == WineType.VODKA, "农夫小麦32 命中 VODKA");
 
-        BrewRecipes.consume(farmer, WineType.VODKA);
+        BrewRecipes.consume(farmer, WineType.VODKA, NOW);
         helper.assertTrue(farmer.getStackInSlot(0).isEmpty(), "consume 后该槽应扣空");
         helper.succeed();
     }

@@ -4,8 +4,9 @@
 
 当前入口：`com.miningdim.freshness.FreshnessModule`
 
-当前状态：第一切片已落地（腐烂时钟 + 物品保鲜章 + 类别与豁免判定）；观察点、腐烂物终态、类别标签自检、
-同种合并、开服迁移、WebUI 贡献者与粮仓联动按设计文档后续切片推进。
+当前状态：第一切片（腐烂时钟 + 物品保鲜章 + 类别与豁免判定）与第二切片（腐烂物终态 + 无需 mixin 的观察点）
+已落地；mixin 观察点（漏斗、合成格、熔炉、营火、FD 厨具）、类别标签自检、同种合并、开服迁移、
+物品栏保鲜条与粮仓联动按设计文档后续切片推进。
 
 设计真源：[`../../Spoilage_Granary_DesignSpec.md`](../../Spoilage_Granary_DesignSpec.md)（14 项已按推荐拍板，
 2026-10-15；P0 环境核实记录在该文末）。
@@ -18,9 +19,14 @@
 - **物品保鲜章**：`MiningFresh` 物品数据的唯一读写入口（批次时刻、已停表小时、迁移标记、村民标记），
   以及「除新鲜度外数据相同」的合并比较器。
 - **类别与豁免判定**：六个类别标签、豁免标签、模块登记的按物品数据豁免规则，以及「能吃但没标类别归熟食」的兜底。
+- **腐烂终态**：`freshness_rot` 物品（64 一组、不能吃、无市场锚价），1 换 1 替换，碗和瓶按件退回。
+- **结算**：`FreshnessSettle` 是全模块唯一的「盖章 / 换腐烂物」实现，所有观察点都调它。
+- **观察点（无需 mixin 的那批）**：全局掉落修改器、掉落物进世界、玩家背包每 2 秒错峰扫描、登录、
+  白名单容器开与关、右键方块 / 右键物品（含开吃）/ 与实体交互之前。
 - **总开关**：关闭 / 试运行 / 开启三档（安全阀）。
-- 后续切片：全局掉落与拾取盖章、白名单容器与漏斗、加工继承、进食与消费点拦截、腐烂物终态、类别自检与统计、
-  同种合并、开服迁移、WebUI 物品详情贡献者。
+- 后续切片：mixin 观察点（漏斗、合成格与配方书、熔炉三件套、营火、FD 砧板/煎锅/炉灶/厨锅、BnC 与
+  refurbished 出品）、放置食物按坐标记账、村民货标记、消费点拦截、类别自检与统计、同种合并、
+  开服迁移、物品栏保鲜条与 WebUI 物品详情贡献者。
 
 本模块不负责：
 
@@ -33,12 +39,15 @@
 
 ### Java 源码
 
-- `src/main/java/com/miningdim/freshness/`（10 个文件，含测试类）。
+- `src/main/java/com/miningdim/freshness/`（16 个文件，含 `item/` 子包与 2 个测试类）。
 
 ### 专属资源
 
 - `data/miningdim/tags/items/freshness/{fresh,produce,cooked,root,grain,preserved}.json`
 - `data/miningdim/tags/items/freshness_exempt.json`
+- `data/miningdim/loot_modifiers/freshness_stamp.json`（并登记在共享索引 `data/forge/loot_modifiers/global_loot_modifiers.json`）
+- `assets/miningdim/models/item/freshness_rot.json`、`assets/miningdim/textures/item/freshness_rot.png`
+- 语言键：`item.miningdim.freshness_rot`、`tooltip.miningdim.freshness.category.*`（共享语言文件按 key 前缀分属）
 
 ### 配置文件
 
@@ -96,12 +105,16 @@ freshness/
 
 ## 7. 验证清单
 
-当前 `FreshnessGameTests` 有 12 条 GameTest（batch `freshness_foundation`），覆盖：
+当前两个测试类共 17 条 GameTest：
 
-- 时钟：首次观察、正常前进、停服按整小时补偿、运行中跳变补「差值 − 1」、挂钟回跳只增不减、测试偏移入口钳负值。
-- 物品章：整点盖章、`f = 0` 不写、数值是 IntTag、已盖章不变、剩余 = 批次 + 停表 + 保质期 − 现在、
-  剩余 0 即腐烂、未盖章按整保质期算、钳制未来批次与超额停表、合并比较器只忽略 `h`/`f`、村民货到手 6 小时。
-- 类别与豁免：六个类别标签命中、腐肉与种子豁免、非食物不腐烂、能吃未标类别兜底熟食、模块登记豁免优先且不污染进程级登记表。
+- `FreshnessGameTests`（batch `freshness_foundation`，12 条）
+  - 时钟：首次观察、正常前进、停服按整小时补偿、运行中跳变补「差值 − 1」、挂钟回跳只增不减、测试偏移入口钳负值。
+  - 物品章：整点盖章、`f = 0` 不写、数值是 IntTag、已盖章不变、剩余 = 批次 + 停表 + 保质期 − 现在、
+    剩余 0 即腐烂、未盖章按整保质期算、钳制未来批次与超额停表、合并比较器只忽略 `h`/`f`、村民货到手 6 小时。
+  - 类别与豁免：六个类别标签命中、腐肉与种子豁免、非食物不腐烂、能吃未标类别兜底熟食、模块登记豁免优先且不污染进程级登记表。
+- `FreshnessSettleGameTests`（batch `freshness_settle`，5 条）
+  - 结算：未盖章的当场盖章、不腐烂的一概不碰；试运行档只盖章不换、开启档 1 换 1；碗装食物按件退碗；
+    容器级结算就地替换并顺手盖上其余；腐烂物的注册身份（不能吃、64 一组）与掉落修改器序列化器在位。
 
 每个切片至少执行：
 

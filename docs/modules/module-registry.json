@@ -875,7 +875,9 @@
         "data/miningdim/tags/items/freshness",
         "data/miningdim/tags/items/freshness_exempt.json"
       ],
-      "resourceNamePrefixes": [],
+      "resourceNamePrefixes": [
+        "freshness_"
+      ],
       "dependencies": [
         "wok-core",
         "wok-webui"

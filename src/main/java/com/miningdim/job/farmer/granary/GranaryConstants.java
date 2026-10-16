@@ -17,6 +17,39 @@ public final class GranaryConstants {
     /** 每人最多几座账台 (够「自家一座 + 学院或社团一座」)。 */
     public static final int MAX_CENTERS_PER_PLAYER = 2;
 
+    // ------------------------------------------------------------
+    // 存档键 (Spoilage_Granary_DesignSpec「物品数据与存档」)
+    //
+    // 放在这里而不是各写一份: 迁移脚本、存档体检与测试都要按同一套键读旧档, 键名是**对外契约**,
+    // 发布之后只能加不能改。
+    // ------------------------------------------------------------
+
+    /** 存档头版本。 */
+    public static final String KEY_VERSION = "Version";
+    public static final String KEY_BINS = "Bins";
+    public static final String KEY_CENTERS = "Centers";
+    public static final String KEY_DIMENSION = "Dim";
+    public static final String KEY_POS = "Pos";
+    public static final String KEY_OWNER = "Owner";
+    public static final String KEY_SEQ = "Seq";
+    public static final String KEY_GRANARIES = "Granaries";
+    public static final String KEY_BIN_GRANARY = "BinGranary";
+    public static final String KEY_BIN_STATES = "BinStates";
+    public static final String KEY_STATE = "State";
+    public static final String KEY_GID = "Gid";
+    public static final String KEY_NEXT_GID = "NextGid";
+
+    /** 粮仓登记项 (GranaryRecord) 的键。 */
+    public static final String KEY_ID = "Id";
+    public static final String KEY_TIER = "Tier";
+    public static final String KEY_ACCEPTED_BY = "AcceptedBy";
+    public static final String KEY_ACCEPTED_AT = "AcceptedAt";
+    public static final String KEY_STATUS = "Status";
+    public static final String KEY_DAMAGED_AT = "DamagedAt";
+
+    /** 存档版本号。 */
+    public static final int SAVE_VERSION = 1;
+
     private GranaryConstants() {
     }
 }

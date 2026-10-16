@@ -19,11 +19,13 @@ public final class FreshnessClockData extends SavedData {
     private static final String KEY_LAST_SEEN = "LastSeenHour";
     private static final String KEY_OFFSET = "OffsetHours";
     private static final String KEY_HEARTBEAT = "HeartbeatHour";
+    private static final String KEY_STATS = "Stats";
 
     /** 心跳间隔 (分钟): 规格「每 5 分钟写一次心跳」。 */
     public static final long HEARTBEAT_INTERVAL_MINUTES = 5L;
 
     private final FreshnessClock clock = new FreshnessClock();
+    private FreshnessStatsRing stats = new FreshnessStatsRing();
     private long heartbeatHour = FreshnessClock.UNSET_HOUR;
     private long lastHeartbeatMinute = Long.MIN_VALUE;
 
@@ -34,6 +36,22 @@ public final class FreshnessClockData extends SavedData {
 
     public FreshnessClock clock() {
         return clock;
+    }
+
+    /** 按小时的统计环 (保留 30 天)。 */
+    public FreshnessStatsRing stats() {
+        return stats;
+    }
+
+    /** 把这一小时攒下的计数写进环 (跨整点时由模块调用), 空计数不写。 */
+    public void flushHourStats(long wallHour) {
+        FreshnessStats.Snapshot snapshot = FreshnessStats.peek();
+        if (snapshot.isEmpty()) {
+            return;
+        }
+        stats.record(wallHour, snapshot.stamped(), snapshot.wouldRot(), snapshot.rotted());
+        FreshnessStats.resetForTest();
+        setDirty();
     }
 
     /** 最后一次写下的挂钟小时序号。 */
@@ -100,6 +118,7 @@ public final class FreshnessClockData extends SavedData {
         tag.putLong(KEY_LAST_SEEN, clock.lastSeenHour());
         tag.putLong(KEY_OFFSET, clock.offsetHours());
         tag.putLong(KEY_HEARTBEAT, heartbeatHour);
+        tag.put(KEY_STATS, stats.save());
         return tag;
     }
 
@@ -116,6 +135,9 @@ public final class FreshnessClockData extends SavedData {
                 ? tag.getLong(KEY_HEARTBEAT) : FreshnessClock.UNSET_HOUR;
         data.lastHeartbeatMinute = data.heartbeatHour == FreshnessClock.UNSET_HOUR
                 ? Long.MIN_VALUE : data.heartbeatHour * 60L;
+        if (tag.contains(KEY_STATS, Tag.TAG_COMPOUND)) {
+            data.stats = FreshnessStatsRing.load(tag.getCompound(KEY_STATS));
+        }
         return data;
     }
 }

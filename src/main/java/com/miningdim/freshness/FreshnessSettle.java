@@ -54,15 +54,21 @@ public final class FreshnessSettle {
         FreshnessData.clamp(stack, nowMinute);
         if (!FreshnessData.isStamped(stack)) {
             FreshnessData.stamp(stack, nowMinute);
+            FreshnessStats.recordStamped();
             return ItemStack.EMPTY;
         }
         if (!replaceRotten) {
+            // 试运行: 只统计「本该腐烂多少件」, 不动东西 (安全阀)。
+            if (FreshnessData.isRotten(stack, FreshnessConfig.shelfLifeHours(category.get()), nowMinute)) {
+                FreshnessStats.recordWouldRot();
+            }
             return ItemStack.EMPTY;
         }
         int shelfLifeHours = FreshnessConfig.shelfLifeHours(category.get());
         if (!FreshnessData.isRotten(stack, shelfLifeHours, nowMinute)) {
             return ItemStack.EMPTY;
         }
+        FreshnessStats.recordRotted();
         if (returns != null) {
             returns.addAll(containerReturns(stack));
         }

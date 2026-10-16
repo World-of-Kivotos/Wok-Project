@@ -50,6 +50,7 @@ public final class FreshnessModule implements Subsystem {
         forgeBus.addListener(FreshnessObservation::onEntityInteract);
         // 同种食物合并的「点击叠放」入口 (拾取与配方书两条走本模块的 mixin)。
         forgeBus.addListener(FreshnessMergeHooks::onStackedOnOther);
+        forgeBus.addListener(FreshnessCommands::register);
         LOGGER.info("[miningdim] {} registered (clock + item data + categories + rot item + 观察点; mixin 那批与粮仓在后续切片)",
                 MODULE_ID);
     }
@@ -81,6 +82,8 @@ public final class FreshnessModule implements Subsystem {
         }
         LOGGER.info("[miningdim] freshness clock: mode={}, 现在分钟序号={}, 累计偏移 {} 小时",
                 FreshnessConfig.MODE.get(), data.nowMinute(), data.clock().offsetHours());
+        // 标签自检 (安全阀): 有一条不对就自动退回试运行, 见 FreshnessSelfCheck。
+        FreshnessSelfCheck.runOnServerStart(server);
     }
 
     private void onServerTick(TickEvent.ServerTickEvent event) {
@@ -96,6 +99,8 @@ public final class FreshnessModule implements Subsystem {
         }
         long compensated = data.observeHour(wallHour);
         lastObservedHour = wallHour;
+        // 跨整点: 把这一小时攒下的盖章/本该腐烂/真换掉的计数写进统计环 (保留 30 天)。
+        data.flushHourStats(wallHour);
         if (compensated > 0L) {
             // 进程挂起或挂钟跳变: 按停服补偿计入偏移, 不冻结, 通知 OP (规格「时钟」)。
             LOGGER.warn("[miningdim] freshness clock: 挂钟一次推进 {} 小时, 其中 {} 小时按停服补偿计入偏移"

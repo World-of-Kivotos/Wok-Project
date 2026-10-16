@@ -34,12 +34,18 @@ public final class FreshnessLootModifier extends LootModifier {
             return generatedLoot;
         }
         long nowMinute = FreshnessClockData.nowMinute(context.getLevel());
+        // 放置食物按记录继承 (规格「观察点」第一行): 摆成方块的食物拆下来还是原来那一批, 不是新货。
+        java.util.Optional<FreshnessPlacedFood.Placed> placed = FreshnessPlacedFood.takeForLoot(context);
         for (ItemStack stack : generatedLoot) {
             if (stack.isEmpty() || !FreshnessCategories.spoils(stack)) {
                 continue;
             }
             FreshnessData.clamp(stack, nowMinute);
-            FreshnessData.stamp(stack, nowMinute);
+            if (placed.isPresent()) {
+                FreshnessData.stampAt(stack, placed.get().batchMinute(), placed.get().stoppedHours());
+            } else {
+                FreshnessData.stamp(stack, nowMinute);
+            }
         }
         return generatedLoot;
     }

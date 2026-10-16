@@ -50,6 +50,11 @@ public final class FreshnessModule implements Subsystem {
         forgeBus.addListener(FreshnessObservation::onEntityInteract);
         // 同种食物合并的「点击叠放」入口 (拾取与配方书两条走本模块的 mixin)。
         forgeBus.addListener(FreshnessMergeHooks::onStackedOnOther);
+        // 放置食物记录: 摆下去记一笔、跟着区块存读、掉落时继承 (区块附加数据)。
+        forgeBus.addListener(FreshnessPlacedFoodHooks::onBlockPlaced);
+        forgeBus.addListener(FreshnessPlacedFoodHooks::onChunkLoad);
+        forgeBus.addListener(FreshnessPlacedFoodHooks::onChunkSave);
+        forgeBus.addListener(FreshnessPlacedFoodHooks::onChunkUnload);
         forgeBus.addListener(FreshnessCommands::register);
         LOGGER.info("[miningdim] {} registered (clock + item data + categories + rot item + 观察点; mixin 那批与粮仓在后续切片)",
                 MODULE_ID);

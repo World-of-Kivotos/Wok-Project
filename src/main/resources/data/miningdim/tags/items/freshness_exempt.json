@@ -1,0 +1,33 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:rotten_flesh",
+    "minecraft:spider_eye",
+    "minecraft:fermented_spider_eye",
+    "minecraft:poisonous_potato",
+    "minecraft:golden_apple",
+    "minecraft:enchanted_golden_apple",
+    "minecraft:golden_carrot",
+    "minecraft:glistering_melon_slice",
+    "minecraft:sugar",
+    "minecraft:sugar_cane",
+    "minecraft:honey_bottle",
+    "minecraft:honeycomb",
+    "minecraft:honeycomb_block",
+    "minecraft:honey_block",
+    "minecraft:dried_kelp",
+    "minecraft:dried_kelp_block",
+    "minecraft:cocoa_beans",
+    "minecraft:nether_wart",
+    "minecraft:chorus_fruit",
+    "minecraft:popped_chorus_fruit",
+    "minecraft:milk_bucket",
+    "minecraft:wheat_seeds",
+    "minecraft:beetroot_seeds",
+    "minecraft:melon_seeds",
+    "minecraft:pumpkin_seeds",
+    "minecraft:torchflower_seeds",
+    "minecraft:pitcher_pod",
+    "miningdim:farmer_seed"
+  ]
+}

@@ -1,4 +1,4 @@
-﻿# WOK-腐烂底座模块
+# WOK-腐烂底座模块
 
 模块键：`wok-freshness`
 
@@ -8,7 +8,7 @@
 ③ 加工继承策略 + 三个原版 mixin 观察点（合成格、熔炉三件套、漏斗）与两份 mixin 配置；
 ④ 同种食物合并（核心 + 拾取入包 / 点击叠放 / 配方书追加三个入口）；
 ⑤ 开服标签自检 + 按小时统计环（保留 30 天）+ `/freshness` 命令。
-类别标签工程的第三方条目、Shift 快移与粮仓一键存入的合并入口、`/freshness audit`、开服迁移、
+类别标签工程的第三方条目、Shift 快移的合并入口、开服迁移、
 FD 与 BnC/refurbished 兼容 mixin、物品栏保鲜条与粮仓联动按设计文档后续切片推进。
 
 设计真源：[`../../Spoilage_Granary_DesignSpec.md`](../../Spoilage_Granary_DesignSpec.md)（14 项已按推荐拍板，
@@ -36,11 +36,13 @@ FD 与 BnC/refurbished 兼容 mixin、物品栏保鲜条与粮仓联动按设计
 - **开服标签自检**：逐条核对八项（腐肉/蜘蛛眼/金苹果/蜂蜜瓶必须豁免，小麦/农夫小麦必须是谷物，
   生牛肉必须是生鲜，面包必须是熟食），有一条不对就**自动退回试运行**并提醒在线 OP。
 - **统计环与命令**：按小时记录「盖章 / 本该腐烂 / 真换掉」三列，保留 30 天；
-  `/freshness stats|clock|dump|stamp|strip`（OP）分别查计数、查时钟、导出「物品 → 类别」清单、
+  `/freshness stats|clock|dump|audit|stamp|strip`（OP）分别查计数、查时钟、导出「物品 → 类别」清单、
+  巡查半径内**已加载**容器里还剩多少无章/已腐烂的易腐品（只读、不加载区块，给压缩抽屉与第三方
+  银行/邮箱这类观察点覆盖不到的地方用）、
   给手上的东西盖章 / 去章（奖励模板与商店货架配置前必须先去掉章）。
 - **总开关**：关闭 / 试运行 / 开启三档（安全阀）。
 - 后续切片：营火 mixin；Shift 快移与粮仓「一键存入」的合并入口；放置食物按坐标记账；村民货标记；
-  消费点拦截（卖麦/酿酒/任务/市场）；`/freshness audit`（半径内无章易腐品巡查）；机器输出合并取最老；
+  消费点拦截（卖麦/酿酒/任务/市场）；机器输出合并取最老；
   开服迁移；FD / BnC / refurbished 兼容 mixin（走可选配置）；类别标签工程的第三方条目；
   物品栏保鲜条与 WebUI 物品详情贡献者；粮仓在 `wok-job-farmer`。
 
@@ -55,7 +57,7 @@ FD 与 BnC/refurbished 兼容 mixin、物品栏保鲜条与粮仓联动按设计
 
 ### Java 源码
 
-- `src/main/java/com/miningdim/freshness/`（32 个文件，含 `item/`、`mixin/` 两个子包与 5 个测试类）。
+- `src/main/java/com/miningdim/freshness/`（34 个文件，含 `item/`、`mixin/` 两个子包与 6 个测试类）。
 
 ### 专属资源
 

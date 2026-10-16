@@ -37,7 +37,7 @@
 | `wok-stacking` | WOK-实体堆叠模块 | 11 | 33 | `StackingSystem` | 核心、精英怪 |
 | `wok-achievement` | WOK-成就模块 § | 84 | 81 | `AchievementSystem` | 核心、存储、称号、矿区、精英怪、经济、全服经验、职业框架、铸甲师、厨师、酿酒师、塔罗师、军火商、特勤干员、市场、开箱、任务、婚姻、WebUI；TaCZ、SQLite 可选 |
 | `wok-district` | WOK-自管区模块 ¶ | 184 | 312 | `DistrictSystem` | 核心、存储、经济、WebUI；SQLite、Flan、机械动力可选 |
-| `wok-freshness` | WOK-腐烂底座模块 ※ | 37 | 50 | `FreshnessModule` | 核心、WebUI；Farmer's Delight 可选 |
+| `wok-freshness` | WOK-腐烂底座模块 ※ | 39 | 53 | `FreshnessModule` | 核心、WebUI；Farmer's Delight 可选 |
 
 † `wok-job-fisher` 这一行是 2026-09-24 在 `feat/fish-quality-size` 分支上按同一口径单独重测的（新增 `quality`、`size` 两个子包；2026-09-06 首次补测时为 23 / 15），其余 25 行仍是第一段声明的 2026-08-30 基线。同一分支给 `wok-core` 新增了 `core/ItemRarityOverrides` 与 `mixin/ItemRarityOverrideMixin` 两个文件，该行未重测。另外它在登记表里的 `category` 虽然是 `job`，但这只是业务归类：`job/JobId.java` 的枚举至今只有八个常量、没有 `FISHER`，因此渔夫没有职业等级、没有经验轨道（对照 [`experience/README.md`](experience/README.md) 的八轨清单），也没有职业身份门；它对 `wok-store` 的依赖同样只出现在 GameTest 里，图鉴本身走原版 `FishingJournalSavedData`、个人钓获记录走玩家 `PlayerPersisted` NBT，都不落 SQLite。
 
@@ -73,6 +73,7 @@
 - 个人圈地限制的复核修正 (2026-09-30, 金锄头的陈旧编辑, 设计文档 22.22) 补测为 184 个文件、311 条 GameTest，测试类仍是 30 个：没有新文件，`FlanClaimGuardGameTests` 8 条变 10 条 (陈旧编辑被拒的两条用例)。没有新增依赖。
 - 冒烟测试回写 (2026-09-30, 设计文档 22.4 末尾、23.11) 补测为 184 个文件、312 条 GameTest，测试类仍是 30 个：没有新文件，`CreateGuardGameTests` 多了 1 条 (`ignored_void` 命名空间默认算机械动力)，`DistrictCommandGameTests` 两条 status 用例多核对命名空间一行。没有新增依赖。
 
+- 2026-10-15 补上**村民货**（报价打标记、到手压到剩 6 小时，提交 `b49c69c2`）后补测为 39 个文件、53 条 GameTest：新增 2 个类（`FreshnessVillagerGoods`：把 VillagerTradesEvent / WandererTradesEvent 的每条报价模板包一层、生成时给易腐产物打 `MiningFresh.v`，老村民进世界补一次，到手按剩 6 小时盖章；`FreshnessVillagerGoodsGameTests` 3 条，batch `freshness_villager`），`FreshnessData` 多一个只打标记不动章的写入器，`FreshnessSettle.settleSlot` 在结算前先做一次幂等的「村民货压到 6 小时」。批次至此八个：`freshness_foundation` 12、`freshness_settle` 5、`freshness_processing` 8、`freshness_merge` 10、`freshness_stats` 7、`freshness_audit` 4、`freshness_placed` 4、`freshness_villager` 3。没有新增依赖与资源，没有新增语言键。
 - 2026-10-15 补上**放置食物记录**（摆成方块的食物按记录继承，提交 `e7ee37f9`）后补测为 37 个文件、50 条 GameTest：新增 3 个类（`FreshnessPlacedFood`：每个已加载区块一份「位置 → 方块 id + 批次时刻 + 已停表小时」的记录，跟着区块存读；`FreshnessPlacedFoodHooks`：摆放、区块存/读/卸载四处接线；`FreshnessPlacedFoodGameTests` 4 条，batch `freshness_placed`），`FreshnessLootModifier` 在掉落生成时先按地点取记录（位置与方块 id 都对得上才算，取完就忘）。批次至此七个：`freshness_foundation` 12、`freshness_settle` 5、`freshness_processing` 8、`freshness_merge` 10、`freshness_stats` 7、`freshness_audit` 4、`freshness_placed` 4。没有新增依赖与资源，没有新增语言键。
 - 2026-10-15 补上 `/freshness audit`（巡查观察点覆盖不到的容器，提交 `be52e9d3`）后补测为 34 个文件、46 条 GameTest：新增 2 个类（`FreshnessAudit`：以某点为中心、给定半径内把所有**已加载**容器数一遍，只读、不加载区块；容器内容取 Forge 物品接口，没有接口的退回原版 `Container`；件数按物品个数算；`FreshnessAuditGameTests` 4 条，batch `freshness_audit`），`FreshnessCommands` 多一个 `audit [<半径>]`（默认 16、上限 64，返回需要处理的件数）。批次至此六个：`freshness_foundation` 12、`freshness_settle` 5、`freshness_processing` 8、`freshness_merge` 10、`freshness_stats` 7、`freshness_audit` 4。没有新增依赖与资源，没有新增语言键（`/freshness` 那几条命令一直是直接写字面量）。
 GameTest 位于主源码集是本仓库既有约定，因此 Java 文件数包含测试类。`wok-champion` 的测试数量较高，是精英词条和红线组合测试形成的结果。
@@ -100,7 +101,7 @@ GameTest 位于主源码集是本仓库既有约定，因此 Java 文件数包�
 - 32 个文件：`freshness/` 26 个（含 5 个测试类）、`freshness/item/` 1 个、`freshness/mixin/` 5 个；42 条 GameTest，分五个批次 `freshness_foundation`（12）、`freshness_settle`（5）、`freshness_processing`（8）、`freshness_merge`（10）、`freshness_stats`（7）。
 - 登记的依赖里 WebUI 是设计文档「模块落位」预留的（物品详情贡献者接口），五个切片都还没有引用；核心是真实引用（`Subsystem`、`MiningConstants`、`testutil/ConfigBaseline`）。
 - 资源：六个类别标签与一张豁免标签、一份掉落修改器 json（并登记在共享索引里）、腐烂物的模型与 16×16 贴图、两条语言键与六个类别名，以及**本模块自带的两份 mixin 配置**（必需的原版目标配置含五个 mixin + 预留的可选兼容配置，已同时写进 `build.gradle` 的 `mixin{}` 块与 jar 清单的 `MixinConfigs`）。
-- 后续切片会新增 FD / BnC / refurbished 的兼容 mixin（填进现在为空的可选配置）、营火 mixin、Shift 快移的合并入口、机器输出合并取最老、`/freshness audit`、放置食物记账、村民货、消费点拦截、开服迁移、类别标签工程的第三方条目、物品栏保鲜条与 WebUI 物品详情贡献者；粮仓不在这里，它在 `wok-job-farmer` 的 `job/farmer/granary` 下。
+- 后续切片会新增 FD / BnC / refurbished 的兼容 mixin（填进现在为空的可选配置）、营火 mixin、Shift 快移的合并入口、机器输出合并取最老、放置食物的取份继承、消费点拦截、开服迁移、类别标签工程的第三方条目、物品栏保鲜条与 WebUI 物品详情贡献者；粮仓不在这里，它在 `wok-job-farmer` 的 `job/farmer/granary` 下。
 
 ## 2. 产品边界
 

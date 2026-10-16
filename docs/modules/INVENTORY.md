@@ -23,7 +23,7 @@
 | `wok-quest` | WOK-任务模块 | 35 | 49 | `QuestSystem` | 核心、经济、WebUI、附魔；TaCZ 可选 |
 | `wok-enchant` | WOK-附魔模块 | 7 | 9 | `EnchantmentSystem` | 核心、经济 |
 | `wok-job-miner` | WOK-矿工模块 | 28 | 47 | `MinerSystem` | 核心、职业框架、矿区、经济、战斗框架、WebUI |
-| `wok-job-farmer` | WOK-农夫模块 ‡‡ | 41 | 74 | `FarmerModule` | 核心、全服经验、职业框架、经济、WebUI、腐烂底座；Farmer's Delight 可选 |
+| `wok-job-farmer` | WOK-农夫模块 ‡‡ | 47 | 81 | `FarmerModule` | 核心、全服经验、职业框架、经济、WebUI、腐烂底座；Farmer's Delight 可选 |
 | `wok-job-armorer` | WOK-铸甲师模块 | 124 | 82 | `EngineerSystem` | 核心、职业框架、精英怪、WebUI；TaCZ 可选 |
 | `wok-job-chef` | WOK-厨师模块 | 35 | 34 | `ChefModule` | 核心、全服经验、职业框架、战斗框架、经济、WebUI；Farmer's Delight、Flavor Immersed Daily 可选 |
 | `wok-job-fisher` | WOK-渔夫模块 † | 39 | 37 | `FishingSystem` | 核心、存储、经济、厨师；Farmer's Delight、Tide 可选 |
@@ -79,7 +79,9 @@ GameTest 位于主源码集是本仓库既有约定，因此 Java 文件数包�
 - 粮仓新增的文件：`granary/GranaryConstants`、`GranaryConfig`（`miningdim-farmer.toml` 的 `[granary]` 段）、`GranaryBinGuard`（纯裁决）、`GranarySavedData`（按坐标的归属账本 + 派生计数）、`GranarySystem`（放置/归还/等级读取）、`GranaryStructureScanner`（房间判定）、`GranarySettle`（停表算术）、三个测试类，以及 `granary/block/` 六个（账台、储粮囤、气窗三个方块，账台与储粮囤两个方块实体，一个注册类）。
 - 资源前缀多了 `granary_`（方块状态、模型、贴图、掉落表各三份），配方落在既有的 `data/miningdim/recipes/farmer/` 下。
 - **新增一条依赖**：`wok-freshness`（停表要把额度写进物品的 `MiningFresh` 章）。这是随粮仓第二块一起补进登记表的；等级仍走职业门面的 `JobServices`，放置事件用 Forge 的 `BlockEvent.EntityPlaceEvent`，冷源先只认原版浮冰/蓝冰。
-- 粮仓的其余部分（验收与档位、冷源清单扩展、合建成员与待领粮单、界面与命令）随设计文档后续分片加入，届时 `GranarySavedData` 的字段与 `granary_` 资源会继续增长。
+- 粮仓的其余部分（冷源清单扩展、合建成员与待领粮单、界面与命令）随设计文档后续分片加入，届时 `GranarySavedData` 的字段与 `granary_` 资源会继续增长。
+- 粮仓第四块（2026-10-15，验收分档、启用裁决与登记项存档，提交 `3029d5b5`）补测为 47 个文件、81 条 GameTest：新增 5 个类（`GranaryTier` 三档并档与每档要求、`GranaryAcceptance` 纯函数验收裁决与逐条清单、`GranaryEnablement` 可支撑数与 128 上限、`GranaryBinState` 启用/待启用/停用三态、`GranaryRecord` 登记项）与 1 个测试类 `GranaryAcceptanceGameTests`（7 条，batch `granary_acceptance`，粮仓子包至此 22 个文件、28 条用例、四个批次）。
+- `GranarySavedData` 这一块新增 `granaries`（房主/档位/验收人/验收时刻/状态/损坏时刻）、`binGranary`（囤 → 粮仓）、`binStates`（每个囤的启用状态）与 `nextGid`，并把存档键收拢进 `GranaryConstants` 作为对外契约；连线与启用状态按**派生索引**读档（悬空即丢），坏结构（版本不符、编号重复、囤重复入册、状态认不出）仍直接抛错。没有新增依赖、没有新增资源。
 
 ※ `wok-freshness` 这一行是 2026-10-15 腐烂底座前五个切片落地后的实测值：① 模块骨架 + 时钟 + 物品保鲜章 + 类别与豁免判定；② 腐烂物终态 + 无需 mixin 的观察点；③ 加工继承策略 + 合成格/熔炉三件套/漏斗三个原版 mixin；④ 同种食物合并核心 + 拾取入包/点击叠放/配方书追加三个入口；⑤ 开服标签自检 + 按小时统计环（保留 30 天）+ `/freshness` 命令。
 - 32 个文件：`freshness/` 26 个（含 5 个测试类）、`freshness/item/` 1 个、`freshness/mixin/` 5 个；42 条 GameTest，分五个批次 `freshness_foundation`（12）、`freshness_settle`（5）、`freshness_processing`（8）、`freshness_merge`（10）、`freshness_stats`（7）。

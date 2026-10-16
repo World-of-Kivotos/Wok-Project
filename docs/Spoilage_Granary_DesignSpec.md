@@ -1043,3 +1043,30 @@ P1 是开服关卡前的全部工作；P1b 不卡开服，跟厨师重构同一�
 ### 五、另需外部输入的一项
 
 - **WOK-ChestShop：** 本仓与相邻 WOK 仓库中不存在该模块（全库 0 命中）。WOK 自营交易是跳蚤市场，`MarketEngine` 的物品比较点用 `ItemStack.isSameItemSameTags`（**会比较 NBT**）。规格「消费点改造」里「ChestShop 比较物品时忽略 MiningFresh」需要先指明该系统的源码位置，否则这条 1.5 人日无处落地；在那之前按「不改」保守处理，开服前单独核对。
+
+---
+
+## P1 落地记录
+
+P0 收口后按「先底座、后粮仓」推进，每块都以 `compileJava` + `verifyModuleRegistry` + `verifyModuleBoundaries` + `runGameTestServer`（以日志里的 `All N required tests passed` 为准）为门槛，代码与文档分两笔提交。
+
+### 腐烂底座 `wok-freshness`（`com/miningdim/freshness`，32 个文件 / 42 条 GameTest）
+
+分五块落地：① 模块骨架 + 挂钟时钟 + 物品保鲜章（`MiningFresh` 根、`h`/`f`/`m`/`v` 四个键、只写 `IntTag`）+ 六类保质期标签与豁免判定；② 腐烂物终态与无需 mixin 的观察点；③ 加工继承策略（取最差、加热加成、地板值与最短 1 小时、停表取大）+ 合成格 / 熔炉三件套 / 漏斗三个原版 mixin；④ 同种食物合并核心（三道闸门、按有效批次加权平均）+ 拾取入包 / 点击叠放 / 配方书追加三个入口；⑤ 开服标签自检（8 项检查，失败自动转试运行）+ 按小时统计环（保留 30 天）+ `/freshness stats|clock|dump|stamp|strip`。批次：`freshness_foundation` 12、`freshness_settle` 5、`freshness_processing` 8、`freshness_merge` 10、`freshness_stats` 7。
+
+### 粮仓 `job/farmer/granary`（22 个文件 / 28 条 GameTest）
+
+1. **额度与归属记账**（`granary_bins` 6 条）：`GranaryConstants`、`GranaryConfig`（`miningdim-farmer.toml` 的 `[granary]` 段）、`GranaryBinGuard`、`GranarySavedData`（按坐标记账 + 派生计数）、`GranarySystem`、储粮囤方块与方块实体。
+2. **账台 / 气窗与房间判定**（`granary_structure` 8 条）：`GranaryStructureScanner`（空气洪泛、只走空气、部件只计数不穿行、囤必须整个在屋里）、账台与气窗方块及其方块实体、三个方块的资源与配方。
+3. **停表结算**（`granary_settle` 7 条）：`GranarySettle`（存满 24 小时起算、按「存放小时 − 1」记、每件 504 小时封顶；账目按格记 E 与 C）。
+4. **验收分档、启用裁决与登记项**（`granary_acceptance` 7 条，提交 `d2fa9acb`）：`GranaryTier`（粮棚 L1 / 冷库 L5 / 官仓 L7，档位只管能存什么与功能、不给容量）、`GranaryAcceptance`（纯函数裁决 + 逐条报实际数字的清单 + `acceptableNow` 按点击者等级与「只升不降」算这一下能验收的档位）、`GranaryEnablement`（可支撑数取 min(室内÷9, 气窗×4, 冷源×2) 且封顶 128，按入册先后截出启用集合）、`GranaryBinState`（启用 / 待启用 / 停用三态）、`GranaryRecord`（房主/档位/验收人/验收时刻/状态/损坏时刻）；`GranarySavedData` 补 `granaries`、`binGranary`、`binStates`、`nextGid`，存档键收拢进 `GranaryConstants` 作为对外契约。
+
+本轮实现笔记（写给后续分片）：
+
+- **待启用与停用必须分开记。** 两者都是「只能取不能存」，但新放进来、从来没启用过的叫「待启用」，原来在停表、部件被拆后撑不住的叫「停用」——后者走宽限期。所以启用状态是**三态枚举**并落盘，不是一个布尔值。
+- **派生索引读档自愈，坏结构照旧报错。** 囤 → 粮仓的连线与启用状态都从归属记录推出来，指向不存在的囤或粮仓时读档直接丢掉；而版本不符、粮仓编号重复、同一坐标重复入册、启用状态认不出这些**账目本身**的问题一律抛错，不静默读成半份。
+- **编号水位宁可往高取。** `NextGid` 落后于已用编号时（回档、手工改档）按「最大已用编号 + 1」抬高，否则复用编号会把两座粮仓并成一座。
+- **验收是「点击那一刻」的事。** 档位由验收人的农夫等级决定，验收人不必是房主；档位锁定后升级降级都不追溯，用仓时也不看任何人的等级。到顶（官仓）之后没有更高的档位可验收。
+- **测试要能在同一份世界存档上重复跑。** GameTest 的世界目录跨轮保留，用例里按坐标记账前先把自己的坐标还干净，否则上一轮失败留下的登记项会让这一轮的认领被拒，报出来的却是「归属对不上」这种假阴性。
+
+粮仓剩下的分片：冷源清单扩展（refurbished 冰箱 / 冷柜 / 冷藏箱）、损坏与宽限（7 天 / 首登后 3 天 / 最多 28 天）、验收与结构页、合建成员与开放名单、待领粮单、`/granary` 命令与账台界面、一键存入、开服迁移、`/freshness audit`、放置食物记账、村民货与消费点拦截、第三方类别标签、机器输出取最老、Shift 快移合并、营火 mixin、客户端保鲜条与 WebUI 物品详情贡献者。

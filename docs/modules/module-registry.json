@@ -259,7 +259,8 @@
         "wok-economy",
         "wok-webui",
         "wok-job-core",
-        "wok-job-tarot"
+        "wok-job-tarot",
+        "wok-freshness"
       ],
       "optionalIntegrations": [
         "sqlite-jdbc"

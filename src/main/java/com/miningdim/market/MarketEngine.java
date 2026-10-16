@@ -1,6 +1,8 @@
 package com.miningdim.market;
 
 import com.miningdim.economy.Currency;
+import com.miningdim.freshness.FreshnessClockData;
+import com.miningdim.freshness.FreshnessNested;
 import com.miningdim.economy.EconomyServices;
 import com.miningdim.economy.IEconomyService;
 import com.miningdim.market.store.ListingRow;
@@ -73,8 +75,16 @@ public final class MarketEngine {
         this.baseValues = new BaseValueResolver(dao);
     }
 
+    /**
+     * 当下分钟数 (全服统一保鲜时钟, 从主世界那张 SavedData 读)。市场的所有新鲜度判定都以它为准 ——
+     * place / buy / 浏览 / 巡检共用同一个时刻, 免得"上架时够 6 小时、两秒后买入说已腐烂"这种前后不一致。
+     */
+    public long nowMinute() {
+        return FreshnessClockData.nowMinute(server.overworld());
+    }
+
     // ============================================================
-    // 挂单 (place): 校验 -> 铜铁 cap -> 托管扣库存 -> 序列化 NBT -> insertListing
+    // 挂单 (place): 校验 -> 新鲜度盖章与阈值 -> 铜铁 cap -> 托管扣库存 -> 序列化 NBT -> insertListing
     // ============================================================
 
     /**
@@ -120,6 +130,28 @@ public final class MarketEngine {
                     Map.of("itemId", itemId, "rule", verdict.rule()));
         }
 
+        /*
+         * 新鲜度 (规格「消费点改造 · 市场」): 先给这一件东西**本身与所有嵌套内容**盖章, 再判阈值。
+         *
+         * 盖章在这里做而不是等到买家手里: 物品挂单期就离开卖家背包进了 DB, 结算那条路 (登录/开容器/扫描)
+         * 再也看不到它 —— 不盖章的货在托管期间"永不腐烂", 市场就成了冰箱 (反漏洞 #17)。盖章时刻就是托管起点。
+         *
+         * 位置与白名单同一纪律: 在扣手续费与 shrink 库存之前。此刻拒绝, 玩家的钱和货都原封不动;
+         * 而且判的是**整堆** (含嵌套层), 潜伏在潜影盒里的烂货混不过去。
+         */
+        long nowMinute = nowMinute();
+        FreshnessNested.stampDeep(stack, nowMinute);
+        MarketFreshness.Verdict fresh = MarketFreshness.judgeForListing(stack, nowMinute);
+        if (!fresh.listable()) {
+            throw new WebUiBusinessException(
+                    fresh.rotten() ? WebUiErrorCodes.FRESHNESS_ROTTEN : WebUiErrorCodes.FRESHNESS_TOO_SHORT,
+                    fresh.rotten()
+                            ? "这一单里有已经腐烂的东西 (可能是装在里面的), 不能上架"
+                            : "这一单里有剩不到 6 小时就坏的东西, 挂上去也来不及卖, 不能上架", false,
+                    Map.of("itemId", itemId,
+                            "remainingMinutes", Long.toString(fresh.untimed() ? 0L : fresh.minMinutes())));
+        }
+
         // 铜/铁每日 P2P 量上限 (定价台账"铜 P2P 单人 cap"): 仅对铜铁标的生效。口径 = 今日该卖家这些 item 的
         // (当前 ACTIVE 挂单 count 之和 + 今日已 SOLD count 之和), 加本次 count 超 cap 即拒挂 (从源头限量, 不在成交时事后扣)。
         if (MarketConstants.COPPER_IRON_ITEM_IDS.contains(itemId)) {
@@ -160,7 +192,7 @@ public final class MarketEngine {
         long listingId = dao.insertListing(seller.getUUID(), seller.getName().getString(),
                 itemId, nbt, count, unitPrice, MarketConstants.CURRENCY_CREDIT, System.currentTimeMillis());
         stack.shrink(count);
-        return new PlaceResult(listingId, listFee);
+        return new PlaceResult(listingId, listFee, fresh.warn(), fresh.minMinutes());
     }
 
     // ============================================================
@@ -205,6 +237,20 @@ public final class MarketEngine {
                     "该挂单托管的物品当前无法识别 (可能是所属 mod 已被卸载或物品已变更), 暂时无法购买", false,
                     Map.of("listingId", Long.toString(listingId), "itemId", row.itemId()));
         }
+        /*
+         * 新鲜度守卫 (规格「消费点改造 · 市场」): 任意一层已腐烂就拒绝, **挂单保持 ACTIVE** (卖家自己撤)。
+         *
+         * 位置与上面那条 ESCROW_UNRESOLVABLE 同一纪律: 尚未扣款、未改挂单状态, 拒绝时账目干净。
+         * 不做"自动退回卖家": cancel 要求卖家本人在线且背包放得下, 市场也没有物品待领机制。
+         */
+        long nowMinute = nowMinute();
+        if (MarketFreshness.rotten(escrow, nowMinute)) {
+            throw new WebUiBusinessException(WebUiErrorCodes.FRESHNESS_ROTTEN,
+                    "这一单里有已经腐烂的东西, 不能购买 (挂单仍在, 卖家可自行撤单)", false,
+                    Map.of("listingId", Long.toString(listingId), "itemId", row.itemId(),
+                            "remainingMinutes", Long.toString(MarketFreshness.remainingMinutes(escrow, nowMinute))));
+        }
+
         ItemStack delivered = escrow.copy();
         delivered.setCount(buyCount);
         if (!canInsert(buyer.getInventory(), delivered)) {
@@ -556,7 +602,11 @@ public final class MarketEngine {
     }
 
     /** 挂单回执 (新挂单 id + 上单即收的挂单手续费 listFee, 供 action 回前端展示"已付手续费")。 */
-    public record PlaceResult(long listingId, long listFee) {
+    /**
+     * @param freshWarning       这一单能挂但**可能来不及卖出** (有易腐层, 且最少剩余不足 12 小时)
+     * @param freshMinMinutes    所有层里最少的剩余分钟数 (没有易腐层时是 {@link Long#MAX_VALUE})
+     */
+    public record PlaceResult(long listingId, long listFee, boolean freshWarning, long freshMinMinutes) {
     }
 
     /** 买入成交回执 (契约第 6 节 market.buy: itemId/count/total/fee; fee 现恒 0, 费已挪到挂单时收)。 */

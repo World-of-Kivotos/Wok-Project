@@ -5,11 +5,13 @@ import com.miningdim.economy.EconomyServices;
 import com.miningdim.market.store.MarketDaoSqlite;
 import com.miningdim.market.store.MarketDb;
 import com.miningdim.store.MiningStore;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.server.ServerStartingEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
+import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import org.slf4j.Logger;
@@ -37,6 +39,9 @@ public final class MarketSubsystem implements Subsystem {
     /** 本子系统建在统一连接上的 DAO; 连接的开关不归本子系统。 */
     private MarketDaoSqlite dao;
 
+    /** 服务端实例 (低频巡检要用它查"卖家在不在线"以决定要不要当场通知); ServerStopping 时清掉。 */
+    private MinecraftServer server;
+
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
         // 全部是 forge 总线运行期事件 (服务端启停 / 玩家登录), 不涉及 mod 总线注册。
@@ -55,6 +60,7 @@ public final class MarketSubsystem implements Subsystem {
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
         MinecraftServer server = event.getServer();
+        this.server = server;
         // 市场表已并入统一库 miningdim.db (建表归 MiningSchema 的版本化迁移)。取连接失败自然冒泡
         // (启动期硬错, 不静默 fallback 掩盖)。
         this.dao = MarketDb.on(MiningStore.connection());
@@ -68,6 +74,7 @@ public final class MarketSubsystem implements Subsystem {
         // 连接是全服共享的, 由存储子系统在 ServerStopped 关闭 —— 在此关掉会连带打断开箱与后续的经济写入。
         MarketServices.reset();
         this.dao = null;
+        this.server = null;
     }
 
     @SubscribeEvent
@@ -80,7 +87,36 @@ public final class MarketSubsystem implements Subsystem {
         if (!MarketServices.isRegistered() || !EconomyServices.isRegistered()) {
             return;
         }
-        MarketServices.marketEngine().settlePendingOnLogin(player);
+        MarketEngine engine = MarketServices.marketEngine();
+        engine.settlePendingOnLogin(player);
+
+        /*
+         * 腐烂挂单提醒 (规格「消费点改造 · 市场」): 卖家登录时告诉他自己有几单已经烂了。
+         *
+         * 为什么要有这条: 挂单期物品在 DB 里, 玩家在"我的挂单"之外看不到它, 也不会路过它 ——
+         * 不提醒的话, 一个人可以挂上半年才知道东西早烂了。这里只**数**自己名下的挂单 (一条 SQL + 几十行 NBT),
+         * 不扫全服; 真正的收尾是下面那个低频巡检。
+         */
+        int rotten = MarketRottenSweep.rottenOfSeller(this.dao, player.getUUID(), engine.nowMinute()).size();
+        if (rotten > 0) {
+            player.displayClientMessage(Component.translatable(
+                    "message.miningdim.market.rotten_listings", rotten), false);
+        }
+    }
+
+    /**
+     * 低频巡检 (每 {@link MarketRottenSweep#INTERVAL_TICKS} tick 一趟): 把**腐烂满 30 天**的挂单关掉并写日志。
+     *
+     * 挂在 ServerTickEvent 的 END 上并且先判 phase: 这是全服级收尾工作, 每个 tick 都进一次方法也无所谓,
+     * 但真正的扫描由 {@link MarketRottenSweep#tick} 自己按间隔节流 (与粮仓自检同一范式)。
+     */
+    @SubscribeEvent
+    public void onServerTick(TickEvent.ServerTickEvent event) {
+        if (event.phase != TickEvent.Phase.END || this.dao == null || server == null) {
+            return;
+        }
+        MarketRottenSweep.tick(this.dao, server, server.getTickCount(),
+                MarketServices.marketEngine().nowMinute());
     }
 
     @Override

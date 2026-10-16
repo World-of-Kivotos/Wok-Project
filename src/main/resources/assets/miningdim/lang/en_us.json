@@ -2234,5 +2234,7 @@
   "district.miningdim.notice.purchase_opened": "Plots in the district \"%1$s\" are now for sale (%2$s per block); pick one under \"District plots\" on the tablet.",
   "message.miningdim.login_gate.required": "Log in first: type /login in chat",
   "message.miningdim.login_gate.unavailable": "Login check is unavailable right now; please contact an admin",
+  "message.miningdim.market.rotten_listings": "%s of your market listings have rotten contents. Open My Listings to see which; a listing rotten for 30 days is closed automatically (the goods are not returned).",
+  "message.miningdim.market.listing_expired": "A market listing of yours (%s) has been rotten for %s day(s) and was closed automatically; the goods are not returned.",
   "message.miningdim.login_gate.command_blocked": "Before you log in, only /login, /register and /changepassword work"
 }

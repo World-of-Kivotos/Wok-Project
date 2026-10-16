@@ -2234,5 +2234,7 @@
   "district.miningdim.notice.purchase_opened": "自管区「%1$s」开放购买地块了（%2$s/格），可以在平板的「本区地块」里挑选。",
   "message.miningdim.login_gate.required": "请先在聊天栏输入 /login 登录",
   "message.miningdim.login_gate.unavailable": "登录校验暂不可用，请联系管理员",
+  "message.miningdim.market.rotten_listings": "你有 %s 个挂单里的东西已经烂了。到「我的挂单」看是哪些; 烂满 30 天的挂单会自动关闭 (东西不退回)。",
+  "message.miningdim.market.listing_expired": "你的一个挂单 (%s) 已经烂了 %s 天, 已自动关闭; 东西不退回。",
   "message.miningdim.login_gate.command_blocked": "登录前只能使用 /login、/register、/changepassword"
 }

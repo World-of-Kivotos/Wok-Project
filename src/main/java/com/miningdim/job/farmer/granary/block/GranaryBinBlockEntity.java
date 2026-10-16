@@ -1,6 +1,7 @@
 package com.miningdim.job.farmer.granary.block;
 
 import com.miningdim.job.farmer.granary.GranaryConfig;
+import com.miningdim.job.farmer.granary.GranarySettle;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.NonNullList;
 import net.minecraft.nbt.CompoundTag;
@@ -28,14 +29,25 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
     private static final String KEY_INV = "Inv";
     private static final String KEY_OWNER = "Owner";
     private static final String KEY_SEQ = "Seq";
+    private static final String KEY_ENTRY_HOURS = "EntryHours";
+    private static final String KEY_CREDITED_HOURS = "CreditedHours";
+    private static final String KEY_STOPPING = "Stopping";
 
     private NonNullList<ItemStack> items;
     private UUID owner;
     private int seq;
+    /** 每格的原始入仓时刻 (小时序号): 中途结算不改它, 只有「放进去」那一刻才写。 */
+    private long[] entryHours;
+    /** 每格本次已经记过的停表小时。 */
+    private int[] creditedHours;
+    /** 是否正在停表: 要在一座已验收、完好的粮仓里且整个在屋里才算 (本片先由验收分片置位)。 */
+    private boolean stopping;
 
     public GranaryBinBlockEntity(BlockPos pos, BlockState state) {
         super(GranaryBlocks.BIN_ENTITY.get(), pos, state);
         this.items = NonNullList.withSize(GranaryConfig.binSlots(), ItemStack.EMPTY);
+        this.entryHours = new long[GranaryConfig.binSlots()];
+        this.creditedHours = new int[GranaryConfig.binSlots()];
     }
 
     // ============================================================
@@ -56,6 +68,73 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
         this.owner = owner;
         this.seq = seq;
         setChanged();
+    }
+
+    // ============================================================
+    // 停表 (账目在格子上: 原始入仓时刻 E 与本次已计停表 C)
+    // ============================================================
+
+    /** 是否正在停表 (验收并启用之后为真)。 */
+    public boolean stopping() {
+        return stopping;
+    }
+
+    public void setStopping(boolean stopping) {
+        this.stopping = stopping;
+        setChanged();
+    }
+
+    /** 某一格的原始入仓时刻; 0 表示这一格从来没存过东西。 */
+    public long entryHour(int slot) {
+        return entryHours[slot];
+    }
+
+    /** 某一格本次已记的停表小时。 */
+    public int creditedHours(int slot) {
+        return creditedHours[slot];
+    }
+
+    /** 东西放进这一格: 记下入仓时刻, 本趟已计停表清零 (存一夜就取不算停表)。 */
+    public void markStored(int slot, long nowHour) {
+        entryHours[slot] = nowHour;
+        creditedHours[slot] = 0;
+        setChanged();
+    }
+
+    /** 东西离开这一格: 账目跟着清掉。 */
+    public void markTaken(int slot) {
+        entryHours[slot] = 0L;
+        creditedHours[slot] = 0;
+        setChanged();
+    }
+
+    /**
+     * 把这一格结算到截止时刻: 按「连续存满 24 小时才停表、按存放小时 − 1 记」给物品记停表额度。
+     * 不在停表状态时什么都不做 (没验收、损坏过宽限期、没入册的囤都走这条路)。
+     *
+     * @return 本趟记上的小时数 (0 表示这一趟没记)
+     */
+    public int settleSlot(int slot, long deadlineHour) {
+        ItemStack stack = items.get(slot);
+        if (!stopping || stack.isEmpty() || entryHours[slot] == 0L) {
+            return 0;
+        }
+        GranarySettle.Result result = GranarySettle.settle(
+                stack, entryHours[slot], creditedHours[slot], deadlineHour);
+        creditedHours[slot] = result.creditedHours();
+        if (result.grantedHours() > 0) {
+            setChanged();
+        }
+        return result.grantedHours();
+    }
+
+    /** 把整个囤结算到截止时刻 (打开界面、停用或损坏之前都要先跑这一趟)。 */
+    public int settleAll(long deadlineHour) {
+        int granted = 0;
+        for (int slot = 0; slot < items.size(); slot++) {
+            granted += settleSlot(slot, deadlineHour);
+        }
+        return granted;
     }
 
     // ============================================================
@@ -146,6 +225,9 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
             tag.putUUID(KEY_OWNER, owner);
         }
         tag.putInt(KEY_SEQ, seq);
+        tag.putLongArray(KEY_ENTRY_HOURS, entryHours.clone());
+        tag.putIntArray(KEY_CREDITED_HOURS, creditedHours.clone());
+        tag.putBoolean(KEY_STOPPING, stopping);
     }
 
     @Override
@@ -162,5 +244,31 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
         }
         owner = tag.hasUUID(KEY_OWNER) ? tag.getUUID(KEY_OWNER) : null;
         seq = tag.getInt(KEY_SEQ);
+        entryHours = readLongs(tag, KEY_ENTRY_HOURS, size);
+        creditedHours = readInts(tag, KEY_CREDITED_HOURS, size);
+        stopping = tag.getBoolean(KEY_STOPPING);
+    }
+
+    /** 格账长度必须与格数一致: 对不上说明存档被改过, 如实报错而不是静默截断。 */
+    private static long[] readLongs(CompoundTag tag, String key, int size) {
+        if (!tag.contains(key, Tag.TAG_LONG_ARRAY)) {
+            return new long[size];
+        }
+        long[] loaded = tag.getLongArray(key);
+        if (loaded.length != size) {
+            throw new IllegalArgumentException("Invalid granary bin " + key + " size: " + loaded.length);
+        }
+        return loaded;
+    }
+
+    private static int[] readInts(CompoundTag tag, String key, int size) {
+        if (!tag.contains(key, Tag.TAG_INT_ARRAY)) {
+            return new int[size];
+        }
+        int[] loaded = tag.getIntArray(key);
+        if (loaded.length != size) {
+            throw new IllegalArgumentException("Invalid granary bin " + key + " size: " + loaded.length);
+        }
+        return loaded;
     }
 }

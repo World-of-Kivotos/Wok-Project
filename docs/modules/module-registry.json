@@ -444,7 +444,8 @@
         "wok-experience",
         "wok-job-core",
         "wok-economy",
-        "wok-webui"
+        "wok-webui",
+        "wok-freshness"
       ],
       "optionalIntegrations": [
         "farmersdelight"

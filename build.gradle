@@ -111,6 +111,8 @@ mixin {
     config "${mod_id}.district.mixins.json"
     config "${mod_id}.district.create.mixins.json"
     config "${mod_id}.district.flan.mixins.json"
+    config "${mod_id}.freshness.mixins.json"
+    config "${mod_id}.freshness.compat.mixins.json"
 }
 
 sourceSets.main.resources { srcDir 'src/generated/resources' }
@@ -266,7 +268,8 @@ tasks.named('jar', Jar).configure {
             'Implementation-Vendor'   : mod_authors,
             'MixinConfigs'            : "${mod_id}.mixins.json,${mod_id}.compat.mixins.json," +
                     "${mod_id}.district.mixins.json,${mod_id}.district.create.mixins.json," +
-                    "${mod_id}.district.flan.mixins.json",
+                    "${mod_id}.district.flan.mixins.json," +
+                    "${mod_id}.freshness.mixins.json,${mod_id}.freshness.compat.mixins.json",
         ])
     }
     finalizedBy 'reobfJar'

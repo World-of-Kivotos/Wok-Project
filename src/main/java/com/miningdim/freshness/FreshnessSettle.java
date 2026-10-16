@@ -51,6 +51,8 @@ public final class FreshnessSettle {
         if (category.isEmpty()) {
             return ItemStack.EMPTY;
         }
+        // 村民货到手: 剩余压到 6 小时 (规格「村民」; 幂等, 压过就不再压)。
+        FreshnessVillagerGoods.applyOnHandOver(stack, nowMinute);
         FreshnessData.clamp(stack, nowMinute);
         if (!FreshnessData.isStamped(stack)) {
             FreshnessData.stamp(stack, nowMinute);

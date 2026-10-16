@@ -55,6 +55,10 @@ public final class FreshnessModule implements Subsystem {
         forgeBus.addListener(FreshnessPlacedFoodHooks::onChunkLoad);
         forgeBus.addListener(FreshnessPlacedFoodHooks::onChunkSave);
         forgeBus.addListener(FreshnessPlacedFoodHooks::onChunkUnload);
+        // 村民货: 报价时打标记、老村民进世界补一次 (到手时按剩 6 小时盖章在结算那一条路上)。
+        forgeBus.addListener(FreshnessVillagerGoods::onVillagerTrades);
+        forgeBus.addListener(FreshnessVillagerGoods::onWandererTrades);
+        forgeBus.addListener(FreshnessVillagerGoods::onEntityJoinLevel);
         forgeBus.addListener(FreshnessCommands::register);
         LOGGER.info("[miningdim] {} registered (clock + item data + categories + rot item + 观察点; mixin 那批与粮仓在后续切片)",
                 MODULE_ID);

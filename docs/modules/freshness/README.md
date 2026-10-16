@@ -4,9 +4,9 @@
 
 当前入口：`com.miningdim.freshness.FreshnessModule`
 
-当前状态：第一切片（腐烂时钟 + 物品保鲜章 + 类别与豁免判定）与第二切片（腐烂物终态 + 无需 mixin 的观察点）
-已落地；mixin 观察点（漏斗、合成格、熔炉、营火、FD 厨具）、类别标签自检、同种合并、开服迁移、
-物品栏保鲜条与粮仓联动按设计文档后续切片推进。
+当前状态：三个切片已落地——① 腐烂时钟 + 物品保鲜章 + 类别与豁免判定；② 腐烂物终态 + 无需 mixin 的观察点；
+③ 加工继承策略 + 三个原版 mixin 观察点（合成格、熔炉三件套、漏斗）与模块自带的两份 mixin 配置。
+类别标签自检、同种合并、开服迁移、FD 与 BnC/refurbished 兼容 mixin、物品栏保鲜条与粮仓联动按设计文档后续切片推进。
 
 设计真源：[`../../Spoilage_Granary_DesignSpec.md`](../../Spoilage_Granary_DesignSpec.md)（14 项已按推荐拍板，
 2026-10-15；P0 环境核实记录在该文末）。
@@ -23,10 +23,14 @@
 - **结算**：`FreshnessSettle` 是全模块唯一的「盖章 / 换腐烂物」实现，所有观察点都调它。
 - **观察点（无需 mixin 的那批）**：全局掉落修改器、掉落物进世界、玩家背包每 2 秒错峰扫描、登录、
   白名单容器开与关、右键方块 / 右键物品（含开吃）/ 与实体交互之前。
+- **加工继承策略**：产物按原料里最差的剩余比例继承（取最差不取平均）、加热工序 +25%、封顶满保质期、
+  向下取整且最少 1 小时、停表额度取原料里最大的（堵「冻满额度 → 做熟 → 再冻满」）。
+- **mixin 观察点（原版目标，本模块自带必需配置）**：合成格（工作台 3×3 与背包 2×2 共用的静态方法）、
+  熔炉三件套（原料过期就停工并换成腐烂物、出品按加热加成继承）、漏斗（每次搬运前结算自己那几格，不做合并）。
 - **总开关**：关闭 / 试运行 / 开启三档（安全阀）。
-- 后续切片：mixin 观察点（漏斗、合成格与配方书、熔炉三件套、营火、FD 砧板/煎锅/炉灶/厨锅、BnC 与
-  refurbished 出品）、放置食物按坐标记账、村民货标记、消费点拦截、类别自检与统计、同种合并、
-  开服迁移、物品栏保鲜条与 WebUI 物品详情贡献者。
+- 后续切片：营火 mixin；放置食物按坐标记账；村民货标记；消费点拦截；类别自检与统计；同种合并
+  （含「机器输出合并取最老」与配方书追加）；开服迁移；FD / BnC / refurbished 兼容 mixin（走可选配置）；
+  物品栏保鲜条与 WebUI 物品详情贡献者；粮仓在 `wok-job-farmer`。
 
 本模块不负责：
 
@@ -39,7 +43,7 @@
 
 ### Java 源码
 
-- `src/main/java/com/miningdim/freshness/`（16 个文件，含 `item/` 子包与 2 个测试类）。
+- `src/main/java/com/miningdim/freshness/`（22 个文件，含 `item/`、`mixin/` 两个子包与 3 个测试类）。
 
 ### 专属资源
 
@@ -47,6 +51,9 @@
 - `data/miningdim/tags/items/freshness_exempt.json`
 - `data/miningdim/loot_modifiers/freshness_stamp.json`（并登记在共享索引 `data/forge/loot_modifiers/global_loot_modifiers.json`）
 - `assets/miningdim/models/item/freshness_rot.json`、`assets/miningdim/textures/item/freshness_rot.png`
+- `miningdim.freshness.mixins.json`（必需：原版目标）与 `miningdim.freshness.compat.mixins.json`（可选：第三方目标，
+  当前为空，等 FD / BnC / refurbished 那批填）。两份都要同时登记在 `build.gradle` 的 `mixin{}` 块、jar 清单的
+  `MixinConfigs` 与本模块的 `resourcePaths` —— 只改一处就是「开发能跑、正式服什么都没加载」。
 - 语言键：`item.miningdim.freshness_rot`、`tooltip.miningdim.freshness.category.*`（共享语言文件按 key 前缀分属）
 
 ### 配置文件
@@ -61,8 +68,10 @@
 - 物品数据根键：`MiningFresh`；子键 `h`（批次时刻，IntTag）、`f`（已停表小时，IntTag）、`m`（迁移货）、`v`（村民货）。
 - SavedData 名：`miningdim_freshness_clock`（主世界）。
 - 物品 tag：`miningdim:freshness/{fresh,produce,cooked,root,grain,preserved}`、`miningdim:freshness_exempt`。
+- mixin 配置名：`miningdim.freshness.mixins.json`（必需）、`miningdim.freshness.compat.mixins.json`（可选）；
+  mixin 包：`com.miningdim.freshness.mixin`、`com.miningdim.freshness.mixin.compat`。
 - 配置文件：`miningdim-freshness.toml`；计划中的命令根 `/freshness`。
-- 腐烂物物品 ID：`freshness_rot`（终态切片落地时冻结）。
+- 腐烂物物品 ID：`freshness_rot`。
 
 ## 4. 依赖登记
 
@@ -84,7 +93,15 @@
 - 类别判定依赖物品 tag，第三方条目必须写进标签；「能吃但没标类别」的兜底会把漏标的食物按 48 小时处理，
   所以开服自检（后续切片）必须逐条核对设计文档点名的那些物品。
 - `FreshnessCategories.shelfLifeHours` 直接读配置：配置未加载时取值会抛异常，调用方必须在服务端起好之后再用。
-- 时钟的「现在」由挂钟现算，测试要用 `FreshnessClock.setOffsetHoursForTest` 注入并在 `finally` 复位。
+- 时钟的「现在」由挂钟现算，测试要用 `FreshnessClock.setOffsetHoursForTest` 注入并在 `finally` 复位；
+  观察点用的则是主世界时钟 `FreshnessClockData.nowMinute(level)`，写测试夹具时必须按它现算，
+  否则批次会被当成未来时间被 clamp 回去。
+- **机器输出合并取最老还没做**：熔炉与合成格的产物只做继承盖章，原版「同物品同数据才并堆」在带章之后
+  不会把不同批次并起来；这条与「同种食物合并」同一批落地（规格反漏洞 #8、#51）。
+- **合成格只锁了策略**：`CraftingMenuMixin` 的两个注入点由启动即编译进 jar 保证（`defaultRequire: 1`，
+  注入不上直接崩服），但走模拟玩家的合成夹具还没写，列入同种合并那一批。
+- `FreshnessHooks` 用一个 `ThreadLocal` 在熔炉的 HEAD 与 RETURN 之间传原料快照（`burn` 成功后会先把原料扣掉，
+  RETURN 时单件原料已经空了）。只在服务端主线程使用，用完即清。
 
 ## 6. 目标内部结构
 
@@ -94,18 +111,25 @@ freshness/
   FreshnessClock.java       纯逻辑时钟（可测）
   FreshnessClockData.java   主世界 SavedData（心跳 + 偏移）
   FreshnessData.java        物品章的唯一 writer
+  FreshnessSettle.java      结算（盖章 / 换腐烂物），全模块唯一
+  FreshnessProcessing.java  加工继承的纯策略（取最差、加热加成、封顶、下限、停表取大）
+  FreshnessHooks.java       mixin 适配层（薄）
   FreshnessCategories.java  类别判定
   FreshnessExemptions.java  模块登记的豁免规则
   FreshnessCategory.java    六类枚举
   FreshnessConfig.java      服务端配置
+  FreshnessObservation.java 无需 mixin 的观察点
+  FreshnessLootModifier(s)  全局掉落修改器
+  item/                     freshness_rot
+  mixin/                    合成格 / 熔炉三件套 / 漏斗（原版目标）
+  mixin/compat/             计划：FD、BnC、refurbished（可选配置）
   command/                  计划：/freshness dump|stats|audit|stamp|strip
-  observe/                  计划：掉落、玩家扫描、白名单容器、漏斗、加工出品、进食
   client/                   计划：物品栏保鲜条、剩余数字、快捷栏提醒
 ```
 
 ## 7. 验证清单
 
-当前两个测试类共 17 条 GameTest：
+当前三个测试类共 25 条 GameTest：
 
 - `FreshnessGameTests`（batch `freshness_foundation`，12 条）
   - 时钟：首次观察、正常前进、停服按整小时补偿、运行中跳变补「差值 − 1」、挂钟回跳只增不减、测试偏移入口钳负值。
@@ -115,6 +139,11 @@ freshness/
 - `FreshnessSettleGameTests`（batch `freshness_settle`，5 条）
   - 结算：未盖章的当场盖章、不腐烂的一概不碰；试运行档只盖章不换、开启档 1 换 1；碗装食物按件退碗；
     容器级结算就地替换并顺手盖上其余；腐烂物的注册身份（不能吃、64 一组）与掉落修改器序列化器在位。
+- `FreshnessProcessingGameTests`（batch `freshness_processing`，8 条）
+  - 策略：取最差比例（并反证不是平均值）、加热 +25% 与封顶、向下取整与最少 1 小时、停表额度取原料最大、
+    过期原料判定（未盖章不算过期、不腐烂的不参与）。
+  - 适配层：漏斗钩子换掉过期食物；熔炉钩子拦下过期原料并把出品按加热加成盖章；
+    漏斗在自己 tick 里真的执行了结算（这条是 mixin 注入生效的端到端证据）。
 
 每个切片至少执行：
 

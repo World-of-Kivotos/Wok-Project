@@ -1,7 +1,10 @@
 package com.miningdim.freshness;
 
 import com.miningdim.core.Subsystem;
+import com.miningdim.freshness.item.FreshnessItems;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.item.CreativeModeTabs;
+import net.minecraftforge.event.BuildCreativeModeTabContentsEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -31,10 +34,32 @@ public final class FreshnessModule implements Subsystem {
     public void register(IEventBus modBus, IEventBus forgeBus) {
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER,
                 FreshnessConfig.SPEC, "miningdim-freshness.toml");
+        FreshnessItems.register(modBus);
+        FreshnessLootModifiers.register(modBus);
+        modBus.addListener(this::onBuildTabContents);
         forgeBus.addListener(this::onServerStarted);
         forgeBus.addListener(this::onServerTick);
-        LOGGER.info("[miningdim] {} registered (clock + item data + categories; 观察点与粮仓在后续切片)",
+        // 观察点里不需要 mixin 的那一批 (掉落物、玩家扫描、白名单容器、右键与进食之前、登录)。
+        forgeBus.addListener(FreshnessObservation::onPlayerTick);
+        forgeBus.addListener(FreshnessObservation::onPlayerLoggedIn);
+        forgeBus.addListener(FreshnessObservation::onContainerOpen);
+        forgeBus.addListener(FreshnessObservation::onContainerClose);
+        forgeBus.addListener(FreshnessObservation::onEntityJoinLevel);
+        forgeBus.addListener(FreshnessObservation::onRightClickBlock);
+        forgeBus.addListener(FreshnessObservation::onRightClickItem);
+        forgeBus.addListener(FreshnessObservation::onEntityInteract);
+        LOGGER.info("[miningdim] {} registered (clock + item data + categories + rot item + 观察点; mixin 那批与粮仓在后续切片)",
                 MODULE_ID);
+    }
+
+    /**
+     * 腐烂物进原版「材料」页。本模块不碰中央创造栏 (那归核心模块), 只往原版页签追加自己的物品 ——
+     * 这是往别人的页签塞东西时的标准做法, 不产生模块间依赖。
+     */
+    private void onBuildTabContents(BuildCreativeModeTabContentsEvent event) {
+        if (event.getTabKey().equals(CreativeModeTabs.INGREDIENTS)) {
+            event.accept(FreshnessItems.ROT.get());
+        }
     }
 
     @Override

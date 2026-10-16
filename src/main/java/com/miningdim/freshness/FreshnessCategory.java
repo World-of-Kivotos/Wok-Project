@@ -58,6 +58,6 @@ public enum FreshnessCategory {
 
     /** 语言键 (tooltip 第二行「类别」)。 */
     public String translationKey() {
-        return "freshness.category." + tagPath;
+        return "tooltip.miningdim.freshness.category." + tagPath;
     }
 }

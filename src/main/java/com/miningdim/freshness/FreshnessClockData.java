@@ -46,6 +46,11 @@ public final class FreshnessClockData extends SavedData {
         return clock.nowMinute();
     }
 
+    /** 取某个维度所在存档的「现在」分钟序号 (观察点最常用的入口)。 */
+    public static long nowMinute(ServerLevel level) {
+        return get(level).nowMinute();
+    }
+
     /**
      * 开服: 按心跳做停服补偿。
      *

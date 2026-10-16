@@ -38,6 +38,8 @@ public final class FreshnessConfig {
     public static final ForgeConfigSpec.BooleanValue MIGRATION_ENABLED;
     public static final ForgeConfigSpec.LongValue MIGRATION_ENABLED_AT_MINUTE;
     public static final ForgeConfigSpec.IntValue MIGRATION_GRACE_HOURS;
+    public static final ForgeConfigSpec.BooleanValue RECIPE_FILTER_ENABLED;
+    public static final ForgeConfigSpec.ConfigValue<java.util.List<? extends String>> RECIPE_FILTER_WHITELIST;
 
     static {
         ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
@@ -92,6 +94,16 @@ public final class FreshnessConfig {
                 .defineInRange("enabledAtEpochMinute", 0L, 0L, Long.MAX_VALUE);
         MIGRATION_GRACE_HOURS = builder.comment("Hours of life migrated goods get at the enable instant")
                 .defineInRange("graceHours", FreshnessConstants.MIGRATION_GRACE_HOURS, 1, 720);
+        builder.pop();
+
+        builder.push("recipes");
+        RECIPE_FILTER_ENABLED = builder.comment(
+                        "Remove 'compressed block back into its perishable parts' crafting recipes (spoilage spec rule 1).",
+                        "Only crafting recipes with one ingredient kind, >= 4 outputs, a perishable result and a non-perishable input are removed.")
+                .define("removeUnsquashRecipes", true);
+        RECIPE_FILTER_WHITELIST = builder.comment(
+                        "Recipe ids that must never be removed by the filter (pack authors with legitimate 1-to-many recipes).")
+                .defineListAllowEmpty("unsquashWhitelist", java.util.List.of(), entry -> entry instanceof String);
         builder.pop();
 
         SPEC = builder.build();

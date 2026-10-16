@@ -65,6 +65,10 @@ public final class FreshnessModule implements Subsystem {
         forgeBus.addListener(FreshnessMigrationHooks::onChunkLoad);
         forgeBus.addListener(FreshnessMigrationHooks::onEntityJoinLevel);
         forgeBus.addListener(FreshnessMigrationHooks::onPlayerLoggedIn);
+
+        // 配方过滤: 压缩块拆回 (规则 1) 在每次数据包 reload 的 apply 阶段扫一遍合成配方。
+        forgeBus.addListener(FreshnessRecipeFilterHooks::onAddReloadListener);
+        forgeBus.addListener(FreshnessRecipeFilterHooks::onServerStarted);
         forgeBus.addListener(FreshnessCommands::register);
         LOGGER.info("[miningdim] {} registered (clock + item data + categories + rot item + 观察点; mixin 那批与粮仓在后续切片)",
                 MODULE_ID);

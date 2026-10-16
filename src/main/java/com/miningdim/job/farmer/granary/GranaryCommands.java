@@ -10,6 +10,8 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -64,6 +66,15 @@ public final class GranaryCommands {
                         .then(Commands.argument("value", BoolArgumentType.bool())
                                 .executes(GranaryCommands::keepHotbarSet)))
                 .then(Commands.literal("claim").executes(GranaryCommands::claim))
+                .then(Commands.literal("leave")
+                        .executes(GranaryCommands::leaveNearby)
+                        .then(Commands.argument("gid", com.mojang.brigadier.arguments.LongArgumentType.longArg(1L))
+                                .executes(GranaryCommands::leaveRemote)))
+                .then(Commands.literal("pack")
+                        .executes(GranaryCommands::packLooked)
+                        .then(Commands.argument("index",
+                                        com.mojang.brigadier.arguments.IntegerArgumentType.integer(1))
+                                .executes(GranaryCommands::packIndexed)))
                 .then(Commands.literal("store").executes(GranaryCommands::store))
                 .then(Commands.literal("access")
                         .executes(GranaryCommands::accessReport)
@@ -105,7 +116,7 @@ public final class GranaryCommands {
                         .then(Commands.literal("remove")
                                 .then(Commands.argument("player", EntityArgument.player())
                                         .executes(context -> memberChange(context, false))))
-                        .then(Commands.literal("leave").executes(GranaryCommands::memberLeave)))
+                        .then(Commands.literal("leave").executes(GranaryCommands::leaveNearby)))
                 .then(Commands.literal("rescan")
                         .requires(source -> source.hasPermission(OP_LEVEL))
                         .executes(GranaryCommands::rescan))
@@ -156,8 +167,11 @@ public final class GranaryCommands {
         }
         source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.bins_header",
                 rows.size(), cap, farmerLevel), false);
-        for (GranaryQuery.BinRow row : rows) {
+        for (int index = 0; index < rows.size(); index++) {
+            GranaryQuery.BinRow row = rows.get(index);
+            int number = index + 1;
             source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.bin_row",
+                    number,
                     GranaryQuery.where(row.pos()),
                     Component.translatable(row.state().translationKey()),
                     row.gid() == 0L
@@ -171,6 +185,175 @@ public final class GranaryCommands {
         source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.bins_quota",
                 GranaryBinGuard.remainingFor(farmerLevel, rows.size() + pendingBins, 0)), false);
         return rows.size();
+    }
+
+    // ============================================================
+    // 远程退出与打包 (规格「退出、拆走、移出」: /granary leave 与 /granary pack 可以远程)
+    // ============================================================
+
+    /**
+     * 退出粮仓 ([@code /granary leave [<gid>]}; 不带编号时按站着的那座)。
+     *
+     * 规格明写**可以远程**: 被房主堵在屋里、或者干脆不想再进那间屋子的成员, 要能随时带着自己的囤走
+     * (反漏洞 #60「把别人的储粮囤困在自己建筑里」的出路)。带编号那一支就是远程形态。
+     */
+    private static int leaveNearby(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        ServerLevel level = player.serverLevel();
+        Optional<GranaryQuery.Nearby> nearby = GranaryQuery.nearest(level, player.position());
+        if (nearby.isEmpty()) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.none_nearby"));
+            return 0;
+        }
+        GranaryRecord record = nearby.get().record();
+        if (record == null) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.not_a_granary"));
+            return 0;
+        }
+        return leaveGranary(source, player, record, true);
+    }
+
+    /** 远程退出 (带粮仓编号; 人不在那儿也退得掉)。 */
+    private static int leaveRemote(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        long gid = context.getArgument("gid", Long.class);
+        GranaryRecord record = GranarySavedData.get(player.getServer().overworld()).granary(gid);
+        if (record == null) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.no_such_granary", gid));
+            return 0;
+        }
+        return leaveGranary(source, player, record, false);
+    }
+
+    /**
+     * 退出的公共部分 (成员自己退出; 房主要转让或拆掉)。
+     *
+     * @param refresh 顺手把站着的那座粮仓重算一次 (远程退出时不重算 —— 那份结构多半没加载)
+     */
+    private static int leaveGranary(CommandSourceStack source, ServerPlayer player, GranaryRecord record,
+                                    boolean refresh) throws CommandSyntaxException {
+        if (player.getUUID().equals(record.owner())) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.member_owner_cannot_leave"));
+            return 0;
+        }
+        if (!record.isMember(player.getUUID())) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.member_not_member"));
+            return 0;
+        }
+        GranarySavedData data = GranarySavedData.get(player.getServer().overworld());
+        GranaryRecord updated = record.withoutMember(player.getUUID());
+        data.putGranary(updated);
+        // 自己退出: 东西一样进自己的待领粮单, 但**不停表** —— 是自己选的 (反漏洞 #66)。
+        int moved = takeDownBinsOf(player, updated, player.getUUID(), GranaryPending.Reason.LEFT);
+        if (refresh) {
+            refreshGranary(player, record.id());
+        }
+        reportMemberChange(source, false, player.getUUID(), record.owner(), moved, true);
+        return 1;
+    }
+
+    /** 打包正看着的那个囤 (人得站在它前面)。 */
+    private static int packLooked(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        GranaryBinBlockEntity looked = targetBin(player);
+        if (looked == null) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.pack_no_bin"));
+            return 0;
+        }
+        BlockPos pos = looked.getBlockPos();
+        ResourceLocation dimension = player.serverLevel().dimension().location();
+        for (GranaryQuery.BinRow row : GranaryQuery.binsOf(player.serverLevel(), player.getUUID())) {
+            if (row.dimension().equals(dimension) && row.pos().equals(pos)) {
+                return packRow(source, player, row);
+            }
+        }
+        source.sendFailure(Component.translatable("message.miningdim.granary.command.pack_not_yours"));
+        return 0;
+    }
+
+    /** 远程打包 (/granary pack <序号>, 序号就是 /granary bins 那份清单的序号)。 */
+    private static int packIndexed(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        int number = context.getArgument("index", Integer.class);
+        List<GranaryQuery.BinRow> rows = GranaryQuery.binsOf(player.serverLevel(), player.getUUID());
+        if (number < 1 || number > rows.size()) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.pack_bad_index",
+                    number, rows.size()));
+            return 0;
+        }
+        return packRow(source, player, rows.get(number - 1));
+    }
+
+    private static int packRow(CommandSourceStack source, ServerPlayer player, GranaryQuery.BinRow row) {
+        int count = binContents(player, row.dimension(), row.pos());
+        if (!packOne(player, row.dimension(), row.pos(), GranaryPending.Reason.PACKED)) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.pack_failed"));
+            return 0;
+        }
+        int pending = GranarySavedData.get(player.getServer().overworld()).pendingBins(player.getUUID());
+        source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.pack",
+                count, pending), true);
+        return 1;
+    }
+
+    /** 数一下这个囤里有多少件 (命令回执用; 找不到方块实体就是 0)。 */
+    private static int binContents(ServerPlayer player, ResourceLocation dimension, BlockPos pos) {
+        ServerLevel target = levelOf(player, dimension);
+        if (target == null) {
+            return 0;
+        }
+        target.getChunk(pos);
+        if (!(target.getBlockEntity(pos) instanceof GranaryBinBlockEntity bin)) {
+            return 0;
+        }
+        int count = 0;
+        for (int slot = 0; slot < bin.getContainerSize(); slot++) {
+            count += bin.getItem(slot).getCount();
+        }
+        return count;
+    }
+
+    /**
+     * 把一个囤搬进囤主的待领粮单 (命令侧的统一入口)。
+     *
+     * 会**临时读一次它所在的区块** (规格「远程打包」: /granary leave 与 /granary pack 会一次性加载囤
+     * 所在的区块) —— 命令是玩家主动发的, 不读就不知道里面有什么。
+     */
+    private static boolean packOne(ServerPlayer player, ResourceLocation dimension, BlockPos pos,
+                                   GranaryPending.Reason reason) {
+        ServerLevel target = levelOf(player, dimension);
+        if (target == null) {
+            return false;
+        }
+        target.getChunk(pos);
+        long nowHour = GranaryClock.nowHour(player.getServer().overworld());
+        return GranaryTransfer.takeDown(target, pos, reason, nowHour) != null;
+    }
+
+    /** 维度 id → 那个维度的服务端世界 (找不到返回 null)。 */
+    private static ServerLevel levelOf(ServerPlayer player, ResourceLocation dimension) {
+        return player.getServer().getLevel(
+                net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION,
+                        dimension));
+    }
+
+    /** 站着退出之后顺手重算那座粮仓 (只在那座账台已加载时做; 没加载就交给复查调度)。 */
+    private static void refreshGranary(ServerPlayer player, long gid) {
+        GranarySavedData data = GranarySavedData.get(player.getServer().overworld());
+        for (GranarySavedData.PosKey key : data.centers()) {
+            if (data.centerGranary(key.dimension(), key.pos()) != gid) {
+                continue;
+            }
+            ServerLevel target = levelOf(player, key.dimension());
+            if (target != null && target.isLoaded(key.pos())) {
+                GranaryInspection.inspect(target, key.pos());
+            }
+            return;
+        }
     }
 
     // ============================================================
@@ -602,7 +785,7 @@ public final class GranaryCommands {
         data.putGranary(updated);
         // 移出成员: 对方的囤连同里面的东西一起进他自己的待领粮单 (规格「退出、拆走、移出」表),
         // 东西不掉在地上、房主也拿不走; 被移出的那一份在单子里照常停表 7 天 (不是自己造成的)。
-        int moved = add ? 0 : takeDownBinsOf(level, updated, target.getUUID(),
+        int moved = add ? 0 : takeDownBinsOf(player, updated, target.getUUID(),
                 GranaryPending.Reason.REMOVED);
         // 入册/移出之后立刻重算一次: 囤的启用名单跟着成员身份走, 不能让玩家等到下一次复查。
         GranaryInspection.inspect(level, nearby.get().center());
@@ -610,38 +793,7 @@ public final class GranaryCommands {
         return add ? 1 : 0;
     }
 
-    /** 成员自己退出 (房主不能退自己的粮仓: 要么转让要么拆掉, 那是另外两条路)。 */
-    private static int memberLeave(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
-        CommandSourceStack source = context.getSource();
-        ServerPlayer player = source.getPlayerOrException();
-        ServerLevel level = player.serverLevel();
-        Optional<GranaryQuery.Nearby> nearby = GranaryQuery.nearest(level, player.position());
-        if (nearby.isEmpty()) {
-            source.sendFailure(Component.translatable("message.miningdim.granary.command.none_nearby"));
-            return 0;
-        }
-        GranaryRecord record = nearby.get().record();
-        if (record == null) {
-            source.sendFailure(Component.translatable("message.miningdim.granary.not_a_granary"));
-            return 0;
-        }
-        if (player.getUUID().equals(record.owner())) {
-            source.sendFailure(Component.translatable("message.miningdim.granary.command.member_owner_cannot_leave"));
-            return 0;
-        }
-        if (!record.isMember(player.getUUID())) {
-            source.sendFailure(Component.translatable("message.miningdim.granary.command.member_not_member"));
-            return 0;
-        }
-        GranarySavedData data = GranarySavedData.get(level.getServer().overworld());
-        GranaryRecord updated = record.withoutMember(player.getUUID());
-        data.putGranary(updated);
-        // 自己退出: 东西一样进自己的待领粮单, 但**不停表** —— 是自己选的 (反漏洞 #66)。
-        int moved = takeDownBinsOf(level, updated, player.getUUID(), GranaryPending.Reason.LEFT);
-        GranaryInspection.inspect(level, nearby.get().center());
-        reportMemberChange(source, false, player.getUUID(), record.owner(), moved, true);
-        return 1;
-    }
+
 
     /**
      * 把某人在某座粮仓里的囤全部连东西一起搬进他自己的待领粮单。
@@ -651,17 +803,15 @@ public final class GranaryCommands {
      *
      * @return 搬走的囤数
      */
-    private static int takeDownBinsOf(ServerLevel level, GranaryRecord record, UUID owner,
+    private static int takeDownBinsOf(ServerPlayer player, GranaryRecord record, UUID owner,
                                       GranaryPending.Reason reason) {
-        GranarySavedData data = GranarySavedData.get(level.getServer().overworld());
-        long nowHour = GranaryClock.nowHour(level.getServer().overworld());
+        GranarySavedData data = GranarySavedData.get(player.getServer().overworld());
         int moved = 0;
         for (GranarySavedData.PosKey key : List.copyOf(data.binsOf(record.id()))) {
             if (!owner.equals(data.ownerOf(key.dimension(), key.pos()))) {
                 continue;
             }
-            level.getChunk(key.pos());
-            if (GranaryTransfer.takeDown(level, key.pos(), reason, nowHour) != null) {
+            if (packOne(player, key.dimension(), key.pos(), reason)) {
                 moved++;
             }
         }

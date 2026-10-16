@@ -193,9 +193,11 @@ dependencies {
     }
 
     // Optional in production; loaded in dev so Farmer's Delight crop paths receive real GameTests.
-    def farmersDelightDevJar = file("libs/FarmersDelight-1.20.1-1.3.2.jar")
+    // 开发运行时的 FD 版本必须与整合包实际装的那一版对齐 (整合包是 1.2.9): 腐烂与粮仓的 FD 兼容
+    // mixin 与来源上下文按 1.2.9 的签名写, 版本对不上时 GameTest 跑不起来 (docs/Spoilage_Granary_DesignSpec.md 附录, P0 前置)。
+    def farmersDelightDevJar = file("libs/FarmersDelight-1.20.1-1.2.9.jar")
     if (farmersDelightDevJar.exists()) {
-        runtimeOnly fg.deobf("local:FarmersDelight-1.20.1:1.3.2")
+        runtimeOnly fg.deobf("local:FarmersDelight-1.20.1:1.2.9")
     }
 
     // Flan 1.20.1-1.11.16 (Forge): 自管区的领地后端 (docs/District_Backend_Design.md 20.1)。

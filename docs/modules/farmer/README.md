@@ -5,8 +5,8 @@
 当前入口：`com.miningdim.job.farmer.FarmerModule`
 
 当前状态：已启用独立模块装配入口，并通过职业框架策略注册契约清偿反向依赖；Java 包、资源 ID 和注册项保持兼容。
-粮仓子包 `job/farmer/granary` 的第一块（储粮囤额度、归属记账与放置裁决）已落地；
-账台 / 气窗 / 冷源、房间判定、停表结算、合建成员与待领粮单按 `docs/Spoilage_Granary_DesignSpec.md` 后续分片推进。
+粮仓子包 `job/farmer/granary` 已落地两块：储粮囤额度与归属记账、账台 / 气窗与房间结构判定；
+验收与档位、冷源、停表结算、合建成员与待领粮单、界面与命令按 `docs/Spoilage_Granary_DesignSpec.md` 后续分片推进。
 
 ## 1. 功能边界
 
@@ -23,7 +23,9 @@
 - **粮仓（`granary` 子包）**：储粮囤方块（27 格、谁放下就归谁、不开放物品接口、推不动）、
   按农夫等级的全服额度（L1 3 个、每级 +1、L10 共 13 个，管理员可在 `miningdim-farmer.toml` 的
   `[granary]` 段整表调整）、按坐标的归属账本与派生计数、放置裁决（`EventPriority.LOWEST` + 假玩家拒绝）
-  与拆除归还。粮仓的其余部分（账台、气窗、冷源、自由房间判定、停表结算、合建与待领粮单、界面与命令）
+  与拆除归还；账台（粮仓的大脑、每人最多 2 座）与气窗方块，以及**房间结构判定扫描器**
+  （从账台周围的空气洪泛出封闭小屋，数室内格数 / 储粮囤 / 账台 / 气窗 / 冷源，并给出可支撑囤数）。
+  粮仓的其余部分（验收与档位、冷源清单扩展、停表结算、合建与待领粮单、界面与命令）
   在同一份设计文档的后续分片里。
 
 本模块不负责：
@@ -73,8 +75,11 @@
 - 方块标签：`miningdim:farmer_farmland`。
 - SavedData 名：`miningdim_farmer`。
 - 命令根：`/farmer`。
-- 粮仓（`granary` 子包）：方块 `granary_bin`、方块实体类型 `granary_bin`、创造页 `farmer_granary`、
-  SavedData 名 `miningdim_farmer_granary`、配置文件 `miningdim-farmer.toml` 的 `[granary]` 段。
+- 粮仓（`granary` 子包）：方块 `granary_bin`、`granary_center`、`granary_vent`，方块实体类型
+  `granary_bin`、`granary_center`，创造页 `farmer_granary`、SavedData 名 `miningdim_farmer_granary`、
+  配置文件 `miningdim-farmer.toml` 的 `[granary]` 段。
+- 房间判定的技术上限（改了会让已有粮仓的判定结果变化，属运营口径）：室内 4,096 格、以账台为中心
+  水平 ±24 / 垂直 ±12、每囤 9 格、每扇气窗撑 4 个囤、每个冷源撑 2 个囤。
 
 ## 4. 依赖登记
 

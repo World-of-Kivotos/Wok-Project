@@ -42,22 +42,35 @@ public final class GranaryPending {
     /** 一个待领条目从哪来 (上线提醒与命令回执要说清「这是怎么没的」)。 */
     public enum Reason {
         /** 自己退出粮仓 ({@code /granary leave})。 */
-        LEFT("granary.pending.reason.left"),
+        LEFT("granary.pending.reason.left", false),
         /** 自己远程打包 ({@code /granary pack})。 */
-        PACKED("granary.pending.reason.packed"),
+        PACKED("granary.pending.reason.packed", false),
         /** 被房主移出成员名单。 */
-        REMOVED("granary.pending.reason.removed"),
-        /** 囤被别人拆走 (房主拆未入册的空囤 / OP 强拆)。 */
-        BROKEN("granary.pending.reason.broken");
+        REMOVED("granary.pending.reason.removed", true),
+        /** 囤被别人拆走 (房主拆未入册的空囤 / OP 强拆 / 非玩家路径)。 */
+        BROKEN("granary.pending.reason.broken", true);
 
         private final String translationKey;
+        private final boolean stopsClock;
 
-        Reason(String translationKey) {
+        Reason(String translationKey, boolean stopsClock) {
             this.translationKey = translationKey;
+            this.stopsClock = stopsClock;
         }
 
         public String translationKey() {
             return translationKey;
+        }
+
+        /**
+         * 这一条进单子之后还停不停表。
+         *
+         * 规格「不是自己造成的才给宽限」: 被移出、囤被别人拆走的人在单子里照常停表 (给 7 天),
+         * 自己退出或打包的**不停表** —— 那是自己选的, 而且这条同时堵住「远程打包当不用盖房子的冰箱」
+         * (反漏洞 #66)。
+         */
+        public boolean stopsClock() {
+            return stopsClock;
         }
     }
 
@@ -66,12 +79,15 @@ public final class GranaryPending {
      *
      * 条目本身就是额度的计量单位 (每个条目占 1 个囤), 所以「条目空了」与「额度归还」是同一件事。
      *
-     * @param gid    原来在哪座粮仓 (0 = 没连上粮仓的散囤)
-     * @param reason 怎么进单子的
-     * @param atHour 进单子的时刻 (挂钟小时)
-     * @param items  里面的东西 (含保鲜章, 原样进出)
+     * @param gid            原来在哪座粮仓 (0 = 没连上粮仓的散囤)
+     * @param reason         怎么进单子的
+     * @param atHour         进单子的时刻 (挂钟小时)
+     * @param graceUntilHour 停表停到哪一刻 (0 = 不停表; 只有「不是自己造成的」那两种来路才有)
+     * @param creditedHours  这一段宽限里已经记过的停表小时 (结算的 C, 只对上面那一刻有意义)
+     * @param items          里面的东西 (含保鲜章, 原样进出)
      */
-    public record Entry(long gid, Reason reason, long atHour, List<ItemStack> items) {
+    public record Entry(long gid, Reason reason, long atHour, long graceUntilHour, int creditedHours,
+                        List<ItemStack> items) {
 
         /**
          * 条目**自己持有一份拷贝**。
@@ -87,10 +103,21 @@ public final class GranaryPending {
                 }
             }
             items = List.copyOf(owned);
+            creditedHours = Math.max(0, creditedHours);
+        }
+
+        /** 刚进单子的条目 (还没记过停表)。 */
+        public Entry(long gid, Reason reason, long atHour, List<ItemStack> items) {
+            this(gid, reason, atHour, 0L, 0, items);
         }
 
         public boolean isEmpty() {
             return items.isEmpty();
+        }
+
+        /** 这一条还停不停表 (有宽限窗口, 而且窗口还没过)。 */
+        public boolean stopsClock(long nowHour) {
+            return graceUntilHour > 0L && nowHour < graceUntilHour;
         }
 
         /** 剩下的件数 (命令回执用)。 */
@@ -107,6 +134,8 @@ public final class GranaryPending {
             tag.putLong(GranaryConstants.KEY_GID, gid);
             tag.putString(GranaryConstants.KEY_REASON, reason.name());
             tag.putLong(GranaryConstants.KEY_AT, atHour);
+            tag.putLong(GranaryConstants.KEY_HOUR, graceUntilHour);
+            tag.putInt(GranaryConstants.KEY_CREDITED, creditedHours);
             ListTag items = new ListTag();
             for (ItemStack stack : this.items) {
                 if (!stack.isEmpty()) {
@@ -132,8 +161,13 @@ public final class GranaryPending {
                     stacks.add(stack);
                 }
             }
+            // 宽限窗口与已记小时是后加的两项: 老档里没有就是「不停表、还没记过」。
+            long graceUntil = tag.contains(GranaryConstants.KEY_HOUR, Tag.TAG_LONG)
+                    ? tag.getLong(GranaryConstants.KEY_HOUR) : 0L;
+            int credited = tag.contains(GranaryConstants.KEY_CREDITED, Tag.TAG_INT)
+                    ? tag.getInt(GranaryConstants.KEY_CREDITED) : 0;
             return new Entry(tag.getLong(GranaryConstants.KEY_GID), reason,
-                    tag.getLong(GranaryConstants.KEY_AT), stacks);
+                    tag.getLong(GranaryConstants.KEY_AT), graceUntil, credited, stacks);
         }
     }
 
@@ -172,7 +206,63 @@ public final class GranaryPending {
      */
     public static int put(GranarySavedData data, UUID player, long gid, Reason reason, long atHour,
                           List<ItemStack> items) {
-        return data.putPending(player, new Entry(gid, reason, atHour, items));
+        return put(data, player, gid, reason, atHour, 0L, items);
+    }
+
+    /**
+     * 同上, 并指定停表的宽限窗口。
+     *
+     * 宽限窗口只对「不是自己造成的」那两种来路有意义 ({@link Reason#stopsClock()}); 自己退出或打包的
+     * 传 0, 东西按原有保鲜章照常烂。
+     */
+    public static int put(GranarySavedData data, UUID player, long gid, Reason reason, long atHour,
+                          long graceUntilHour, List<ItemStack> items) {
+        long until = reason.stopsClock() ? Math.max(atHour, graceUntilHour) : 0L;
+        return data.putPending(player, new Entry(gid, reason, atHour, until, 0, items));
+    }
+
+    /**
+     * 结算单子里还在停表的那些东西 (规格「被移出的人在宽限期内照常停表」)。
+     *
+     * 与囤里的停表同一套算术 (存满 24 小时起算、按「存放小时 − 1」记、每件封顶 504), 只是账换成了
+     * 「从进单子那一刻 (atHour) 到宽限截止」这一段。**惰性结算**: 领的时候与上线的时候各跑一次就够 ——
+     * 宽限截止是固定时刻, 早算晚算结果一样, 不必为它挂一个每 tick 的任务。
+     *
+     * @return 有东西真的涨了停表小时的条目数
+     */
+    public static int settle(GranarySavedData data, UUID player, long nowHour) {
+        List<Entry> entries = data.pendingOf(player);
+        if (entries.isEmpty()) {
+            return 0;
+        }
+        List<Entry> updated = new ArrayList<>(entries.size());
+        int touched = 0;
+        for (Entry entry : entries) {
+            if (entry.graceUntilHour() <= 0L) {
+                updated.add(entry);
+                continue;
+            }
+            long deadline = Math.min(nowHour, entry.graceUntilHour());
+            List<ItemStack> items = new ArrayList<>(entry.items().size());
+            int credited = entry.creditedHours();
+            int granted = 0;
+            for (ItemStack stack : entry.items()) {
+                GranarySettle.Result result = GranarySettle.settle(stack, entry.atHour(),
+                        entry.creditedHours(), deadline);
+                items.add(stack);
+                credited = Math.max(credited, result.creditedHours());
+                granted += result.grantedHours();
+            }
+            updated.add(new Entry(entry.gid(), entry.reason(), entry.atHour(), entry.graceUntilHour(),
+                    credited, items));
+            if (granted > 0) {
+                touched++;
+            }
+        }
+        if (touched > 0) {
+            data.setPending(player, updated);
+        }
+        return touched;
     }
 
     /**
@@ -181,6 +271,8 @@ public final class GranaryPending {
      * 一件一件地塞, 所以「背包只剩半格」不会把整堆吞掉 —— 领走多少算多少, 剩下的下次再领。
      */
     public static ClaimResult claim(GranarySavedData data, ServerPlayer player, long nowMinute) {
+        // 领之前先结一次账: 还在宽限里停表的那几条要把该记的小时记上, 否则领出来的东西白少一截。
+        settle(data, player.getUUID(), nowMinute / 60L);
         List<Entry> entries = data.pendingOf(player.getUUID());
         int claimed = 0;
         int claimedBins = 0;
@@ -200,7 +292,8 @@ public final class GranaryPending {
             if (leftover.isEmpty()) {
                 claimedBins++;
             } else {
-                kept.add(new Entry(entry.gid(), entry.reason(), entry.atHour(), leftover));
+                kept.add(new Entry(entry.gid(), entry.reason(), entry.atHour(), entry.graceUntilHour(),
+                        entry.creditedHours(), leftover));
             }
         }
         data.setPending(player.getUUID(), kept);
@@ -232,7 +325,8 @@ public final class GranaryPending {
             if (leftover.isEmpty()) {
                 clearedBins++;
             } else {
-                kept.add(new Entry(entry.gid(), entry.reason(), entry.atHour(), leftover));
+                kept.add(new Entry(entry.gid(), entry.reason(), entry.atHour(), entry.graceUntilHour(),
+                        entry.creditedHours(), leftover));
             }
         }
         if (destroyed == 0 && clearedBins == 0) {

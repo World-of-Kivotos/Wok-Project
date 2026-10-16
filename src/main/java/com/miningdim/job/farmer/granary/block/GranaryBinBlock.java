@@ -1,8 +1,11 @@
 package com.miningdim.job.farmer.granary.block;
 
+import com.miningdim.job.farmer.granary.GranaryClock;
+import com.miningdim.job.farmer.granary.GranaryPending;
 import com.miningdim.job.farmer.granary.GranaryRecord;
 import com.miningdim.job.farmer.granary.GranarySavedData;
 import com.miningdim.job.farmer.granary.GranarySystem;
+import com.miningdim.job.farmer.granary.GranaryTransfer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -19,6 +22,8 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.UUID;
 
 /**
  * 储粮囤方块 (Spoilage_Granary_DesignSpec「部件」「保护与防复制」「拆除与归还」)。
@@ -73,7 +78,15 @@ public final class GranaryBinBlock extends BaseEntityBlock {
                 && level.getBlockEntity(pos) instanceof GranaryBinBlockEntity bin) {
             boolean owner = bin.owner() == null || bin.owner().equals(player.getUUID());
             boolean op = player.hasPermissions(2);
-            if (!owner && !op && !isUnenrolledBinOfMyGranary(serverLevel, pos, player)) {
+            if (!owner && !op && isUnenrolledBinOfMyGranary(serverLevel, pos, player)) {
+                // 房主拆的是别人**未入册**的空囤: 囤进放置者的待领粮单, 房主拿不走 (规格「谁能拆」)。
+                // 方块在这里自己拿掉 (搬运那一步连方块一起处理), 所以告诉原版别再走一遍。
+                GranaryTransfer.takeDown(serverLevel, pos, GranaryPending.Reason.BROKEN,
+                        GranaryClock.nowHour(serverLevel));
+                player.displayClientMessage(Component.translatable("message.miningdim.granary.bin_sent_away"), true);
+                return false;
+            }
+            if (!owner && !op) {
                 player.displayClientMessage(Component.translatable("message.miningdim.granary.not_owner"), true);
                 return false;
             }
@@ -101,7 +114,7 @@ public final class GranaryBinBlock extends BaseEntityBlock {
     }
 
     /**
-     * 方块移除的汇合点: 归还额度。
+     * 方块移除的汇合点: 里面还有东西就搬进囤主的待领粮单, 然后归还额度。
      *
      * 判据与耕地一致 —— 只有方块真正被换成另一种方块时才回收, 同方块状态翻转不误扣。
      * **不要**跳过 {@code restoringBlockSnapshots}: 被后续监听器取消的放置本来就要在这里把额度还回去。
@@ -110,15 +123,20 @@ public final class GranaryBinBlock extends BaseEntityBlock {
     public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean isMoving) {
         if (!state.is(newState.getBlock()) && level instanceof ServerLevel serverLevel) {
             if (level.getBlockEntity(pos) instanceof GranaryBinBlockEntity bin && !bin.isEmpty()) {
-                // 非玩家路径 (指令、爆炸) 拆掉一个有货的囤: 先掉出来, 别让存档里的东西凭空消失。
-                for (int slot = 0; slot < bin.getContainerSize(); slot++) {
-                    ItemStack stack = bin.getItem(slot);
-                    if (!stack.isEmpty()) {
-                        Containers.dropItemStack(serverLevel, pos.getX() + 0.5D, pos.getY() + 0.5D,
-                                pos.getZ() + 0.5D, stack);
+                // 非玩家路径 (指令、爆炸、活塞) 拆掉一个有货的囤: 东西从不掉在地上, 只进囤主的待领粮单
+                // (规格「有货的囤被移除」—— 拆的人拿不走)。没有归属记录时才退回原地掉落。
+                UUID owner = GranaryTransfer.absorb(serverLevel, pos, GranaryPending.Reason.BROKEN,
+                        GranaryClock.nowHour(serverLevel));
+                if (owner == null) {
+                    for (int slot = 0; slot < bin.getContainerSize(); slot++) {
+                        ItemStack stack = bin.getItem(slot);
+                        if (!stack.isEmpty()) {
+                            Containers.dropItemStack(serverLevel, pos.getX() + 0.5D, pos.getY() + 0.5D,
+                                    pos.getZ() + 0.5D, stack);
+                        }
                     }
+                    bin.clearContent();
                 }
-                bin.clearContent();
             }
             GranarySystem.releaseBin(serverLevel, pos);
         }

@@ -150,8 +150,9 @@ public final class GranarySystem {
         ServerLevel overworld = player.getServer().overworld();
         GranarySavedData data = GranarySavedData.get(overworld);
         long nowHour = GranaryClock.nowHour(overworld);
-        // 待领粮单: 先清掉烂满 30 天的 (规格「待领粮单怎么领」), 再提醒还剩几个囤的东西没领。
+        // 待领粮单: 先把还在停表的那几条结到这一刻, 再清掉烂满 30 天的, 最后提醒还剩几个囤的东西没领。
         long nowMinute = GranaryClock.nowMinute(overworld);
+        GranaryPending.settle(data, player.getUUID(), nowHour);
         GranaryPending.PurgeResult purged = GranaryPending.purge(data, player.getUUID(), nowMinute);
         if (purged.changed()) {
             LOGGER.info("granary pending auto-cleared {} rotten item(s) for {} ({} bin(s) freed)",

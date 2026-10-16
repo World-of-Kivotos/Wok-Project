@@ -58,6 +58,7 @@ public final class GranaryConstants {
     public static final String KEY_PLAYER = "Player";
     public static final String KEY_REASON = "Reason";
     public static final String KEY_ITEMS = "Items";
+    public static final String KEY_CREDITED = "Credited";
 
     /** 存档版本号。 */
     public static final int SAVE_VERSION = 1;

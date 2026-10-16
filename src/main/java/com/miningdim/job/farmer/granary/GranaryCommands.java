@@ -331,13 +331,13 @@ public final class GranaryCommands {
         GranaryRecord updated = add ? record.withMember(target.getUUID())
                 : record.withoutMember(target.getUUID());
         data.putGranary(updated);
+        // 移出成员: 对方的囤连同里面的东西一起进他自己的待领粮单 (规格「退出、拆走、移出」表),
+        // 东西不掉在地上、房主也拿不走; 被移出的那一份在单子里照常停表 7 天 (不是自己造成的)。
+        int moved = add ? 0 : takeDownBinsOf(level, updated, target.getUUID(),
+                GranaryPending.Reason.REMOVED);
         // 入册/移出之后立刻重算一次: 囤的启用名单跟着成员身份走, 不能让玩家等到下一次复查。
         GranaryInspection.inspect(level, nearby.get().center());
-        source.sendSuccess(() -> Component.translatable(add
-                        ? "message.miningdim.granary.command.member_added"
-                        : "message.miningdim.granary.command.member_removed",
-                GranaryQuery.nameOf(source.getServer(), target.getUUID()),
-                GranaryQuery.nameOf(source.getServer(), record.owner())), true);
+        reportMemberChange(source, add, target.getUUID(), record.owner(), moved, false);
         return add ? 1 : 0;
     }
 
@@ -364,12 +364,64 @@ public final class GranaryCommands {
             source.sendFailure(Component.translatable("message.miningdim.granary.command.member_not_member"));
             return 0;
         }
-        GranarySavedData.get(level.getServer().overworld())
-                .putGranary(record.withoutMember(player.getUUID()));
+        GranarySavedData data = GranarySavedData.get(level.getServer().overworld());
+        GranaryRecord updated = record.withoutMember(player.getUUID());
+        data.putGranary(updated);
+        // 自己退出: 东西一样进自己的待领粮单, 但**不停表** —— 是自己选的 (反漏洞 #66)。
+        int moved = takeDownBinsOf(level, updated, player.getUUID(), GranaryPending.Reason.LEFT);
         GranaryInspection.inspect(level, nearby.get().center());
-        source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.member_left",
-                GranaryQuery.nameOf(source.getServer(), record.owner())), true);
+        reportMemberChange(source, false, player.getUUID(), record.owner(), moved, true);
         return 1;
+    }
+
+    /**
+     * 把某人在某座粮仓里的囤全部连东西一起搬进他自己的待领粮单。
+     *
+     * 方块所在的区块**临时读一次** (规格「远程打包」那一节: /granary leave 与 /granary pack 会一次性加载
+     * 囤所在的区块) —— 命令是玩家主动发的, 而且不读就不知道里面有什么, 这时候读一次是应该的。
+     *
+     * @return 搬走的囤数
+     */
+    private static int takeDownBinsOf(ServerLevel level, GranaryRecord record, UUID owner,
+                                      GranaryPending.Reason reason) {
+        GranarySavedData data = GranarySavedData.get(level.getServer().overworld());
+        long nowHour = GranaryClock.nowHour(level.getServer().overworld());
+        int moved = 0;
+        for (GranarySavedData.PosKey key : List.copyOf(data.binsOf(record.id()))) {
+            if (!owner.equals(data.ownerOf(key.dimension(), key.pos()))) {
+                continue;
+            }
+            level.getChunk(key.pos());
+            if (GranaryTransfer.takeDown(level, key.pos(), reason, nowHour) != null) {
+                moved++;
+            }
+        }
+        return moved;
+    }
+
+    /** 入册 / 移出的回执 (搬了囤就说清搬了几个、去了哪、还停不停表)。 */
+    private static void reportMemberChange(CommandSourceStack source, boolean add, UUID member, UUID owner,
+                                           int moved, boolean selfInitiated) {
+        if (add) {
+            source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.member_added",
+                    GranaryQuery.nameOf(source.getServer(), member),
+                    GranaryQuery.nameOf(source.getServer(), owner)), true);
+            return;
+        }
+        if (moved == 0) {
+            source.sendSuccess(() -> Component.translatable(selfInitiated
+                            ? "message.miningdim.granary.command.member_left"
+                            : "message.miningdim.granary.command.member_removed",
+                    selfInitiated ? GranaryQuery.nameOf(source.getServer(), owner)
+                            : GranaryQuery.nameOf(source.getServer(), member),
+                    GranaryQuery.nameOf(source.getServer(), owner)), true);
+            return;
+        }
+        source.sendSuccess(() -> Component.translatable(selfInitiated
+                        ? "message.miningdim.granary.command.member_took_away"
+                        : "message.miningdim.granary.command.member_moved",
+                moved, GranaryQuery.nameOf(source.getServer(), member),
+                GranaryGrace.DAMAGE_HOURS / 24L), true);
     }
 
     // ============================================================
@@ -393,8 +445,7 @@ public final class GranaryCommands {
     }
 
     /** 全服盘点: 每座粮仓一行 + 「验收人 → 房主」配对。 */
-    private static int audit(CommandContext<CommandSourceStack> context) {
-        CommandSourceStack source = context.getSource();
+    private static int audit(CommandContext<CommandSourceStack> context) {        CommandSourceStack source = context.getSource();
         ServerLevel level = source.getServer().overworld();
         List<GranaryQuery.AuditRow> rows = GranaryQuery.audit(level);
         if (rows.isEmpty()) {

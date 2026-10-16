@@ -299,6 +299,7 @@ public final class GranaryAcceptanceGameTests {
         tag.put(GranaryConstants.KEY_GRANARIES, granaries);
         tag.put(GranaryConstants.KEY_BIN_GRANARY, links);
         tag.put(GranaryConstants.KEY_BIN_STATES, states);
+        tag.put(GranaryConstants.KEY_GRACE_LOGINS, new ListTag());
         tag.putLong(GranaryConstants.KEY_NEXT_GID, 3L);
 
         GranarySavedData loaded = GranarySavedData.load(tag);
@@ -368,6 +369,7 @@ public final class GranaryAcceptanceGameTests {
         tag.put(GranaryConstants.KEY_GRANARIES, new ListTag());
         tag.put(GranaryConstants.KEY_BIN_GRANARY, new ListTag());
         tag.put(GranaryConstants.KEY_BIN_STATES, new ListTag());
+        tag.put(GranaryConstants.KEY_GRACE_LOGINS, new ListTag());
         return tag;
     }
 

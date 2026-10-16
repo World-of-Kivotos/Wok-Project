@@ -1,5 +1,6 @@
 package com.miningdim.job.farmer.granary;
 
+import com.miningdim.freshness.FreshnessClockData;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.farmer.granary.block.GranaryBinBlock;
@@ -11,9 +12,12 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.common.util.FakePlayer;
+import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.IEventBus;
+
+import java.util.UUID;
 
 /**
  * 粮仓子系统的运行期装配 (Spoilage_Granary_DesignSpec「模块落位」: 粮仓放在 wok-job-farmer 的
@@ -41,6 +45,75 @@ public final class GranarySystem {
     public static void register(IEventBus modBus, IEventBus forgeBus) {
         GranaryBlocks.register(modBus);
         forgeBus.addListener(EventPriority.LOWEST, GranarySystem::onBlockPlaced);
+        forgeBus.addListener(GranarySystem::onPlayerLoggedIn);
+    }
+
+    /**
+     * 上线提醒 + 宽限锚点 (Spoilage_Granary_DesignSpec「损坏与宽限」: 房主和受影响的囤主上线都会收到提醒)。
+     *
+     * 两个作用各自都要紧:
+     * <ul>
+     *   <li><b>锚点</b>: 「出事后第一次上线起 3 天」这条宽限从这一下开始算, 只记第一次 ——
+     *       每天上线都刷新的话宽限就成了无限;</li>
+     *   <li><b>提醒</b>: 写明坏在哪、宽限还剩多久 (已经过期的照实说「里面的东西在照常腐烂」)。</li>
+     * </ul>
+     */
+    public static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player) || player instanceof FakePlayer
+                || player.isRemoved() || player.getServer() == null) {
+            return;
+        }
+        ServerLevel overworld = player.getServer().overworld();
+        GranarySavedData data = GranarySavedData.get(overworld);
+        long nowHour = FreshnessClockData.nowMinute(overworld) / 60L;
+        ResourceLocation dimension = overworld.dimension().location();
+        for (GranaryRecord record : data.granaries()) {
+            boolean damaged = record.status() == GranaryRecord.Status.DAMAGED;
+            // 这位玩家在这座粮仓里被停用/受影响的囤: 宽限锚点与提醒都按他本人算。
+            int suspended = 0;
+            boolean binOwner = false;
+            for (GranarySavedData.PosKey key : data.binsOf(record.id())) {
+                if (!player.getUUID().equals(data.ownerOf(key.dimension(), key.pos()))) {
+                    continue;
+                }
+                binOwner = true;
+                if (data.binState(key.dimension(), key.pos()) == GranaryBinState.STOPPED) {
+                    suspended++;
+                }
+            }
+            if (!damaged && suspended == 0) {
+                continue;
+            }
+            if (!binOwner && !player.getUUID().equals(record.owner())) {
+                continue;
+            }
+            if (binOwner) {
+                data.recordGraceLogin(record.id(), player.getUUID(), nowHour);
+            }
+            long anchor = data.graceLogin(record.id(), player.getUUID());
+            if (damaged) {
+                long remaining = record.damagedAtHour() <= 0L ? 0L
+                        : GranaryGrace.remainingHours(nowHour, record.damagedAtHour(), anchor);
+                player.displayClientMessage(remaining > 0L
+                        ? Component.translatable("message.miningdim.granary.damage_notice", remaining)
+                        : Component.translatable("message.miningdim.granary.damage_notice_expired"), false);
+                continue;
+            }
+            // 只是部件撑不住被停用 (粮仓本身没坏): 各自按自己的停用时刻算宽限。
+            long suspendedAt = 0L;
+            for (GranarySavedData.PosKey key : data.binsOf(record.id())) {
+                if (player.getUUID().equals(data.ownerOf(key.dimension(), key.pos()))
+                        && data.binState(key.dimension(), key.pos()) == GranaryBinState.STOPPED) {
+                    long at = data.binSuspendedAt(key.dimension(), key.pos());
+                    suspendedAt = suspendedAt == 0L ? at : Math.min(suspendedAt, at);
+                }
+            }
+            long remaining = suspendedAt <= 0L ? 0L
+                    : GranaryGrace.remainingHours(nowHour, suspendedAt, anchor);
+            player.displayClientMessage(remaining > 0L
+                    ? Component.translatable("message.miningdim.granary.suspend_notice", suspended, remaining)
+                    : Component.translatable("message.miningdim.granary.suspend_notice_expired", suspended), false);
+        }
     }
 
     /** 放置裁决 + 归属登记 (LOWEST: 别的监听器都放过之后才轮到这里)。 */

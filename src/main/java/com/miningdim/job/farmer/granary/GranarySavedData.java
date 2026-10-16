@@ -50,10 +50,28 @@ public final class GranarySavedData extends SavedData {
     private final Map<PosKey, Long> binGranary = new HashMap<>();
     /** 每个储粮囤的启用状态 (启用 / 待启用 / 停用); 没有记录 = 待启用。 */
     private final Map<PosKey, GranaryBinState> binStates = new HashMap<>();
+    /**
+     * 停用是从哪一刻开始的 (只对「停用」有意义, 其余是 0)。
+     *
+     * 规格: 部件被拆、撑不住的那几个「同样走宽限期」—— 所以停用那一刻要落盘, 宽限从它起算;
+     * 0 表示不知道 (旧档或没记过), 一律按过期处理 (保守: 不白送停表)。
+     */
+    private final Map<PosKey, Long> binSuspendedAt = new HashMap<>();
     /** 每座账台开的是哪座粮仓。 */
     private final Map<PosKey, Long> centerGranary = new HashMap<>();
+    /**
+     * 宽限锚点: (粮仓, 囤主) → 该囤主**出事后第一次上线**的时刻。
+     *
+     * 按囤主分开记 (规格:「宽限期全系统统一一条, 每位囤主各算各的」): 同一个屋子里, 天天上线的人和考试周
+     * 才回来的人, 宽限截止时刻不一样。修好之后清掉, 下次损坏重新起算。
+     */
+    private final Map<GraceKey, Long> graceLogins = new HashMap<>();
     private long nextGid = 1L;
     private int nextSeq = 1;
+
+    /** 宽限锚点的键: 哪座粮仓 + 哪位囤主。 */
+    public record GraceKey(long gid, UUID owner) {
+    }
 
     public static GranarySavedData get(ServerLevel overworld) {
         return overworld.getServer().overworld().getDataStorage()
@@ -129,12 +147,55 @@ public final class GranarySavedData extends SavedData {
             clearBinLinks(key);
         }
         centerGranary.entrySet().removeIf(entry -> entry.getValue() == gid);
+        graceLogins.keySet().removeIf(key -> key.gid() == gid);
         setDirty();
     }
 
     /** 这座账台开的是哪座粮仓 (0 = 还没开号); 账本是权威, 方块实体上那份只是给界面看的镜像。 */
     public long centerGranary(ResourceLocation dimension, BlockPos pos) {
         return centerGranary.getOrDefault(new PosKey(dimension, pos.asLong()), 0L);
+    }
+
+    /** 全部粮仓登记项 (上线上门提醒、管理命令按它遍历)。 */
+    public List<GranaryRecord> granaries() {
+        List<GranaryRecord> result = new ArrayList<>(granaries.values());
+        result.sort(Comparator.comparingLong(GranaryRecord::id));
+        return result;
+    }
+
+    // ============================================================
+    // 损坏宽限
+    // ============================================================
+
+    /** 这位囤主出事后第一次上线的时刻 (0 = 还没上线过 / 没坏过)。 */
+    public long graceLogin(long gid, UUID binOwner) {
+        return graceLogins.getOrDefault(new GraceKey(gid, binOwner), 0L);
+    }
+
+    /**
+     * 记下宽限锚点。
+     *
+     * **只记第一次**: 每天上线都把锚点往后推的话, 3 天那条会变成「最后一次上线起 3 天」, 宽限就成了无限。
+     *
+     * @return 这次有没有写进去 (已经有记录就是 false)
+     */
+    public boolean recordGraceLogin(long gid, UUID binOwner, long hour) {
+        if (hour <= 0L) {
+            throw new IllegalArgumentException("grace login hour must be > 0, got " + hour);
+        }
+        Long previous = graceLogins.putIfAbsent(new GraceKey(gid, binOwner), hour);
+        if (previous != null) {
+            return false;
+        }
+        setDirty();
+        return true;
+    }
+
+    /** 修好之后清掉这座粮仓的宽限锚点 (下次损坏重新起算)。 */
+    public void clearGraceLogins(long gid) {
+        if (graceLogins.keySet().removeIf(key -> key.gid() == gid)) {
+            setDirty();
+        }
     }
 
     /** 某座粮仓里的储粮囤 (按入册序号从早到晚)。 */
@@ -172,18 +233,46 @@ public final class GranarySavedData extends SavedData {
     }
 
     public void setBinState(ResourceLocation dimension, BlockPos pos, GranaryBinState state) {
+        setBinState(dimension, pos, state, 0L);
+    }
+
+    /**
+     * 写启用状态; 转成「停用」时顺带记下**第一次**被停用的时刻 (宽限从它起算)。
+     *
+     * @param nowHour 停用时刻; 0 表示调用方不知道 (不记锚点)
+     */
+    public void setBinState(ResourceLocation dimension, BlockPos pos, GranaryBinState state, long nowHour) {
         PosKey key = new PosKey(dimension, pos.asLong());
-        if (binStates.get(key) == state) {
-            return;
+        GranaryBinState previous = binStates.get(key);
+        boolean changed = previous != state;
+        if (changed) {
+            binStates.put(key, state);
         }
-        binStates.put(key, state);
-        setDirty();
+        if (state == GranaryBinState.STOPPED) {
+            boolean firstTimeSuspended = changed && previous != GranaryBinState.STOPPED;
+            boolean anchorMissing = binSuspendedAt.getOrDefault(key, 0L) == 0L;
+            if (nowHour > 0L && (firstTimeSuspended || anchorMissing)) {
+                binSuspendedAt.put(key, nowHour);
+                changed = true;
+            }
+        } else if (binSuspendedAt.remove(key) != null) {
+            changed = true;
+        }
+        if (changed) {
+            setDirty();
+        }
+    }
+
+    /** 停用是从哪一刻开始的 (0 = 没记过)。 */
+    public long binSuspendedAt(ResourceLocation dimension, BlockPos pos) {
+        return binSuspendedAt.getOrDefault(new PosKey(dimension, pos.asLong()), 0L);
     }
 
     /** 拆掉 / 打包一个囤时, 把它的粮仓连线与启用状态一并清掉。 */
     private void clearBinLinks(PosKey key) {
         binGranary.remove(key);
         binStates.remove(key);
+        binSuspendedAt.remove(key);
     }
 
     /**
@@ -196,6 +285,11 @@ public final class GranarySavedData extends SavedData {
      * 只管「部件撑不撑得住」这一条轴: 超额、未入册、未验收这些轴由调用方在传 supportedBins 之前扣掉。
      */
     public GranaryEnablement.Decision applyEnablement(long gid, int supportedBins) {
+        return applyEnablement(gid, supportedBins, 0L);
+    }
+
+    /** 同上, 并把「现在」传进来: 转成停用的囤要记下停用时刻 (宽限从它起算)。 */
+    public GranaryEnablement.Decision applyEnablement(long gid, int supportedBins, long nowHour) {
         List<PosKey> bins = binsOf(gid);
         GranaryEnablement.Decision decision = GranaryEnablement.decide(bins.size(), supportedBins);
         for (int index = 0; index < bins.size(); index++) {
@@ -204,11 +298,12 @@ public final class GranarySavedData extends SavedData {
             if (decision.isActive(index)) {
                 state = GranaryBinState.ACTIVE;
             } else {
-                state = binState(key.dimension(), key.pos()) == GranaryBinState.ACTIVE
-                        ? GranaryBinState.STOPPED
-                        : GranaryBinState.PENDING;
+                // 「停用」还是「待启用」看的是**历史**: 从来没启用过的才是待启用, 其余一律停用 ——
+                // 已经是停用的要保持停用 (再算一轮不能降回待启用, 那会连带把它的停用时刻抹掉)。
+                state = binState(key.dimension(), key.pos()) == GranaryBinState.PENDING
+                        ? GranaryBinState.PENDING : GranaryBinState.STOPPED;
             }
-            setBinState(key.dimension(), key.pos(), state);
+            setBinState(key.dimension(), key.pos(), state, nowHour);
         }
         return decision;
     }
@@ -352,9 +447,26 @@ public final class GranarySavedData extends SavedData {
                     state.putString(GranaryConstants.KEY_DIMENSION, entry.getKey().dimension().toString());
                     state.putLong(GranaryConstants.KEY_POS, entry.getKey().packedPos());
                     state.putString(GranaryConstants.KEY_STATE, entry.getValue().name());
+                    state.putLong(GranaryConstants.KEY_AT,
+                            binSuspendedAt.getOrDefault(entry.getKey(), 0L));
                     states.add(state);
                 });
         tag.put(GranaryConstants.KEY_BIN_STATES, states);
+
+        ListTag grace = new ListTag();
+        graceLogins.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey(Comparator
+                        .comparingLong(GraceKey::gid)
+                        .thenComparing(key -> key.owner().toString())))
+                .forEach(entry -> {
+                    CompoundTag anchor = new CompoundTag();
+                    anchor.putLong(GranaryConstants.KEY_GID, entry.getKey().gid());
+                    anchor.putUUID(GranaryConstants.KEY_OWNER, entry.getKey().owner());
+                    anchor.putLong(GranaryConstants.KEY_HOUR, entry.getValue());
+                    grace.add(anchor);
+                });
+        tag.put(GranaryConstants.KEY_GRACE_LOGINS, grace);
+
         tag.putLong(GranaryConstants.KEY_NEXT_GID, nextGid);
         tag.putInt(GranaryConstants.KEY_NEXT_SEQ, nextSeq);
         return tag;
@@ -426,7 +538,27 @@ public final class GranarySavedData extends SavedData {
             GranaryBinState parsed = parseState(state.getString(GranaryConstants.KEY_STATE));
             if (data.binOwners.containsKey(key)) {
                 data.binStates.put(key, parsed);
+                long suspendedAt = state.getLong(GranaryConstants.KEY_AT);
+                if (parsed == GranaryBinState.STOPPED && suspendedAt > 0L) {
+                    data.binSuspendedAt.put(key, suspendedAt);
+                }
             }
+        }
+        // 宽限锚点同样是派生索引: 粮仓没了、或者锚点的主人没在这座粮仓里放过囤, 就丢掉。
+        ListTag grace = requireList(tag, GranaryConstants.KEY_GRACE_LOGINS, Tag.TAG_COMPOUND);
+        for (int i = 0; i < grace.size(); i++) {
+            CompoundTag anchor = grace.getCompound(i);
+            if (!anchor.contains(GranaryConstants.KEY_GID, Tag.TAG_LONG)
+                    || !anchor.hasUUID(GranaryConstants.KEY_OWNER)
+                    || !anchor.contains(GranaryConstants.KEY_HOUR, Tag.TAG_LONG)) {
+                throw new IllegalArgumentException("Invalid granary grace anchor");
+            }
+            long gid = anchor.getLong(GranaryConstants.KEY_GID);
+            if (!data.granaries.containsKey(gid)) {
+                continue;
+            }
+            data.graceLogins.put(new GraceKey(gid, anchor.getUUID(GranaryConstants.KEY_OWNER)),
+                    anchor.getLong(GranaryConstants.KEY_HOUR));
         }
         // 编号水位宁可往高取: NextGid 落后于已用编号时 (回档或手工改档) 复用编号会把两座粮仓并成一座。
         long storedNext = tag.contains(GranaryConstants.KEY_NEXT_GID, Tag.TAG_LONG) ? tag.getLong(GranaryConstants.KEY_NEXT_GID) : 0L;

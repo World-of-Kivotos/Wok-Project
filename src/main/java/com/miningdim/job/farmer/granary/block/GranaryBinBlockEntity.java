@@ -137,6 +137,22 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
         return granted;
     }
 
+    /**
+     * 重新起算: 换一个新的入仓锚点, 本趟已计归零。
+     *
+     * 用在「损坏过了宽限、后来才修好」这条路上 (规格: 修好后重新存满 24 小时起恢复停表) ——
+     * 已经把停表额度记在物品上的部分照旧留着, 但**过宽限那段时间不再补记**。
+     */
+    public void restartClock(long nowHour) {
+        for (int slot = 0; slot < items.size(); slot++) {
+            if (!items.get(slot).isEmpty() && entryHours[slot] != 0L) {
+                entryHours[slot] = nowHour;
+                creditedHours[slot] = 0;
+            }
+        }
+        setChanged();
+    }
+
     // ============================================================
     // 容器 (不对外开放物品接口: 漏斗与 Create 都拿不到面)
     // ============================================================

@@ -53,6 +53,12 @@ public final class GranaryConstants {
     public static final String KEY_MEMBERS = "Members";
     public static final String KEY_MEMBER = "Member";
 
+    /** 待领粮单 (GranaryPending) 的键。 */
+    public static final String KEY_PENDING = "Pending";
+    public static final String KEY_PLAYER = "Player";
+    public static final String KEY_REASON = "Reason";
+    public static final String KEY_ITEMS = "Items";
+
     /** 存档版本号。 */
     public static final int SAVE_VERSION = 1;
 

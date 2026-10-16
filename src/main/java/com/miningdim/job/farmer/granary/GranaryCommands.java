@@ -60,6 +60,7 @@ public final class GranaryCommands {
                         .executes(GranaryCommands::keepHotbarQuery)
                         .then(Commands.argument("value", BoolArgumentType.bool())
                                 .executes(GranaryCommands::keepHotbarSet)))
+                .then(Commands.literal("claim").executes(GranaryCommands::claim))
                 .then(Commands.literal("member")
                         .then(Commands.literal("list").executes(GranaryCommands::memberList))
                         .then(Commands.literal("add")
@@ -106,7 +107,14 @@ public final class GranaryCommands {
         List<GranaryQuery.BinRow> rows = GranaryQuery.binsOf(level, player.getUUID());
         int farmerLevel = JobServices.jobService().level(player, JobId.FARMER);
         int cap = GranaryBinGuard.capForLevel(farmerLevel);
+        GranarySavedData data = GranarySavedData.get(level.getServer().overworld());
+        int pendingBins = data.pendingBins(player.getUUID());
         if (rows.isEmpty()) {
+            if (pendingBins > 0) {
+                source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.bins_pending",
+                        pendingBins), false);
+                return 1;
+            }
             source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.bins_empty"), false);
             return 1;
         }
@@ -120,9 +128,44 @@ public final class GranaryCommands {
                             ? Component.translatable("granary.tier.none")
                             : Component.literal("#" + row.gid())), false);
         }
+        if (pendingBins > 0) {
+            source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.bins_pending",
+                    pendingBins), false);
+        }
         source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.bins_quota",
-                GranaryBinGuard.remainingFor(farmerLevel, rows.size(), 0)), false);
+                GranaryBinGuard.remainingFor(farmerLevel, rows.size() + pendingBins, 0)), false);
         return rows.size();
+    }
+
+    // ============================================================
+    // 待领粮单
+    // ============================================================
+
+    /**
+     * 领取待领粮单 (Spoilage_Granary_DesignSpec「待领粮单怎么领」)。
+     *
+     * 不用站在粮仓边上 (东西本来就是自己的, 被移出的人多半也进不去那间屋子了); 一次领不完的留在单子上,
+     * 额度也照占。
+     */
+    private static int claim(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        ServerLevel overworld = player.getServer().overworld();
+        GranarySavedData data = GranarySavedData.get(overworld);
+        if (data.pendingBins(player.getUUID()) == 0) {
+            source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.claim_empty"), false);
+            return 0;
+        }
+        GranaryPending.ClaimResult result =
+                GranaryPending.claim(data, player, GranaryClock.nowMinute(overworld));
+        if (result.claimed() == 0) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.claim_full",
+                    result.remaining()));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.claim",
+                result.claimed(), result.claimedBins(), result.remaining()), false);
+        return result.claimed();
     }
 
     // ============================================================

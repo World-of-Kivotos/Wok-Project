@@ -19,4 +19,14 @@ public final class GranaryClock {
     public static long nowHour(ServerLevel level) {
         return FreshnessClockData.nowMinute(level) / 60L;
     }
+
+    /**
+     * 现在的分钟序号。
+     *
+     * 判腐烂 (剩余 ≤ 0) 与「烂满 30 天」这类**跨小时的**判定必须按分钟算, 按小时算会把不到一小时
+     * 的腐烂抹平; 记入仓时刻与停表仍旧一律按小时。
+     */
+    public static long nowMinute(ServerLevel level) {
+        return FreshnessClockData.nowMinute(level);
+    }
 }

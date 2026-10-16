@@ -42,6 +42,8 @@ import java.util.UUID;
  */
 public final class GranarySystem {
 
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("miningdim/granary");
+
     private GranarySystem() {
     }
 
@@ -148,6 +150,20 @@ public final class GranarySystem {
         ServerLevel overworld = player.getServer().overworld();
         GranarySavedData data = GranarySavedData.get(overworld);
         long nowHour = GranaryClock.nowHour(overworld);
+        // 待领粮单: 先清掉烂满 30 天的 (规格「待领粮单怎么领」), 再提醒还剩几个囤的东西没领。
+        long nowMinute = GranaryClock.nowMinute(overworld);
+        GranaryPending.PurgeResult purged = GranaryPending.purge(data, player.getUUID(), nowMinute);
+        if (purged.changed()) {
+            LOGGER.info("granary pending auto-cleared {} rotten item(s) for {} ({} bin(s) freed)",
+                    purged.destroyed(), player.getGameProfile().getName(), purged.clearedBins());
+        }
+        int pendingBins = data.pendingBins(player.getUUID());
+        if (pendingBins > 0) {
+            List<GranaryPending.Entry> entries = data.pendingOf(player.getUUID());
+            GranaryPending.Entry newest = entries.get(entries.size() - 1);
+            player.displayClientMessage(Component.translatable("message.miningdim.granary.pending_notice",
+                    pendingBins, Component.translatable(newest.reason().translationKey())), false);
+        }
         ResourceLocation dimension = overworld.dimension().location();
         for (GranaryRecord record : data.granaries()) {
             boolean damaged = record.status() == GranaryRecord.Status.DAMAGED;
@@ -340,7 +356,7 @@ public final class GranarySystem {
     }
 
     private static int pendingClaimBins(ServerPlayer player) {
-        // 待领粮单占用的额度随「退出 / 打包 / 被移出」那一批加入; 现在没有这条路径, 一律 0。
-        return 0;
+        // 待领粮单占的额度: 每 27 格 (一个囤) 占 1 个, 领完才归还 —— 反漏洞 #65 的关键一条。
+        return GranarySavedData.get(player.getServer().overworld()).pendingBins(player.getUUID());
     }
 }

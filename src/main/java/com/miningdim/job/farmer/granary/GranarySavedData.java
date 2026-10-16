@@ -68,6 +68,12 @@ public final class GranarySavedData extends SavedData {
      * 才回来的人, 宽限截止时刻不一样。修好之后清掉, 下次损坏重新起算。
      */
     private final Map<GraceKey, Long> graceLogins = new HashMap<>();
+    /**
+     * 待领粮单: 玩家 → 条目表 (先进先出, 每个条目 = 一个囤的东西)。
+     *
+     * 这是**账**, 不是派生索引: 指向的粮仓没了也照留 (东西是玩家的, 不该因为房子塌了就没)。
+     */
+    private final Map<UUID, List<GranaryPending.Entry>> pending = new HashMap<>();
     private long nextGid = 1L;
     private int nextSeq = 1;
 
@@ -180,6 +186,47 @@ public final class GranarySavedData extends SavedData {
     public List<GranaryRecord> granaries() {
         List<GranaryRecord> result = new ArrayList<>(granaries.values());
         result.sort(Comparator.comparingLong(GranaryRecord::id));
+        return result;
+    }
+
+    // ============================================================
+    // 待领粮单
+    // ============================================================
+
+    /** 这位玩家的待领条目 (先进先出; 返回的列表不可改)。 */
+    public List<GranaryPending.Entry> pendingOf(UUID player) {
+        return List.copyOf(pending.getOrDefault(player, List.of()));
+    }
+
+    /** 这位玩家的待领粮单占了几个囤的额度 (每条目 = 一个囤的 27 格)。 */
+    public int pendingBins(UUID player) {
+        return pending.getOrDefault(player, List.of()).size();
+    }
+
+    /** 追加一张待领条目 (返回它的下标)。 */
+    public int putPending(UUID player, GranaryPending.Entry entry) {
+        List<GranaryPending.Entry> entries = pending.computeIfAbsent(player, key -> new ArrayList<>());
+        entries.add(entry);
+        setDirty();
+        return entries.size() - 1;
+    }
+
+    /** 整表替换 (领取与自动清理之后回写); 空了就把玩家条目删掉, 别留空表占内存。 */
+    public void setPending(UUID player, List<GranaryPending.Entry> entries) {
+        if (entries.isEmpty()) {
+            if (pending.remove(player) != null) {
+                setDirty();
+            }
+            return;
+        }
+        pending.put(player, new ArrayList<>(entries));
+        setDirty();
+    }
+
+    /** 全部有待领东西的玩家 (开服与诊断用)。 */
+    public List<UUID> pendingPlayers() {
+        List<UUID> result = new ArrayList<>(pending.keySet());
+        result.sort(Comparator.comparing(UUID::toString));
         return result;
     }
 
@@ -518,6 +565,19 @@ public final class GranarySavedData extends SavedData {
 
         tag.putLong(GranaryConstants.KEY_NEXT_GID, nextGid);
         tag.putInt(GranaryConstants.KEY_NEXT_SEQ, nextSeq);
+
+        // 待领粮单: 按玩家排序, 玩家内按先进先出 (领的顺序就是进单子的顺序)。
+        ListTag pendingList = new ListTag();
+        pending.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey(Comparator.comparing(UUID::toString)))
+                .forEach(entry -> {
+                    for (GranaryPending.Entry item : entry.getValue()) {
+                        CompoundTag tagEntry = item.save();
+                        tagEntry.putUUID(GranaryConstants.KEY_PLAYER, entry.getKey());
+                        pendingList.add(tagEntry);
+                    }
+                });
+        tag.put(GranaryConstants.KEY_PENDING, pendingList);
         return tag;
     }
 
@@ -616,6 +676,28 @@ public final class GranarySavedData extends SavedData {
         int storedSeq = tag.contains(GranaryConstants.KEY_NEXT_SEQ, Tag.TAG_INT)
                 ? tag.getInt(GranaryConstants.KEY_NEXT_SEQ) : 0;
         data.nextSeq = Math.max(Math.max(storedSeq, highestSeq + 1), 1);
+        // 待领粮单是**账**: 条目照单全收 (指向的粮仓没了也不丢), 但空条目当场丢掉 ——
+        // 空条目会白占一个囤的额度, 属于坏档, 不该让玩家替它背。
+        //
+        // 这张表是后加的, 所以**按可选读**: 这张表落地之前写下的档里没有 Pending 这个键,
+        // 那不是坏档, 只是「当时还没有这张表」(内容存在时照旧严格校验)。
+        if (tag.get(GranaryConstants.KEY_PENDING) instanceof ListTag pendingList) {
+            if (!pendingList.isEmpty() && pendingList.getElementType() != Tag.TAG_COMPOUND) {
+                throw new IllegalArgumentException("Invalid granary list: " + GranaryConstants.KEY_PENDING);
+            }
+            for (int i = 0; i < pendingList.size(); i++) {
+                CompoundTag entry = pendingList.getCompound(i);
+                if (!entry.hasUUID(GranaryConstants.KEY_PLAYER)) {
+                    throw new IllegalArgumentException("Granary pending entry is missing its player");
+                }
+                GranaryPending.Entry loaded = GranaryPending.Entry.load(entry);
+                if (loaded.isEmpty()) {
+                    continue;
+                }
+                data.pending.computeIfAbsent(entry.getUUID(GranaryConstants.KEY_PLAYER),
+                        key -> new ArrayList<>()).add(loaded);
+            }
+        }
         return data;
     }
 

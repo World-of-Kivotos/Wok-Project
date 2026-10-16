@@ -62,13 +62,23 @@ public final class GranaryCenterBlock extends BaseEntityBlock {
         }
     }
 
-    /** 只有房主或 OP 能拆账台 (成员还在时不能拆的规矩随成员功能分片加入)。 */
+    /**
+     * 只有房主或 OP 能拆账台, **而且不能还有别的成员的囤** (规格「拆除与归还」: 有成员的囤时账台拆不掉 ——
+     * 否则成员的东西一夜之间没人管了)。
+     */
     @Override
     public boolean onDestroyedByPlayer(BlockState state, Level level, BlockPos pos, Player player,
                                        boolean willHarvest, FluidState fluid) {
-        if (level instanceof ServerLevel && level.getBlockEntity(pos) instanceof GranaryCenterBlockEntity center) {
+        if (level instanceof ServerLevel serverLevel
+                && level.getBlockEntity(pos) instanceof GranaryCenterBlockEntity center) {
             if (center.owner() != null && !center.owner().equals(player.getUUID()) && !player.hasPermissions(2)) {
                 player.displayClientMessage(Component.translatable("message.miningdim.granary.not_owner"), true);
+                return false;
+            }
+            if (!player.hasPermissions(2)
+                    && GranarySystem.otherMembersKeepBins(serverLevel, pos, player.getUUID())) {
+                player.displayClientMessage(
+                        Component.translatable("message.miningdim.granary.center_has_members"), true);
                 return false;
             }
         }

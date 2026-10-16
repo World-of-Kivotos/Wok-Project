@@ -1,8 +1,11 @@
 package com.miningdim.job.farmer.granary.block;
 
+import com.miningdim.job.farmer.granary.GranaryRecord;
+import com.miningdim.job.farmer.granary.GranarySavedData;
 import com.miningdim.job.farmer.granary.GranarySystem;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Containers;
@@ -59,12 +62,18 @@ public final class GranaryBinBlock extends BaseEntityBlock {
         }
     }
 
-    /** 拆囤的两条前置: 必须是囤主或 OP, 而且必须先取空。返回 false 即取消这次破坏。 */
+    /**
+     * 拆囤的三条前置: 囤主或 OP; 房主可以拆本房间里**未入册**的空囤; 必须先把东西取空。
+     * 返回 false 即取消这次破坏。
+     */
     @Override
     public boolean onDestroyedByPlayer(BlockState state, Level level, BlockPos pos, Player player,
                                        boolean willHarvest, FluidState fluid) {
-        if (level instanceof ServerLevel && level.getBlockEntity(pos) instanceof GranaryBinBlockEntity bin) {
-            if (bin.owner() != null && !bin.owner().equals(player.getUUID()) && !player.hasPermissions(2)) {
+        if (level instanceof ServerLevel serverLevel
+                && level.getBlockEntity(pos) instanceof GranaryBinBlockEntity bin) {
+            boolean owner = bin.owner() == null || bin.owner().equals(player.getUUID());
+            boolean op = player.hasPermissions(2);
+            if (!owner && !op && !isUnenrolledBinOfMyGranary(serverLevel, pos, player)) {
                 player.displayClientMessage(Component.translatable("message.miningdim.granary.not_owner"), true);
                 return false;
             }
@@ -74,6 +83,21 @@ public final class GranaryBinBlock extends BaseEntityBlock {
             }
         }
         return super.onDestroyedByPlayer(state, level, pos, player, willHarvest, fluid);
+    }
+
+    /** 房主能拆本房间里未入册的囤 (规格「谁能拆」: 房主能拆本房间里未入册的空囤)。 */
+    private static boolean isUnenrolledBinOfMyGranary(ServerLevel level, BlockPos pos, Player player) {
+        GranarySavedData data = GranarySavedData.get(level);
+        ResourceLocation dimension = level.dimension().location();
+        long gid = data.granaryOfBin(dimension, pos);
+        if (gid == 0L) {
+            return false;
+        }
+        GranaryRecord record = data.granary(gid);
+        if (record == null || !player.getUUID().equals(record.owner())) {
+            return false;
+        }
+        return !record.isMember(data.ownerOf(dimension, pos));
     }
 
     /**

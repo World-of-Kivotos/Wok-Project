@@ -50,6 +50,8 @@ public final class GranaryConstants {
     public static final String KEY_ACCEPTED_AT = "AcceptedAt";
     public static final String KEY_STATUS = "Status";
     public static final String KEY_DAMAGED_AT = "DamagedAt";
+    public static final String KEY_MEMBERS = "Members";
+    public static final String KEY_MEMBER = "Member";
 
     /** 存档版本号。 */
     public static final int SAVE_VERSION = 1;

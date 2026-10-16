@@ -302,6 +302,43 @@ public final class GranarySystem {
         return GranarySavedData.get(level).binCount(owner);
     }
 
+    /**
+     * 这座粮仓里还有**别人**的囤吗 (拆账台的前置)。
+     *
+     * 两处都要看: 账本上连着的囤, 以及**屋里实际摆着的囤** —— 刚放下、还没等到下一次复查的囤
+     * 还没连线, 只看账本会让「还有别人的囤」这条门在那一小段时间里失效 (拆账台是不可逆动作, 不能靠运气)。
+     */
+    public static boolean otherMembersKeepBins(ServerLevel level, BlockPos centerPos, UUID requester) {
+        GranarySavedData data = GranarySavedData.get(level);
+        ResourceLocation dimension = level.dimension().location();
+        long gid = data.centerGranary(dimension, centerPos);
+        if (gid == 0L) {
+            return false;
+        }
+        for (GranarySavedData.PosKey key : data.binsOf(gid)) {
+            if (isOtherOwner(data, key, requester)) {
+                return true;
+            }
+        }
+        for (BlockPos bin : GranaryStructureScanner.scan(level, centerPos).binPositions()) {
+            UUID owner = data.ownerOf(dimension, bin);
+            if (owner != null && !owner.equals(requester)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isOtherOwner(GranarySavedData data, GranarySavedData.PosKey key, UUID requester) {
+        UUID owner = data.ownerOf(key.dimension(), key.pos());
+        return owner != null && !owner.equals(requester);
+    }
+
+    /** 这座粮仓的编号 (0 = 这座账台还没开号)。 */
+    public static long granaryAt(ServerLevel level, BlockPos centerPos) {
+        return GranarySavedData.get(level).centerGranary(level.dimension().location(), centerPos);
+    }
+
     private static int pendingClaimBins(ServerPlayer player) {
         // 待领粮单占用的额度随「退出 / 打包 / 被移出」那一批加入; 现在没有这条路径, 一律 0。
         return 0;

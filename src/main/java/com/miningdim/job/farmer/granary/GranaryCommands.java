@@ -7,6 +7,7 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
@@ -18,6 +19,7 @@ import net.minecraftforge.eventbus.api.IEventBus;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * /granary 命令 (Spoilage_Granary_DesignSpec「界面」「/granary 命令」「/granary audit」)。
@@ -28,11 +30,12 @@ import java.util.Optional;
  *       (与账台右键读同一批行, 见 {@link GranaryQuery#statusLines});</li>
  *   <li>{@code /granary bins} —— 我的囤: 位置、启用状态、连在哪座粮仓上, 以及额度用了几格;</li>
  *   <li>{@code /granary rescan} —— 立刻复查站着的那座 (复查节流是自动的, 这条是运营与排障的兜底);</li>
- *   <li>{@code /granary audit} (OP) —— 全服盘点: 每座粮仓一行, 外加「验收人 → 房主」配对。</li>
+ *   <li>{@code /granary audit} (OP) —— 全服盘点: 每座粮仓一行, 外加「验收人 → 房主」与
+ *       「成员 → 房主」两种配对。</li>
  * </ul>
  *
- * 规格里 {@code /granary audit} 要列三对配对, 现在只有「验收人 → 房主」这一对是真的 —— 成员表与
- * 开放取用随合建那一批落地, 这里如实写明还缺哪两对, 不假装有。
+ * 规格里 {@code /granary audit} 要列三对配对, 现在「验收人 → 房主」与「成员 → 房主」都是真的 ——
+ * 只剩「把囤开放成可取给别人」随开放名单那一批落地, 这里如实写明还缺哪一对, 不假装有。
  */
 public final class GranaryCommands {
 
@@ -57,6 +60,15 @@ public final class GranaryCommands {
                         .executes(GranaryCommands::keepHotbarQuery)
                         .then(Commands.argument("value", BoolArgumentType.bool())
                                 .executes(GranaryCommands::keepHotbarSet)))
+                .then(Commands.literal("member")
+                        .then(Commands.literal("list").executes(GranaryCommands::memberList))
+                        .then(Commands.literal("add")
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .executes(context -> memberChange(context, true))))
+                        .then(Commands.literal("remove")
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .executes(context -> memberChange(context, false))))
+                        .then(Commands.literal("leave").executes(GranaryCommands::memberLeave)))
                 .then(Commands.literal("rescan")
                         .requires(source -> source.hasPermission(OP_LEVEL))
                         .executes(GranaryCommands::rescan))
@@ -205,6 +217,119 @@ public final class GranaryCommands {
     }
 
     // ============================================================
+    // 成员 (入册 / 移出 / 退出 / 名单)
+    // ============================================================
+
+    /** 成员页 (文字版): 每人几个囤、启用几个 —— 对所有成员公开, 不显示里面装了什么。 */
+    private static int memberList(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        ServerLevel level = player.serverLevel();
+        Optional<GranaryQuery.Nearby> nearby = GranaryQuery.nearest(level, player.position());
+        if (nearby.isEmpty()) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.none_nearby"));
+            return 0;
+        }
+        GranaryRecord record = nearby.get().record();
+        if (record == null) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.not_a_granary"));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.member_header",
+                record.id(), record.members().size(),
+                GranaryQuery.nameOf(source.getServer(), record.owner())), false);
+        List<UUID> everyone = new ArrayList<>();
+        everyone.add(record.owner());
+        everyone.addAll(record.members());
+        for (UUID member : everyone) {
+            List<GranaryQuery.BinRow> bins = GranaryQuery.binsOf(level, nearby.get().gid()).stream()
+                    .filter(row -> member.equals(GranarySavedData.get(level.getServer().overworld())
+                            .ownerOf(row.dimension(), row.pos())))
+                    .toList();
+            long active = bins.stream().filter(row -> row.state() == GranaryBinState.ACTIVE).count();
+            source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.member_row",
+                    GranaryQuery.nameOf(source.getServer(), member),
+                    member.equals(record.owner())
+                            ? Component.translatable("granary.member.owner")
+                            : Component.translatable("granary.member.member"),
+                    bins.size(), active), false);
+        }
+        return everyone.size();
+    }
+
+    /** 入册 / 移出: 只有房主与 OP 能做 (规格的权限表)。 */
+    private static int memberChange(CommandContext<CommandSourceStack> context, boolean add)
+            throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        ServerLevel level = player.serverLevel();
+        Optional<GranaryQuery.Nearby> nearby = GranaryQuery.nearest(level, player.position());
+        if (nearby.isEmpty()) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.none_nearby"));
+            return 0;
+        }
+        GranaryRecord record = nearby.get().record();
+        if (record == null) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.not_a_granary"));
+            return 0;
+        }
+        // 权限判在**命令源**上 (与 audit / rescan 的 requires 同一把尺): 玩家的权限等级由服务端按
+        // 「在线会话」决定, 而命令源上的那份是这次执行的权威, /op 与权限插件都作用在它上面。
+        if (!player.getUUID().equals(record.owner()) && !source.hasPermission(OP_LEVEL)) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.member_not_owner"));
+            return 0;
+        }
+        ServerPlayer target = EntityArgument.getPlayer(context, "player");
+        if (target.getUUID().equals(record.owner())) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.member_is_owner"));
+            return 0;
+        }
+        GranarySavedData data = GranarySavedData.get(level.getServer().overworld());
+        GranaryRecord updated = add ? record.withMember(target.getUUID())
+                : record.withoutMember(target.getUUID());
+        data.putGranary(updated);
+        // 入册/移出之后立刻重算一次: 囤的启用名单跟着成员身份走, 不能让玩家等到下一次复查。
+        GranaryInspection.inspect(level, nearby.get().center());
+        source.sendSuccess(() -> Component.translatable(add
+                        ? "message.miningdim.granary.command.member_added"
+                        : "message.miningdim.granary.command.member_removed",
+                GranaryQuery.nameOf(source.getServer(), target.getUUID()),
+                GranaryQuery.nameOf(source.getServer(), record.owner())), true);
+        return add ? 1 : 0;
+    }
+
+    /** 成员自己退出 (房主不能退自己的粮仓: 要么转让要么拆掉, 那是另外两条路)。 */
+    private static int memberLeave(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        ServerLevel level = player.serverLevel();
+        Optional<GranaryQuery.Nearby> nearby = GranaryQuery.nearest(level, player.position());
+        if (nearby.isEmpty()) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.none_nearby"));
+            return 0;
+        }
+        GranaryRecord record = nearby.get().record();
+        if (record == null) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.not_a_granary"));
+            return 0;
+        }
+        if (player.getUUID().equals(record.owner())) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.member_owner_cannot_leave"));
+            return 0;
+        }
+        if (!record.isMember(player.getUUID())) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.member_not_member"));
+            return 0;
+        }
+        GranarySavedData.get(level.getServer().overworld())
+                .putGranary(record.withoutMember(player.getUUID()));
+        GranaryInspection.inspect(level, nearby.get().center());
+        source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.member_left",
+                GranaryQuery.nameOf(source.getServer(), record.owner())), true);
+        return 1;
+    }
+
+    // ============================================================
     // 管理命令
     // ============================================================
     /** 立刻复查站着的那座 (不走队列与冷却)。 */
@@ -250,8 +375,15 @@ public final class GranaryCommands {
                         GranaryQuery.nameOf(source.getServer(), record.owner()),
                         record.acceptedAtHour()), false);
             }
+            // 成员配对: 谁在这座粮仓里有囤。房主隐含是成员, 不在这里重复列。
+            for (UUID member : record.members()) {
+                source.sendSuccess(() -> Component.translatable(
+                        "message.miningdim.granary.command.audit_member",
+                        GranaryQuery.nameOf(source.getServer(), member),
+                        GranaryQuery.nameOf(source.getServer(), record.owner())), false);
+            }
         }
-        // 规格要的三对配对里, 现在只有「验收人 → 房主」是真的; 另外两对随合建那一批落地。
+        // 规格要的三对配对里, 现在只剩「把囤开放成可取给别人」随开放名单那一批落地。
         source.sendSuccess(() -> Component.translatable(
                 "message.miningdim.granary.command.audit_missing_pairs"), false);
         return rows.size();

@@ -11,8 +11,10 @@ import net.minecraft.world.level.saveddata.SavedData;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -308,22 +310,51 @@ public final class GranarySavedData extends SavedData {
 
     /** 同上, 并把「现在」传进来: 转成停用的囤要记下停用时刻 (宽限从它起算)。 */
     public GranaryEnablement.Decision applyEnablement(long gid, int supportedBins, long nowHour) {
+        Set<PosKey> all = new LinkedHashSet<>(binsOf(gid));
+        return applyEnablement(gid, supportedBins, nowHour, all);
+    }
+
+    /**
+     * 同上, 但只把**入册的囤**排进启用名单 (Spoilage_Granary_DesignSpec「合建: 入册与权限」)。
+     *
+     * 没入册的囤 (囤主不是成员) 不计入任何要求, 也不能存 —— 一律排「待启用」, 而且不占部件配额:
+     * 反漏洞 #61 那条「往别人的粮仓里塞自己的囤把整座房子弄坏」挡的就是这里。
+     *
+     * @param enrolled 入册的囤 (囤主是房主或已入册成员的那些)
+     */
+    public GranaryEnablement.Decision applyEnablement(long gid, int supportedBins, long nowHour,
+                                                      Set<PosKey> enrolled) {
         List<PosKey> bins = binsOf(gid);
-        GranaryEnablement.Decision decision = GranaryEnablement.decide(bins.size(), supportedBins);
-        for (int index = 0; index < bins.size(); index++) {
-            PosKey key = bins.get(index);
-            GranaryBinState state;
-            if (decision.isActive(index)) {
-                state = GranaryBinState.ACTIVE;
-            } else {
-                // 「停用」还是「待启用」看的是**历史**: 从来没启用过的才是待启用, 其余一律停用 ——
-                // 已经是停用的要保持停用 (再算一轮不能降回待启用, 那会连带把它的停用时刻抹掉)。
-                state = binState(key.dimension(), key.pos()) == GranaryBinState.PENDING
-                        ? GranaryBinState.PENDING : GranaryBinState.STOPPED;
+        List<PosKey> eligible = new ArrayList<>();
+        for (PosKey key : bins) {
+            if (enrolled.contains(key)) {
+                eligible.add(key);
             }
-            setBinState(key.dimension(), key.pos(), state, nowHour);
+        }
+        GranaryEnablement.Decision decision = GranaryEnablement.decide(eligible.size(), supportedBins);
+        for (int index = 0; index < eligible.size(); index++) {
+            writeBinState(eligible.get(index), decision.isActive(index), nowHour);
+        }
+        for (PosKey key : bins) {
+            if (!enrolled.contains(key)) {
+                setBinState(key.dimension(), key.pos(), GranaryBinState.PENDING, nowHour);
+            }
         }
         return decision;
+    }
+
+    /** 启用 → ACTIVE; 排不上 → 原来启用过的转「停用」, 从来没启用的保持「待启用」。 */
+    private void writeBinState(PosKey key, boolean active, long nowHour) {
+        GranaryBinState state;
+        if (active) {
+            state = GranaryBinState.ACTIVE;
+        } else {
+            // 「停用」还是「待启用」看的是**历史**: 从来没启用过的才是待启用, 其余一律停用 ——
+            // 已经是停用的要保持停用 (再算一轮不能降回待启用, 那会连带把它的停用时刻抹掉)。
+            state = binState(key.dimension(), key.pos()) == GranaryBinState.PENDING
+                    ? GranaryBinState.PENDING : GranaryBinState.STOPPED;
+        }
+        setBinState(key.dimension(), key.pos(), state, nowHour);
     }
 
     // ============================================================

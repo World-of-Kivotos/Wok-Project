@@ -11,8 +11,10 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.common.util.FakePlayer;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 账台这一下的全部动作 (Spoilage_Granary_DesignSpec「建造与验收」「容量怎么算」)。
@@ -115,8 +117,13 @@ public final class GranaryInspection {
         // 没验收、损坏: 一律全排待启用 (规格「只有启用的囤才能存、才停表」)。
         int supported = record != null && record.acceptsDeposits()
                 ? scan.supportedBins(record.tier().needsColdSources()) : 0;
-        GranaryEnablement.Decision enablement = record == null
-                ? new GranaryEnablement.Decision(0, 0) : data.applyEnablement(gid, supported, nowHour);
+        GranaryEnablement.Decision enablement;
+        if (record == null) {
+            enablement = new GranaryEnablement.Decision(0, 0);
+        } else {
+            // 入册的囤才排进启用名单: 囤主必须是房主或已入册成员 (规格「合建: 入册与权限」)。
+            enablement = data.applyEnablement(gid, supported, nowHour, enrolledBins(data, record));
+        }
         if (record != null) {
             applyBinClocks(level, data, record, nowHour);
         }
@@ -126,6 +133,22 @@ public final class GranaryInspection {
             verdicts.add(GranaryAcceptance.check(tier, scan));
         }
         return new Report(gid, record, scan, verdicts, enablement);
+    }
+
+    /**
+     * 入册的囤: 囤主是房主或已入册成员的那些。
+     *
+     * 没入册的囤**不计入任何要求** (反漏洞 #61: 往别人粮仓里塞囤把气窗、冷源撑爆, 让整座房子判成损坏),
+     * 也不算进部件配额 —— 它们只能取不能存, 等房主入册之后下一次验算自然转成启用。
+     */
+    private static Set<GranarySavedData.PosKey> enrolledBins(GranarySavedData data, GranaryRecord record) {
+        Set<GranarySavedData.PosKey> enrolled = new LinkedHashSet<>();
+        for (GranarySavedData.PosKey key : data.binsOf(record.id())) {
+            if (record.isMember(data.ownerOf(key.dimension(), key.pos()))) {
+                enrolled.add(key);
+            }
+        }
+        return enrolled;
     }
 
     /**

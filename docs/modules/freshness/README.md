@@ -1,14 +1,15 @@
-# WOK-腐烂底座模块
+﻿# WOK-腐烂底座模块
 
 模块键：`wok-freshness`
 
 当前入口：`com.miningdim.freshness.FreshnessModule`
 
-当前状态：四个切片已落地——① 腐烂时钟 + 物品保鲜章 + 类别与豁免判定；② 腐烂物终态 + 无需 mixin 的观察点；
+当前状态：五个切片已落地——① 腐烂时钟 + 物品保鲜章 + 类别与豁免判定；② 腐烂物终态 + 无需 mixin 的观察点；
 ③ 加工继承策略 + 三个原版 mixin 观察点（合成格、熔炉三件套、漏斗）与两份 mixin 配置；
-④ 同种食物合并（核心 + 拾取入包 / 点击叠放 / 配方书追加三个入口）。
-类别标签自检、Shift 快移与粮仓一键存入的合并入口、开服迁移、FD 与 BnC/refurbished 兼容 mixin、
-物品栏保鲜条与粮仓联动按设计文档后续切片推进。
+④ 同种食物合并（核心 + 拾取入包 / 点击叠放 / 配方书追加三个入口）；
+⑤ 开服标签自检 + 按小时统计环（保留 30 天）+ `/freshness` 命令。
+类别标签工程的第三方条目、Shift 快移与粮仓一键存入的合并入口、`/freshness audit`、开服迁移、
+FD 与 BnC/refurbished 兼容 mixin、物品栏保鲜条与粮仓联动按设计文档后续切片推进。
 
 设计真源：[`../../Spoilage_Granary_DesignSpec.md`](../../Spoilage_Granary_DesignSpec.md)（14 项已按推荐拍板，
 2026-10-15；P0 环境核实记录在该文末）。
@@ -32,9 +33,15 @@
 - **同种食物合并**：三条门槛（只差新鲜度、落在 1/8 保质期且至少 2 小时的窗口内、停表时间相同），
   剩余按件数加权平均（精确到分钟）且件数 × 剩余的总和不增加；入口为拾取入包（`Inventory` 两个注入点）、
   点击叠放（`ItemStackedOnOtherEvent`）与配方书追加（取最老的那批）。
+- **开服标签自检**：逐条核对八项（腐肉/蜘蛛眼/金苹果/蜂蜜瓶必须豁免，小麦/农夫小麦必须是谷物，
+  生牛肉必须是生鲜，面包必须是熟食），有一条不对就**自动退回试运行**并提醒在线 OP。
+- **统计环与命令**：按小时记录「盖章 / 本该腐烂 / 真换掉」三列，保留 30 天；
+  `/freshness stats|clock|dump|stamp|strip`（OP）分别查计数、查时钟、导出「物品 → 类别」清单、
+  给手上的东西盖章 / 去章（奖励模板与商店货架配置前必须先去掉章）。
 - **总开关**：关闭 / 试运行 / 开启三档（安全阀）。
 - 后续切片：营火 mixin；Shift 快移与粮仓「一键存入」的合并入口；放置食物按坐标记账；村民货标记；
-  消费点拦截；类别自检与统计；机器输出合并取最老；开服迁移；FD / BnC / refurbished 兼容 mixin（走可选配置）；
+  消费点拦截（卖麦/酿酒/任务/市场）；`/freshness audit`（半径内无章易腐品巡查）；机器输出合并取最老；
+  开服迁移；FD / BnC / refurbished 兼容 mixin（走可选配置）；类别标签工程的第三方条目；
   物品栏保鲜条与 WebUI 物品详情贡献者；粮仓在 `wok-job-farmer`。
 
 本模块不负责：
@@ -48,7 +55,7 @@
 
 ### Java 源码
 
-- `src/main/java/com/miningdim/freshness/`（27 个文件，含 `item/`、`mixin/` 两个子包与 4 个测试类）。
+- `src/main/java/com/miningdim/freshness/`（32 个文件，含 `item/`、`mixin/` 两个子包与 5 个测试类）。
 
 ### 专属资源
 
@@ -60,6 +67,10 @@
   当前为空，等 FD / BnC / refurbished 那批填）。两份都要同时登记在 `build.gradle` 的 `mixin{}` 块、jar 清单的
   `MixinConfigs` 与本模块的 `resourcePaths` —— 只改一处就是「开发能跑、正式服什么都没加载」。
 - 语言键：`item.miningdim.freshness_rot`、`tooltip.miningdim.freshness.category.*`（共享语言文件按 key 前缀分属）
+
+### 运行期产物
+
+- `/freshness dump` 把「物品 → 类别」清单写到 `<存档>/miningdim/freshness-dump.txt`（不入库，供人工核对标签）。
 
 ### 配置文件
 
@@ -130,17 +141,20 @@ freshness/
   FreshnessCategory.java    六类枚举
   FreshnessConfig.java      服务端配置
   FreshnessObservation.java 无需 mixin 的观察点
+  FreshnessStats.java       进程级计数（每小时排空）
+  FreshnessStatsRing.java   按小时的统计环（保留 30 天，纯数据）
+  FreshnessSelfCheck.java   开服标签自检（不通过就退回试运行）
+  FreshnessCommands.java    /freshness stats|clock|dump|stamp|strip
   FreshnessLootModifier(s)  全局掉落修改器
   item/                     freshness_rot
   mixin/                    合成格 / 熔炉三件套 / 漏斗 / 背包入包 / 配方书（原版目标）
   mixin/compat/             计划：FD、BnC、refurbished（可选配置）
-  command/                  计划：/freshness dump|stats|audit|stamp|strip
   client/                   计划：物品栏保鲜条、剩余数字、快捷栏提醒
 ```
 
 ## 7. 验证清单
 
-当前四个测试类共 35 条 GameTest：
+当前五个测试类共 42 条 GameTest：
 
 - `FreshnessGameTests`（batch `freshness_foundation`，12 条）
   - 时钟：首次观察、正常前进、停服按整小时补偿、运行中跳变补「差值 − 1」、挂钟回跳只增不减、测试偏移入口钳负值。
@@ -162,6 +176,12 @@ freshness/
     迁移货不和新货合并、未盖章与不腐烂的东西不参与；窗口随保质期缩放（2 / 4.5 / 6 / 21 小时）。
   - 两个原版注入用的口径：入包追加前对齐章（整堆塞得下才插手，件数仍由原版搬）、
     配方书追加取最老的那批；容器里只认能合并的那一格。
+- `FreshnessStatsGameTests`（batch `freshness_stats`，7 条）
+  - 计数器：看一眼不清零、排空拿到同一份、排空后归零；结算分别计入盖章 / 本该腐烂 / 真换掉三列。
+  - 统计环：按窗口汇总、最新小时与占用格数、转一圈覆盖最老一格、存读一轮不变、旧存档缺键从空环开始、
+    列长不对直接报错。
+  - 自检：出厂标签必须让八项全过；换成假判定器时，腐肉/蜘蛛眼/金苹果不再豁免、生牛肉不腐烂都要报出来。
+  - 命令：`/freshness`、`stats`、`clock`、`dump` 四个入口在真实命令派发器上跑通（dump 会真的落盘）。
 
 每个切片至少执行：
 

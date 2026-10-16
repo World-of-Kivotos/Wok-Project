@@ -37,7 +37,7 @@
 | `wok-stacking` | WOK-实体堆叠模块 | 11 | 33 | `StackingSystem` | 核心、精英怪 |
 | `wok-achievement` | WOK-成就模块 § | 84 | 81 | `AchievementSystem` | 核心、存储、称号、矿区、精英怪、经济、全服经验、职业框架、铸甲师、厨师、酿酒师、塔罗师、军火商、特勤干员、市场、开箱、任务、婚姻、WebUI；TaCZ、SQLite 可选 |
 | `wok-district` | WOK-自管区模块 ¶ | 184 | 312 | `DistrictSystem` | 核心、存储、经济、WebUI；SQLite、Flan、机械动力可选 |
-| `wok-freshness` | WOK-腐烂底座模块 ※ | 27 | 35 | `FreshnessModule` | 核心、WebUI；Farmer's Delight 可选 |
+| `wok-freshness` | WOK-腐烂底座模块 ※ | 32 | 42 | `FreshnessModule` | 核心、WebUI；Farmer's Delight 可选 |
 
 † `wok-job-fisher` 这一行是 2026-09-24 在 `feat/fish-quality-size` 分支上按同一口径单独重测的（新增 `quality`、`size` 两个子包；2026-09-06 首次补测时为 23 / 15），其余 25 行仍是第一段声明的 2026-08-30 基线。同一分支给 `wok-core` 新增了 `core/ItemRarityOverrides` 与 `mixin/ItemRarityOverrideMixin` 两个文件，该行未重测。另外它在登记表里的 `category` 虽然是 `job`，但这只是业务归类：`job/JobId.java` 的枚举至今只有八个常量、没有 `FISHER`，因此渔夫没有职业等级、没有经验轨道（对照 [`experience/README.md`](experience/README.md) 的八轨清单），也没有职业身份门；它对 `wok-store` 的依赖同样只出现在 GameTest 里，图鉴本身走原版 `FishingJournalSavedData`、个人钓获记录走玩家 `PlayerPersisted` NBT，都不落 SQLite。
 
@@ -75,11 +75,11 @@
 
 GameTest 位于主源码集是本仓库既有约定，因此 Java 文件数包含测试类。`wok-champion` 的测试数量较高，是精英词条和红线组合测试形成的结果。
 
-※ `wok-freshness` 这一行是 2026-10-15 腐烂底座前四个切片落地后的实测值：① 模块骨架 + 时钟 + 物品保鲜章 + 类别与豁免判定；② 腐烂物终态 + 无需 mixin 的观察点；③ 加工继承策略 + 合成格/熔炉三件套/漏斗三个原版 mixin；④ 同种食物合并核心 + 拾取入包/点击叠放/配方书追加三个入口。
-- 27 个文件：`freshness/` 21 个（含 4 个测试类）、`freshness/item/` 1 个、`freshness/mixin/` 5 个；35 条 GameTest，分四个批次 `freshness_foundation`（12）、`freshness_settle`（5）、`freshness_processing`（8）、`freshness_merge`（10）。
-- 登记的依赖里 WebUI 是设计文档「模块落位」预留的（物品详情贡献者接口），四个切片都还没有引用；核心是真实引用（`Subsystem`、`MiningConstants`、`testutil/ConfigBaseline`）。
+※ `wok-freshness` 这一行是 2026-10-15 腐烂底座前五个切片落地后的实测值：① 模块骨架 + 时钟 + 物品保鲜章 + 类别与豁免判定；② 腐烂物终态 + 无需 mixin 的观察点；③ 加工继承策略 + 合成格/熔炉三件套/漏斗三个原版 mixin；④ 同种食物合并核心 + 拾取入包/点击叠放/配方书追加三个入口；⑤ 开服标签自检 + 按小时统计环（保留 30 天）+ `/freshness` 命令。
+- 32 个文件：`freshness/` 26 个（含 5 个测试类）、`freshness/item/` 1 个、`freshness/mixin/` 5 个；42 条 GameTest，分五个批次 `freshness_foundation`（12）、`freshness_settle`（5）、`freshness_processing`（8）、`freshness_merge`（10）、`freshness_stats`（7）。
+- 登记的依赖里 WebUI 是设计文档「模块落位」预留的（物品详情贡献者接口），五个切片都还没有引用；核心是真实引用（`Subsystem`、`MiningConstants`、`testutil/ConfigBaseline`）。
 - 资源：六个类别标签与一张豁免标签、一份掉落修改器 json（并登记在共享索引里）、腐烂物的模型与 16×16 贴图、两条语言键与六个类别名，以及**本模块自带的两份 mixin 配置**（必需的原版目标配置含五个 mixin + 预留的可选兼容配置，已同时写进 `build.gradle` 的 `mixin{}` 块与 jar 清单的 `MixinConfigs`）。
-- 后续切片会新增 FD / BnC / refurbished 的兼容 mixin（填进现在为空的可选配置）、营火 mixin、Shift 快移的合并入口、机器输出合并取最老、类别自检与统计、放置食物记账、村民货、消费点拦截、开服迁移、物品栏保鲜条与 WebUI 物品详情贡献者；粮仓不在这里，它在 `wok-job-farmer` 的 `job/farmer/granary` 下。
+- 后续切片会新增 FD / BnC / refurbished 的兼容 mixin（填进现在为空的可选配置）、营火 mixin、Shift 快移的合并入口、机器输出合并取最老、`/freshness audit`、放置食物记账、村民货、消费点拦截、开服迁移、类别标签工程的第三方条目、物品栏保鲜条与 WebUI 物品详情贡献者；粮仓不在这里，它在 `wok-job-farmer` 的 `job/farmer/granary` 下。
 
 ## 2. 产品边界
 

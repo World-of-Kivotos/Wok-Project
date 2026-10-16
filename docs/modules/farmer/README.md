@@ -5,15 +5,16 @@
 当前入口：`com.miningdim.job.farmer.FarmerModule`
 
 当前状态：已启用独立模块装配入口，并通过职业框架策略注册契约清偿反向依赖；Java 包、资源 ID 和注册项保持兼容。
-粮仓子包 `job/farmer/granary` 已落地十一块：储粮囤额度与归属记账、账台 / 气窗与房间结构判定、停表结算、
+粮仓子包 `job/farmer/granary` 已落地十二块：储粮囤额度与归属记账、账台 / 气窗与房间结构判定、停表结算、
 验收分档与启用裁决（含登记项与启用状态存档）、账台门面（放置开号、右键看结构、潜行右键验收、部件变动后重排启用）、
 损坏判定与宽限期（基础要求/漏风/进水/冲突才判整座损坏，宽限 = 出事起 7 天与出事后首次上线起 3 天取较晚、上限 28 天，每位囤主各算各的）、
 损坏复查的调度（方块一变就排队、同一座最快每 20 tick 一次、每 tick 最多真扫一座、每 5 分钟按坐标错峰自查、跨未加载区块时不判也不读区块）、
 /granary 命令面（status / bins / claim 给玩家，rescan / audit 给管理；命令与账台右键读同一批行，查询面在 GranaryQuery）、
 一键存入（只收易腐品、先合并再放、老格子只收本小时同一批）、
 合建成员（名册落在账本里，只有房主或 OP 能改；没入册的囤不计入任何要求，也只能取不能存）、
-待领粮单（每 27 格占 1 个囤的额度、领完才归还；按先进先出领回、保鲜章原样，烂满 30 天自动销毁）；
-冷源清单扩展、待领粮单的搬运触发与开放名单、图形界面与菜单按 `docs/Spoilage_Granary_DesignSpec.md` 后续分片推进。
+待领粮单（每 27 格占 1 个囤的额度、领完才归还；按先进先出领回、保鲜章原样，烂满 30 天自动销毁；
+被移出与被拆走的在单子里照常停表 7 天，自己退出或打包的不停表）；
+冷源清单扩展、开放名单、图形界面与菜单按 `docs/Spoilage_Granary_DesignSpec.md` 后续分片推进。
 
 ## 1. 功能边界
 
@@ -169,7 +170,7 @@ job/farmer/
 
 ## 7. 验证清单
 
-本模块的 GameTest 分十三个持有者，分属不同 batch：
+本模块的 GameTest 分十四个持有者，分属不同 batch：
 
 | 持有者 | batch | 职责 |
 | --- | --- | --- |
@@ -186,8 +187,9 @@ job/farmer/
 | `granary/GranaryDepositGameTests` | `granary_deposit` | 存进去就起停表、没验收/没启用不收、三类跳过、老格子只收本小时同一批、先合并再放、保留快捷栏 |
 | `granary/GranaryMemberGameTests` | `granary_member` | 只有房主或 OP 能改名册、成员能退出而房主不能、没入册的囤不计入任何要求、移出后转待启用、有别人的囤时账台拆不掉、名册存档往返、audit 列成员配对 |
 | `granary/GranaryPendingGameTests` | `granary_pending` | 单子占额度、领回来的就是原来那几件、背包放不下就留着下次领、先进先出、烂满 30 天自动销毁、存档往返与坏档报错、claim 命令的三种回执 |
+| `granary/GranaryTransferGameTests` | `granary_transfer` | 被移出的囤连东西进对方单子、自己退出的不停表、被移出的照常停表 7 天、非玩家路径拆有货的囤不掉地上、房主拆未入册空囤进放置者的单子 |
 
-只看 `farmer` batch 会漏掉整条 WebUI 面板链路与全部粮仓规则，十三个 batch 都要绿。
+只看 `farmer` batch 会漏掉整条 WebUI 面板链路与全部粮仓规则，十四个 batch 都要绿。
 
 `farmer` batch 覆盖范围包括：
 
@@ -206,7 +208,7 @@ job/farmer/
 - 耕地放置归属索引：认领与回收计在放置者而非破坏者头上，无玩家破坏也要还配额，旧计数迁移为溢出额且不跨认领/释放重复计数。
 - 五档耕地活塞不可推（`PushReaction.BLOCK`），封死推走耕地绕过放置上限的路径。
 
-`granary_*` 十一个 batch 覆盖范围包括：
+`granary_*` 十二个 batch 覆盖范围包括：
 
 - 额度与归属：L1 3 个、每级 +1、L10 共 13 个；放置事件在 `EventPriority.LOWEST` 上裁决，假玩家一律拒绝；
   认领与归还在坐标上记账、拆除才归还、同一坐标换主人必须被拒。
@@ -235,20 +237,21 @@ job/farmer/
   验算自动启用, 归属始终不变); 移出成员后对方的囤转待启用且不再占配额; 还有别人的囤时账台拆不掉
   (先把成员移出或让别人退出); member list 一人一行报「每人几个囤、启用几个」, 不显示里面装了什么;
   audit 会给每位成员列一行「成员 → 房主」(只剩开放取用那一对随开放名单分片加入)。
-  **临时口径** (随待领粮单分片收口): 规格里「移出成员的囤连同东西进对方的待领粮单、占额度、
-  宽限期内照常停表」这一步现在落在「待启用」上。
+  移出成员的囤**连同里面的东西**一起进他自己的待领粮单 (搬运那一片已接线), 回执说清搬了几个囤。
 - 待领粮单: 每个条目 = 一个囤的东西, 条目本身就是额度的计量单位 (每 27 格占 1 个囤, 领完才归还);
   领取按先进先出、一件一件往背包里塞, 放不下的留在单子上 (谁都不许蒸发), 领回来的东西保鲜章
-  原样 (批次时刻与已停表小时都不动); 腐烂满 30 天的自动销毁并记日志, 上线时先清一遍再提醒还剩
-  几个囤的东西没领。/granary bins 会把单子占的额度一并报出来。
-  **临时口径** (随搬运那一批收口): 谁把东西送进来 (退出 / 打包 / 被移出 / 囤被拆) 还没接线,
-  规格里「被移出的人在宽限期内照常停表、自己打包的不停表」两条也要等那一批。
+  原样 (批次时刻与已停表小时都不动); 腐烂满 30 天的自动销毁并记日志, 上线时先结一次账、清一遍
+  烂透的再提醒还剩几个囤的东西没领。/granary bins 会把单子占的额度一并报出来。
+- 搬运: 被移出成员的囤、自己退出或打包的囤、被别人拆走的囤、房主拆本房间未入册的空囤, 东西都
+  **从不掉在地上**, 只进囤主的待领粮单 (拆的人与房主都拿不走); 搬运前先把囤结到这一刻, 已经停过
+  的那一段跟着东西一起进单子; 被移出与被拆走的在单子里照常停表 7 天 (惰性结算: 领的时候与上线的
+  时候各跑一次), 自己退出或打包的不停表 (反漏洞 #66)。
 
 每个农夫模块整理提交至少执行：
 
 1. `gradlew.bat compileJava`
 2. `gradlew.bat processResources`
-3. `gradlew.bat runGameTestServer`，确认 `farmer`、`webui_w3` 与 `granary_bins` / `granary_structure` / `granary_settle` / `granary_acceptance` / `granary_inspect` / `granary_damage` / `granary_recheck` / `granary_command` / `granary_deposit` / `granary_member` / `granary_pending` 十三个 batch 全部通过。判定以日志里的 `All N required tests passed` 为准：服务端数据包加载崩溃时 gradle 仍可能返回 0，只看退出码是已知假阳性。
+3. `gradlew.bat runGameTestServer`，确认 `farmer`、`webui_w3` 与 `granary_bins` / `granary_structure` / `granary_settle` / `granary_acceptance` / `granary_inspect` / `granary_damage` / `granary_recheck` / `granary_command` / `granary_deposit` / `granary_member` / `granary_pending` / `granary_transfer` 十四个 batch 全部通过。判定以日志里的 `All N required tests passed` 为准：服务端数据包加载崩溃时 gradle 仍可能返回 0，只看退出码是已知假阳性。
 4. `gradlew.bat verifyModuleBoundaries`，确认 Java 包与资源所有权没有漂移
 5. 对冻结注册 ID 和 `miningdim_farmer` 做文本回归搜索
 6. 验证未安装 Farmer's Delight 时仍能启动和使用原生农夫内容

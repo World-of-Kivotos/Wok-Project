@@ -38,6 +38,7 @@ public final class GranaryConstants {
     public static final String KEY_STATE = "State";
     public static final String KEY_GID = "Gid";
     public static final String KEY_NEXT_GID = "NextGid";
+    public static final String KEY_NEXT_SEQ = "NextSeq";
 
     /** 粮仓登记项 (GranaryRecord) 的键。 */
     public static final String KEY_ID = "Id";

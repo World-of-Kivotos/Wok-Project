@@ -1,10 +1,18 @@
 package com.miningdim.job.farmer.granary.block;
 
+import com.miningdim.job.JobId;
+import com.miningdim.job.JobServices;
+import com.miningdim.job.farmer.granary.GranaryAcceptance;
+import com.miningdim.job.farmer.granary.GranaryInspection;
+import com.miningdim.job.farmer.granary.GranaryRecord;
 import com.miningdim.job.farmer.granary.GranarySystem;
+import com.miningdim.job.farmer.granary.GranaryTier;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -14,6 +22,8 @@ import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraftforge.common.util.FakePlayer;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -62,6 +72,101 @@ public final class GranaryCenterBlock extends BaseEntityBlock {
             }
         }
         return super.onDestroyedByPlayer(state, level, pos, player, willHarvest, fluid);
+    }
+
+    /**
+     * 右键账台: 看结构与状态; **潜行右键**是验收 (界面做出来之前, 验收按钮就落在这条路上)。
+     *
+     * 服务端权威: 客户端只回 SUCCESS 触发挥手, 判定与落档都在服务端做。假玩家 (机器、Deployer) 一律
+     * 不给看也不给验收 (反漏洞 #35/#69), 而且不提示 —— 免得刷屏。
+     */
+    @Override
+    public InteractionResult use(BlockState state, Level level, BlockPos pos, Player player,
+                                 InteractionHand hand, BlockHitResult hit) {
+        if (level.isClientSide) {
+            return InteractionResult.SUCCESS;
+        }
+        if (!(level instanceof ServerLevel serverLevel) || !(player instanceof ServerPlayer serverPlayer)
+                || player instanceof FakePlayer || player.isRemoved()) {
+            return InteractionResult.CONSUME;
+        }
+        if (player.isShiftKeyDown()) {
+            showAcceptance(serverPlayer, GranaryInspection.accept(serverLevel, pos, serverPlayer));
+            return InteractionResult.CONSUME;
+        }
+        GranaryInspection.Report report = GranaryInspection.inspect(serverLevel, pos);
+        if (report.orphan()) {
+            serverPlayer.displayClientMessage(
+                    Component.translatable("message.miningdim.granary.not_a_granary"), false);
+            return InteractionResult.CONSUME;
+        }
+        showStatus(serverPlayer, report);
+        return InteractionResult.CONSUME;
+    }
+
+    /** 结构页 (文字版): 顶栏一行 + 下一步该干什么。 */
+    private static void showStatus(ServerPlayer player, GranaryInspection.Report report) {
+        GranaryRecord record = report.record();
+        player.displayClientMessage(Component.translatable("message.miningdim.granary.report",
+                report.gid(), tierName(record.tier()),
+                Component.translatable(record.status().translationKey()),
+                report.enablement().enabled(), report.enablement().unsupported()), false);
+
+        GranaryTier current = record.tier();
+        GranaryTier candidate = current == null ? GranaryTier.SHED : current.next();
+        if (candidate == current) {
+            player.displayClientMessage(Component.translatable(
+                    "message.miningdim.granary.report_top", tierName(current)), false);
+            return;
+        }
+        GranaryAcceptance.Verdict verdict = report.verdictOf(candidate);
+        int farmerLevel = JobServices.jobService().level(player, JobId.FARMER);
+        if (!verdict.accepted()) {
+            player.displayClientMessage(Component.translatable("message.miningdim.granary.report_gap",
+                    tierName(candidate), verdict.checklist()), false);
+            return;
+        }
+        if (farmerLevel < candidate.unlockLevel()) {
+            player.displayClientMessage(Component.translatable("message.miningdim.granary.report_level",
+                    tierName(candidate), candidate.unlockLevel(), farmerLevel), false);
+            return;
+        }
+        player.displayClientMessage(Component.translatable(
+                "message.miningdim.granary.report_ready", tierName(candidate)), false);
+    }
+
+    /** 验收那一下的结果。 */
+    private static void showAcceptance(ServerPlayer player, GranaryInspection.Acceptance acceptance) {
+        String key = switch (acceptance.rejection()) {
+            case NONE -> "message.miningdim.granary.accepted";
+            case NOT_A_GRANARY -> "message.miningdim.granary.not_a_granary";
+            case LEVEL_TOO_LOW -> "message.miningdim.granary.accept_level";
+            case NOT_READY -> "message.miningdim.granary.accept_not_ready";
+            case TOP_TIER -> "message.miningdim.granary.report_top";
+            case FAKE_PLAYER -> null;
+        };
+        if (key == null) {
+            return;
+        }
+        Component detail = acceptance.accepted()
+                ? tierName(acceptance.tier())
+                : Component.translatable(acceptance.verdict() == null
+                        ? "granary.tier.none" : acceptance.verdict().tier().translationKey());
+        if (acceptance.rejection() == GranaryInspection.Rejection.NOT_READY) {
+            player.displayClientMessage(Component.translatable(key, acceptance.verdict().checklist()), false);
+            return;
+        }
+        if (acceptance.rejection() == GranaryInspection.Rejection.LEVEL_TOO_LOW) {
+            GranaryTier candidate = acceptance.verdict().tier();
+            player.displayClientMessage(Component.translatable(key, detail,
+                    candidate.unlockLevel(), JobServices.jobService().level(player, JobId.FARMER)), false);
+            return;
+        }
+        player.displayClientMessage(Component.translatable(key, detail), false);
+    }
+
+    private static Component tierName(@Nullable GranaryTier tier) {
+        return Component.translatable(tier == null ? "granary.tier.none" : tier.translationKey());
     }
 
     /** 方块移除的汇合点: 归还账台额度。 */

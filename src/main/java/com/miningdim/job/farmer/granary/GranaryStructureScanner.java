@@ -11,8 +11,10 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -69,9 +71,24 @@ public final class GranaryStructureScanner {
         CENTER_BETWEEN_ROOMS
     }
 
-    /** 一次判定的结果 (纯数据, 界面直接照它写清单数字)。 */
+    /**
+     * 一次判定的结果 (纯数据, 界面直接照它写清单数字)。
+     *
+     * {@code bins} 是**整个在屋里**的囤数, {@code binPositions} 是它们各自的坐标 (顺序稳定: 按坐标排序),
+     * 验收与启用重排都要按坐标把囤连到粮仓上。判定失败时位置列表为空 —— 失败时只有原因有意义。
+     */
     public record ScanResult(int interiorCells, int bins, int binsNotEnclosed, int centers,
-                             int vents, int coldSources, Failure failure) {
+                             int vents, int coldSources, Failure failure, List<BlockPos> binPositions) {
+
+        /** 只喂数字的调用方 (界面、纯逻辑用例) 用这个: 位置列表留空。 */
+        public ScanResult(int interiorCells, int bins, int binsNotEnclosed, int centers,
+                          int vents, int coldSources, Failure failure) {
+            this(interiorCells, bins, binsNotEnclosed, centers, vents, coldSources, failure, List.of());
+        }
+
+        public ScanResult {
+            binPositions = List.copyOf(binPositions);
+        }
 
         public boolean ok() {
             return failure == Failure.NONE;
@@ -179,19 +196,22 @@ public final class GranaryStructureScanner {
         }
 
         int notEnclosed = 0;
-        int fullyInside = 0;
+        List<BlockPos> inside = new ArrayList<>();
         for (long key : interior) {
             BlockPos cell = BlockPos.of(key);
             if (!(level.getBlockState(cell).getBlock() instanceof GranaryBinBlock)) {
                 continue;
             }
             if (isFullyInside(level, cell, interior)) {
-                fullyInside++;
+                inside.add(cell);
             } else {
                 notEnclosed++;
             }
         }
-        return new ScanResult(interior.size(), fullyInside, notEnclosed, centers, vents, coldSources, Failure.NONE);
+        // 坐标排序: 入册顺序由账本的序号决定, 这里的顺序只求**可复现**, 免得同一间屋两次判定出来不一样。
+        inside.sort(java.util.Comparator.comparingLong(BlockPos::asLong));
+        return new ScanResult(interior.size(), inside.size(), notEnclosed, centers, vents, coldSources,
+                Failure.NONE, inside);
     }
 
     /**

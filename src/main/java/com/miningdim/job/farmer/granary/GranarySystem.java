@@ -5,7 +5,9 @@ import com.miningdim.job.JobServices;
 import com.miningdim.job.farmer.granary.block.GranaryBinBlock;
 import com.miningdim.job.farmer.granary.block.GranaryBinBlockEntity;
 import com.miningdim.job.farmer.granary.block.GranaryBlocks;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.common.util.FakePlayer;
@@ -68,7 +70,12 @@ public final class GranarySystem {
                         GranaryConfig.maxCentersPerPlayer()), true);
                 return;
             }
-            data.claimCenter(level.dimension().location(), event.getPos(), player.getUUID());
+            // 放下账台就是「开一座粮仓」: 先开号并落一条未验收的登记项, 档位等验收那一刻再锁。
+            ResourceLocation dimension = level.dimension().location();
+            long gid = data.nextGranaryId();
+            if (data.claimCenter(dimension, event.getPos(), player.getUUID(), gid)) {
+                data.putGranary(GranaryRecord.unaccepted(gid, player.getUUID()));
+            }
             return;
         }
         int farmerLevel = JobServices.jobService().level(player, JobId.FARMER);
@@ -82,8 +89,8 @@ public final class GranarySystem {
                     GranaryBinGuard.capForLevel(farmerLevel), farmerLevel), true);
             return;
         }
-        data.claimBin(level.dimension().location(), event.getPos(), player.getUUID(),
-                alreadyPlaced + 1);
+        // 入册序号是**全服单调递增**的: 启用顺序按它排, 合建时不同人的囤才有同一条先后线。
+        data.claimBin(level.dimension().location(), event.getPos(), player.getUUID(), data.nextSeq());
     }
 
     /**
@@ -99,14 +106,19 @@ public final class GranarySystem {
         bin.assignOwner(player.getUUID(), data.binCount(player.getUUID()));
     }
 
-    /** 账台归属 (谁放的账台谁就是房主)。 */
+    /**
+     * 账台归属 (谁放的账台谁就是房主)。
+     *
+     * 粮仓编号在放置事件里已经开好 (账本是权威), 这里只把它**镜像**到方块实体上给界面用。
+     */
     public static void bindCenterOwner(ServerLevel level, net.minecraft.core.BlockPos pos,
                                        com.miningdim.job.farmer.granary.block.GranaryCenterBlockEntity center,
                                        ServerPlayer player) {
         if (center.owner() != null) {
             return;
         }
-        center.assignOwner(player.getUUID(), 0L, level.getGameTime());
+        long gid = GranarySavedData.get(level).centerGranary(level.dimension().location(), pos);
+        center.assignOwner(player.getUUID(), gid, level.getGameTime());
     }
 
     /** 方块被移除时归还额度 (唯一回收点由方块的 onRemove 调)。 */
@@ -114,9 +126,18 @@ public final class GranarySystem {
         GranarySavedData.get(level).releaseBin(level.dimension().location(), pos);
     }
 
-    /** 账台被移除时归还账台额度。 */
+    /**
+     * 账台被移除时归还账台额度, 并**解散这座粮仓** (登记项丢掉、里面囤的连线与启用状态一并清掉)。
+     *
+     * 解散走账本而不是方块实体: 爆炸、{@code /setblock} 这些路径上不保证还读得到方块实体,
+     * 而账本总是知道这座账台开的是哪座粮仓。
+     */
     public static void releaseCenter(ServerLevel level, net.minecraft.core.BlockPos pos) {
-        GranarySavedData.get(level).releaseCenter(level.dimension().location(), pos);
+        GranarySavedData data = GranarySavedData.get(level);
+        long gid = data.releaseCenter(level.dimension().location(), pos);
+        if (gid != 0L) {
+            data.removeGranary(gid);
+        }
     }
 
     /** 某人当前占用的储粮囤数 (界面与提示用)。 */

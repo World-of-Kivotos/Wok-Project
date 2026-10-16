@@ -72,6 +72,20 @@ public final class GranaryAcceptance {
     }
 
     /**
+     * 按档位自己算「待启用几个」再裁决 (界面与验收路径用这个)。
+     *
+     * 撑不住的囤排不进要求: 可支撑数按这一档算 (冷源只在冷库与官仓算), 多出来的部分是待启用。
+     */
+    public static Verdict check(GranaryTier tier, ScanResult scan) {
+        return check(tier, scan, pendingBins(tier, scan));
+    }
+
+    /** 这一档下有几个囤撑不住 (待启用)。 */
+    public static int pendingBins(GranaryTier tier, ScanResult scan) {
+        return Math.max(0, scan.bins() - scan.supportedBins(tier.needsColdSources()));
+    }
+
+    /**
      * 服务器在点击那一刻读验收人的等级, 决定这一下能验收的最高档:
      * 结构够、并且**比当前档高**, 才允许 (档位只升不降; 降档只有房主能做, 走另一条路)。
      *
@@ -92,6 +106,12 @@ public final class GranaryAcceptance {
         }
         Verdict verdict = check(candidate, scan, pendingBins);
         return verdict.accepted() ? Optional.of(verdict) : Optional.empty();
+    }
+
+    /** 同上, 待启用数按候选档位自己算。 */
+    public static Optional<Verdict> acceptableNow(GranaryTier current, int farmerLevel, ScanResult scan) {
+        GranaryTier candidate = current == null ? GranaryTier.SHED : current.next();
+        return acceptableNow(current, farmerLevel, scan, pendingBins(candidate, scan));
     }
 
     /** 逐条列出「现在离某一档还差什么」, 供结构页在没有可验收档位时提示。 */

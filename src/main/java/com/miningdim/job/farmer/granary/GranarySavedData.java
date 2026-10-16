@@ -50,7 +50,10 @@ public final class GranarySavedData extends SavedData {
     private final Map<PosKey, Long> binGranary = new HashMap<>();
     /** 每个储粮囤的启用状态 (启用 / 待启用 / 停用); 没有记录 = 待启用。 */
     private final Map<PosKey, GranaryBinState> binStates = new HashMap<>();
+    /** 每座账台开的是哪座粮仓。 */
+    private final Map<PosKey, Long> centerGranary = new HashMap<>();
     private long nextGid = 1L;
+    private int nextSeq = 1;
 
     public static GranarySavedData get(ServerLevel overworld) {
         return overworld.getServer().overworld().getDataStorage()
@@ -92,6 +95,18 @@ public final class GranarySavedData extends SavedData {
         return id;
     }
 
+    /**
+     * 取一个新的入册序号。
+     *
+     * 序号是**全服单调递增**的, 不是「某人第几个囤」—— 启用顺序按它排, 多人合建时才能在同一个序列里
+     * 分出先后 (同一座粮仓里不同人的序号不能撞车)。
+     */
+    public int nextSeq() {
+        int seq = nextSeq++;
+        setDirty();
+        return seq;
+    }
+
     public GranaryRecord granary(long gid) {
         return granaries.get(gid);
     }
@@ -99,6 +114,27 @@ public final class GranarySavedData extends SavedData {
     public void putGranary(GranaryRecord record) {
         granaries.put(record.id(), record);
         setDirty();
+    }
+
+    /**
+     * 解散一座粮仓 (账台没了 / 被拆): 登记项丢掉, 里面所有囤的连线与启用状态一并清掉。
+     *
+     * 囤本身**不动** —— 归属还是各囤主的, 只是重新变成「没连上任何粮仓」的散囤 (只能取不能存)。
+     */
+    public void removeGranary(long gid) {
+        if (granaries.remove(gid) == null) {
+            return;
+        }
+        for (PosKey key : binsOf(gid)) {
+            clearBinLinks(key);
+        }
+        centerGranary.entrySet().removeIf(entry -> entry.getValue() == gid);
+        setDirty();
+    }
+
+    /** 这座账台开的是哪座粮仓 (0 = 还没开号); 账本是权威, 方块实体上那份只是给界面看的镜像。 */
+    public long centerGranary(ResourceLocation dimension, BlockPos pos) {
+        return centerGranary.getOrDefault(new PosKey(dimension, pos.asLong()), 0L);
     }
 
     /** 某座粮仓里的储粮囤 (按入册序号从早到晚)。 */
@@ -212,28 +248,34 @@ public final class GranarySavedData extends SavedData {
         return owner;
     }
 
-    /** 登记一座账台。 */
-    public boolean claimCenter(ResourceLocation dimension, BlockPos pos, UUID owner) {
+    /** 登记一座账台, 并记下它开的是哪座粮仓。 */
+    public boolean claimCenter(ResourceLocation dimension, BlockPos pos, UUID owner, long gid) {
         PosKey key = new PosKey(dimension, pos.asLong());
         UUID previous = centerOwners.putIfAbsent(key, owner);
         if (previous != null) {
             return previous.equals(owner);
         }
         centerCounts.merge(owner, 1, Integer::sum);
+        centerGranary.put(key, gid);
         setDirty();
         return true;
     }
 
-    /** 移除账台登记。 */
-    public UUID releaseCenter(ResourceLocation dimension, BlockPos pos) {
+    /**
+     * 移除账台登记。
+     *
+     * @return 这座账台开的粮仓编号 (0 = 没开过号); 调用方拿它去解散粮仓 —— 账本是权威, 不看方块实体还在不在
+     */
+    public long releaseCenter(ResourceLocation dimension, BlockPos pos) {
         PosKey key = new PosKey(dimension, pos.asLong());
+        Long gid = centerGranary.remove(key);
         UUID owner = centerOwners.remove(key);
         if (owner == null) {
-            return null;
+            return 0L;
         }
         decrement(centerCounts, owner);
         setDirty();
-        return owner;
+        return gid == null ? 0L : gid;
     }
 
     /** 派生计数减一, 归零即清条目 (防内存随玩家基数线性滞留)。 */
@@ -269,13 +311,18 @@ public final class GranarySavedData extends SavedData {
         tag.put(GranaryConstants.KEY_BINS, bins);
 
         ListTag centers = new ListTag();
-        centerOwners.forEach((key, owner) -> {
-            CompoundTag center = new CompoundTag();
-            center.putString(GranaryConstants.KEY_DIMENSION, key.dimension().toString());
-            center.putLong(GranaryConstants.KEY_POS, key.packedPos());
-            center.putUUID(GranaryConstants.KEY_OWNER, owner);
-            centers.add(center);
-        });
+        centerOwners.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey(Comparator
+                        .comparing((PosKey key) -> key.dimension().toString())
+                        .thenComparingLong(PosKey::packedPos)))
+                .forEach(entry -> {
+                    CompoundTag center = new CompoundTag();
+                    center.putString(GranaryConstants.KEY_DIMENSION, entry.getKey().dimension().toString());
+                    center.putLong(GranaryConstants.KEY_POS, entry.getKey().packedPos());
+                    center.putUUID(GranaryConstants.KEY_OWNER, entry.getValue());
+                    center.putLong(GranaryConstants.KEY_GID, centerGranary.getOrDefault(entry.getKey(), 0L));
+                    centers.add(center);
+                });
         tag.put(GranaryConstants.KEY_CENTERS, centers);
 
         ListTag granaryList = new ListTag();
@@ -309,6 +356,7 @@ public final class GranarySavedData extends SavedData {
                 });
         tag.put(GranaryConstants.KEY_BIN_STATES, states);
         tag.putLong(GranaryConstants.KEY_NEXT_GID, nextGid);
+        tag.putInt(GranaryConstants.KEY_NEXT_SEQ, nextSeq);
         return tag;
     }
 
@@ -318,6 +366,7 @@ public final class GranarySavedData extends SavedData {
         }
         GranarySavedData data = new GranarySavedData();
         ListTag bins = requireList(tag, GranaryConstants.KEY_BINS, Tag.TAG_COMPOUND);
+        int highestSeq = 0;
         for (int i = 0; i < bins.size(); i++) {
             CompoundTag bin = bins.getCompound(i);
             PosKey key = keyOf(bin);
@@ -329,6 +378,7 @@ public final class GranarySavedData extends SavedData {
                 throw new IllegalArgumentException("Duplicate granary bin at " + key.dimension() + " " + key.packedPos());
             }
             data.binSeq.put(key, bin.getInt(GranaryConstants.KEY_SEQ));
+            highestSeq = Math.max(highestSeq, bin.getInt(GranaryConstants.KEY_SEQ));
             data.binCounts.merge(owner, 1, Integer::sum);
         }
         ListTag centers = requireList(tag, GranaryConstants.KEY_CENTERS, Tag.TAG_COMPOUND);
@@ -343,6 +393,11 @@ public final class GranarySavedData extends SavedData {
                 throw new IllegalArgumentException("Duplicate granary center");
             }
             data.centerCounts.merge(owner, 1, Integer::sum);
+            long gid = center.contains(GranaryConstants.KEY_GID, Tag.TAG_LONG)
+                    ? center.getLong(GranaryConstants.KEY_GID) : 0L;
+            if (gid != 0L) {
+                data.centerGranary.put(key, gid);
+            }
         }
         ListTag granaryList = requireList(tag, GranaryConstants.KEY_GRANARIES, Tag.TAG_COMPOUND);
         long highestId = 0L;
@@ -376,6 +431,10 @@ public final class GranarySavedData extends SavedData {
         // 编号水位宁可往高取: NextGid 落后于已用编号时 (回档或手工改档) 复用编号会把两座粮仓并成一座。
         long storedNext = tag.contains(GranaryConstants.KEY_NEXT_GID, Tag.TAG_LONG) ? tag.getLong(GranaryConstants.KEY_NEXT_GID) : 0L;
         data.nextGid = Math.max(Math.max(storedNext, highestId + 1), 1L);
+        // 入册序号同理: 落后了就让先入册的囤排到后入册的后面, 启用顺序会反过来。
+        int storedSeq = tag.contains(GranaryConstants.KEY_NEXT_SEQ, Tag.TAG_INT)
+                ? tag.getInt(GranaryConstants.KEY_NEXT_SEQ) : 0;
+        data.nextSeq = Math.max(Math.max(storedSeq, highestSeq + 1), 1);
         return data;
     }
 

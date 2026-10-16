@@ -21,9 +21,13 @@ public record GranaryRecord(long id, UUID owner, GranaryTier tier, UUID accepted
         /** 完好: 能存能取, 存满 24 小时起停表。 */
         OK,
         /** 损坏: 只能取, 宽限期内照常停表, 过了宽限照常腐烂。 */
-        DAMAGED
-    }
+        DAMAGED;
 
+        /** 语言键。 */
+        public String translationKey() {
+            return "granary.status." + name().toLowerCase(java.util.Locale.ROOT);
+        }
+    }
 
     public static GranaryRecord unaccepted(long id, UUID owner) {
         return new GranaryRecord(id, owner, null, null, 0L, Status.UNACCEPTED, 0L);

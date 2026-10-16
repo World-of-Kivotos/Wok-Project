@@ -1,6 +1,5 @@
 package com.miningdim.job.farmer.granary;
 
-import com.miningdim.freshness.FreshnessClockData;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.farmer.granary.block.GranaryBinBlock;
@@ -49,6 +48,7 @@ public final class GranarySystem {
     /** 农夫模块装配时调用。 */
     public static void register(IEventBus modBus, IEventBus forgeBus) {
         GranaryBlocks.register(modBus);
+        GranaryCommands.register(forgeBus);
         forgeBus.addListener(EventPriority.LOWEST, GranarySystem::onBlockPlaced);
         forgeBus.addListener(GranarySystem::onPlayerLoggedIn);
         // 损坏复查: 方块一变就打脏标记, 由每个 tick 的调度器排队真扫 (规格「发现损坏要快」)。
@@ -147,7 +147,7 @@ public final class GranarySystem {
         }
         ServerLevel overworld = player.getServer().overworld();
         GranarySavedData data = GranarySavedData.get(overworld);
-        long nowHour = FreshnessClockData.nowMinute(overworld) / 60L;
+        long nowHour = GranaryClock.nowHour(overworld);
         ResourceLocation dimension = overworld.dimension().location();
         for (GranaryRecord record : data.granaries()) {
             boolean damaged = record.status() == GranaryRecord.Status.DAMAGED;

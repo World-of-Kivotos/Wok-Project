@@ -4,6 +4,7 @@ import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.farmer.granary.GranaryAcceptance;
 import com.miningdim.job.farmer.granary.GranaryInspection;
+import com.miningdim.job.farmer.granary.GranaryQuery;
 import com.miningdim.job.farmer.granary.GranaryRecord;
 import com.miningdim.job.farmer.granary.GranarySystem;
 import com.miningdim.job.farmer.granary.GranaryTier;
@@ -104,35 +105,11 @@ public final class GranaryCenterBlock extends BaseEntityBlock {
         return InteractionResult.CONSUME;
     }
 
-    /** 结构页 (文字版): 顶栏一行 + 下一步该干什么。 */
+    /** 结构页 (文字版): 与 {@code /granary status} 读同一批行 (见 {@code GranaryQuery#statusLines})。 */
     private static void showStatus(ServerPlayer player, GranaryInspection.Report report) {
-        GranaryRecord record = report.record();
-        player.displayClientMessage(Component.translatable("message.miningdim.granary.report",
-                report.gid(), tierName(record.tier()),
-                Component.translatable(record.status().translationKey()),
-                report.enablement().enabled(), report.enablement().unsupported()), false);
-
-        GranaryTier current = record.tier();
-        GranaryTier candidate = current == null ? GranaryTier.SHED : current.next();
-        if (candidate == current) {
-            player.displayClientMessage(Component.translatable(
-                    "message.miningdim.granary.report_top", tierName(current)), false);
-            return;
+        for (Component line : GranaryQuery.statusLines((ServerLevel) player.level(), report, player)) {
+            player.displayClientMessage(line, false);
         }
-        GranaryAcceptance.Verdict verdict = report.verdictOf(candidate);
-        int farmerLevel = JobServices.jobService().level(player, JobId.FARMER);
-        if (!verdict.accepted()) {
-            player.displayClientMessage(Component.translatable("message.miningdim.granary.report_gap",
-                    tierName(candidate), verdict.checklist()), false);
-            return;
-        }
-        if (farmerLevel < candidate.unlockLevel()) {
-            player.displayClientMessage(Component.translatable("message.miningdim.granary.report_level",
-                    tierName(candidate), candidate.unlockLevel(), farmerLevel), false);
-            return;
-        }
-        player.displayClientMessage(Component.translatable(
-                "message.miningdim.granary.report_ready", tierName(candidate)), false);
     }
 
     /** 验收那一下的结果。 */
@@ -149,7 +126,7 @@ public final class GranaryCenterBlock extends BaseEntityBlock {
             return;
         }
         Component detail = acceptance.accepted()
-                ? tierName(acceptance.tier())
+                ? GranaryQuery.tierName(acceptance.tier())
                 : Component.translatable(acceptance.verdict() == null
                         ? "granary.tier.none" : acceptance.verdict().tier().translationKey());
         if (acceptance.rejection() == GranaryInspection.Rejection.NOT_READY) {
@@ -163,10 +140,6 @@ public final class GranaryCenterBlock extends BaseEntityBlock {
             return;
         }
         player.displayClientMessage(Component.translatable(key, detail), false);
-    }
-
-    private static Component tierName(@Nullable GranaryTier tier) {
-        return Component.translatable(tier == null ? "granary.tier.none" : tier.translationKey());
     }
 
     /** 方块移除的汇合点: 归还账台额度。 */

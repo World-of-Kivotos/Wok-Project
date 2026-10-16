@@ -1,6 +1,5 @@
 package com.miningdim.job.farmer.granary;
 
-import com.miningdim.freshness.FreshnessClockData;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.farmer.granary.GranaryStructureScanner.ScanResult;
@@ -287,6 +286,6 @@ public final class GranaryInspection {
 
     /** 验收时刻按整点记 (与停表同一把挂钟)。 */
     private static long nowHour(ServerLevel level) {
-        return FreshnessClockData.nowMinute(level) / 60L;
+        return GranaryClock.nowHour(level);
     }
 }

@@ -1,6 +1,5 @@
 package com.miningdim.job.farmer.granary;
 
-import com.miningdim.freshness.FreshnessClockData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
@@ -164,7 +163,7 @@ public final class GranaryRecheck {
             return false;
         }
         GranaryInspection.Report report = GranaryInspection.inspect(level, pos,
-                FreshnessClockData.nowMinute(level) / 60L);
+                GranaryClock.nowHour(level));
         lastScanTick.put(key, gameTime);
         lastInteriorCells.put(key, report.scan().interiorCells());
         return true;

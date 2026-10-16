@@ -165,6 +165,15 @@ public final class GranarySavedData extends SavedData {
         return result;
     }
 
+    /** 全部已登记的储粮囤 (命令列「我的囤」、盘点与诊断按它遍历)。 */
+    public List<PosKey> bins() {
+        List<PosKey> result = new ArrayList<>(binOwners.keySet());
+        result.sort(Comparator
+                .comparing((PosKey key) -> key.dimension().toString())
+                .thenComparingLong(PosKey::packedPos));
+        return result;
+    }
+
     /** 全部粮仓登记项 (上线上门提醒、管理命令按它遍历)。 */
     public List<GranaryRecord> granaries() {
         List<GranaryRecord> result = new ArrayList<>(granaries.values());

@@ -436,7 +436,8 @@
         "data/miningdim/recipes/farmer"
       ],
       "resourceNamePrefixes": [
-        "farmer_"
+        "farmer_",
+        "granary_"
       ],
       "dependencies": [
         "wok-core",

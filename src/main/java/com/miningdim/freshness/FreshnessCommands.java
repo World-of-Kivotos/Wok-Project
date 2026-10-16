@@ -2,6 +2,7 @@ package com.miningdim.freshness;
 
 import com.mojang.brigadier.Command;
 import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.core.BlockPos;
 import net.minecraft.commands.Commands;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
@@ -34,6 +35,12 @@ public final class FreshnessCommands {
 
     private static final int OP_LEVEL = 2;
 
+    /** {@code /freshness audit} 的默认半径与上限 (格)。 */
+    private static final int DEFAULT_AUDIT_RADIUS = 16;
+    private static final int MAX_AUDIT_RADIUS = 64;
+    /** 一次最多列几个容器 (剩下的提示换个位置再跑)。 */
+    private static final int MAX_AUDIT_FINDINGS = 8;
+
     private FreshnessCommands() {
     }
 
@@ -44,8 +51,45 @@ public final class FreshnessCommands {
                 .then(Commands.literal("stats").executes(context -> stats(context.getSource())))
                 .then(Commands.literal("clock").executes(context -> clock(context.getSource())))
                 .then(Commands.literal("dump").executes(context -> dump(context.getSource())))
+                .then(Commands.literal("audit")
+                        .executes(context -> audit(context.getSource(), DEFAULT_AUDIT_RADIUS))
+                        .then(Commands.argument("radius",
+                                        com.mojang.brigadier.arguments.IntegerArgumentType.integer(1, MAX_AUDIT_RADIUS))
+                                .executes(context -> audit(context.getSource(),
+                                        context.getArgument("radius", Integer.class)))))
                 .then(Commands.literal("stamp").executes(context -> stamp(context.getSource())))
                 .then(Commands.literal("strip").executes(context -> strip(context.getSource()))));
+    }
+
+    /**
+     * {@code /freshness audit [<半径>]}: 巡查半径内**已加载**容器里还有多少无章 / 已腐烂的易腐品。
+     *
+     * 给观察点覆盖不到的地方用 (压缩抽屉、第三方银行与邮箱一类): 只读、不加载区块, 正式服上随便跑。
+     * 返回值 = 需要处理的件数 (无章 + 已腐烂), 0 就是干净的。
+     */
+    private static int audit(CommandSourceStack source, int radius) {
+        ServerLevel level = source.getLevel();
+        BlockPos center = BlockPos.containing(source.getPosition());
+        FreshnessAudit.Report report = FreshnessAudit.scan(level, center, radius);
+        source.sendSuccess(() -> Component.literal("[新鲜度] 半径 " + radius + " 格内: 有东西的容器 "
+                + report.containers() + " 个, 易腐品 " + report.perishables() + " 件, 其中无章 "
+                + report.unstamped() + " 件、已腐烂 " + report.rotten() + " 件"), false);
+        if (report.clean()) {
+            source.sendSuccess(() -> Component.literal(
+                    "[新鲜度] 没发现无章或已腐烂的易腐品 (观察点覆盖不到的地方才需要这条命令)"), false);
+            return 0;
+        }
+        report.findings().stream().limit(MAX_AUDIT_FINDINGS).forEach(finding -> source.sendSuccess(
+                () -> Component.literal("[新鲜度]  (" + finding.pos().getX() + ", " + finding.pos().getY()
+                        + ", " + finding.pos().getZ() + ") " + finding.block() + ": 易腐 "
+                        + finding.perishables() + " / 无章 " + finding.unstamped() + " / 已腐烂 "
+                        + finding.rotten()), false));
+        if (report.findings().size() > MAX_AUDIT_FINDINGS) {
+            source.sendSuccess(() -> Component.literal("[新鲜度] 还有 "
+                    + (report.findings().size() - MAX_AUDIT_FINDINGS) + " 个容器没列出来 (换个位置再跑一次)"),
+                    false);
+        }
+        return report.problems();
     }
 
     private static int summary(CommandSourceStack source) {

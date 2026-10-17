@@ -79,6 +79,8 @@ public final class GranarySavedData extends SavedData {
      * 新放的囤自动套用」)。
      */
     private final Map<UUID, List<GranaryAccess.Trustee>> trustDefaults = new HashMap<>();
+    /** 流水: 每座粮仓最近 300 条 (后加的表, 按可选读)。 */
+    private final Map<Long, List<GranaryJournal.Entry>> journals = new HashMap<>();
     private long nextGid = 1L;
     private int nextSeq = 1;
 
@@ -161,6 +163,30 @@ public final class GranarySavedData extends SavedData {
         }
         centerGranary.entrySet().removeIf(entry -> entry.getValue() == gid);
         graceLogins.keySet().removeIf(key -> key.gid() == gid);
+        journals.remove(gid);
+        setDirty();
+    }
+
+    // ============================================================
+    // 流水
+    // ============================================================
+
+    /** 这座粮仓的流水 (旧 -> 新, 最多 {@link GranaryJournal#MAX_ENTRIES} 条)。 */
+    public List<GranaryJournal.Entry> journalOf(long gid) {
+        return List.copyOf(journals.getOrDefault(gid, List.of()));
+    }
+
+    /**
+     * 记一条流水。
+     *
+     * 满了丢最旧的那条 (规格「流水保留 300 条」); 指向已不存在的粮仓也照记 —— 追查时"哪座粮仓"
+     * 比"这座粮仓还在不在"更重要, 而记录本身只有一条。
+     */
+    public void appendJournal(long gid, GranaryJournal.Entry entry) {
+        if (entry == null || gid < 0L) {
+            return;
+        }
+        journals.put(gid, GranaryJournal.append(journals.get(gid), entry));
         setDirty();
     }
 
@@ -619,6 +645,19 @@ public final class GranarySavedData extends SavedData {
                     }
                 });
         tag.put(GranaryConstants.KEY_TRUST_DEFAULTS, trust);
+
+        // 流水: 按粮仓编号排序, 每座粮仓自己保持先后 (先发生在前)。
+        ListTag journal = new ListTag();
+        journals.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(entry -> {
+                    for (GranaryJournal.Entry row : entry.getValue()) {
+                        CompoundTag tagRow = row.save();
+                        tagRow.putLong(GranaryConstants.KEY_GID, entry.getKey());
+                        journal.add(tagRow);
+                    }
+                });
+        tag.put(GranaryConstants.KEY_JOURNAL, journal);
         return tag;
     }
 
@@ -737,6 +776,28 @@ public final class GranarySavedData extends SavedData {
                 }
                 data.pending.computeIfAbsent(entry.getUUID(GranaryConstants.KEY_PLAYER),
                         key -> new ArrayList<>()).add(loaded);
+            }
+        }
+        // 流水同样是后加的表, 按可选读 (老档没有这个键就是「还没有任何记录」)。
+        if (tag.get(GranaryConstants.KEY_JOURNAL) instanceof ListTag journalList) {
+            if (!journalList.isEmpty() && journalList.getElementType() != Tag.TAG_COMPOUND) {
+                throw new IllegalArgumentException("Invalid granary list: " + GranaryConstants.KEY_JOURNAL);
+            }
+            Map<Long, List<GranaryJournal.Entry>> collected = new java.util.TreeMap<>();
+            for (int i = 0; i < journalList.size(); i++) {
+                CompoundTag row = journalList.getCompound(i);
+                if (!row.contains(GranaryConstants.KEY_GID, Tag.TAG_LONG)) {
+                    throw new IllegalArgumentException("Granary journal entry is missing its granary id");
+                }
+                collected.computeIfAbsent(row.getLong(GranaryConstants.KEY_GID), key -> new ArrayList<>())
+                        .add(GranaryJournal.Entry.load(row));
+            }
+            for (Map.Entry<Long, List<GranaryJournal.Entry>> entry : collected.entrySet()) {
+                // 上限是硬规矩: 手改的档或旧版本写多了, 只留最新的那 300 条。
+                List<GranaryJournal.Entry> rows = entry.getValue();
+                data.journals.put(entry.getKey(), rows.size() > GranaryJournal.MAX_ENTRIES
+                        ? new ArrayList<>(rows.subList(rows.size() - GranaryJournal.MAX_ENTRIES, rows.size()))
+                        : rows);
             }
         }
         // 默认开放名单同样是后加的表, 按可选读 (老档没有这个键就是「没设过默认名单」)。

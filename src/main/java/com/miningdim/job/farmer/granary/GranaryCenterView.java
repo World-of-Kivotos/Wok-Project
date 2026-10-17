@@ -143,26 +143,40 @@ public final class GranaryCenterView {
         return lines;
     }
 
-    /** 流水: 这座粮仓里每个囤的状态与囤主 (与 {@code /granary bins} 同源)。 */
+    /**
+     * 流水: 这座粮仓最近的存取记录 (谁存谁取, 最多 {@link GranaryJournal#MAX_ENTRIES} 条)。
+     *
+     * 顺序是**最新在前** (看流水先看刚刚发生了什么); 一页多少行由 {@link #lines} 那边统一裁。
+     */
     private static List<Component> ledger(ServerLevel level, ServerPlayer viewer,
                                           GranaryInspection.Report report) {
         if (report == null) {
             return List.of(Component.translatable(NOT_A_GRANARY_KEY));
         }
-        List<GranaryQuery.BinRow> rows = GranaryQuery.binsOf(level, report.gid());
-        if (rows.isEmpty()) {
+        GranarySavedData data = GranarySavedData.get(level.getServer().overworld());
+        List<GranaryJournal.Entry> entries = data.journalOf(report.gid());
+        if (entries.isEmpty()) {
             return List.of(Component.translatable(NO_LEDGER_KEY));
         }
+        long nowHour = GranaryClock.nowHour(level);
         List<Component> lines = new ArrayList<>();
-        GranarySavedData data = GranarySavedData.get(level.getServer().overworld());
-        for (GranaryQuery.BinRow row : rows) {
+        for (int i = entries.size() - 1; i >= 0; i--) {
+            GranaryJournal.Entry entry = entries.get(i);
             lines.add(Component.translatable("granary.center.ledger_row",
-                    GranaryQuery.where(row.pos()),
-                    GranaryQuery.nameOf(level.getServer(),
-                            data.ownerOf(row.dimension(), row.pos())),
-                    Component.translatable(row.state().translationKey())));
+                    hoursAgo(nowHour - entry.hour()),
+                    GranaryQuery.nameOf(level.getServer(), entry.actor()),
+                    Component.translatable(entry.kind().translationKey()),
+                    Component.translatable(entry.itemKey()),
+                    entry.count()));
         }
         return lines;
+    }
+
+    /** 「几小时前」: 0 就是「刚刚」(流水按小时记, 与粮仓其余账目同一把钟)。 */
+    private static Component hoursAgo(long hours) {
+        return hours <= 0L
+                ? Component.translatable("granary.center.just_now")
+                : Component.translatable("granary.center.hours_ago", hours);
     }
 
     /** 账台所在位置的那座粮仓报告 (不属于任何粮仓时为 null)。 */

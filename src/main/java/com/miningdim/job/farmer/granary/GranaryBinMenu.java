@@ -90,11 +90,13 @@ public final class GranaryBinMenu extends AbstractMiningMenu {
 
                     @Override
                     public void set(ItemStack stack) {
-                        // 记账只对"靠公开模式放进来"的那一路: 记一组 (一次整堆), 见 GranaryPublic。
-                        boolean donated = !mayStore();
+                        // 放进来了: 记流水; 若这一趟走的是公开捐粮, 再记一组配额 (一次整堆, 见 GranaryPublic)。
+                        boolean publicDonation = !mayStore();
+                        int before = getItem().getCount();
                         super.set(stack);
-                        if (donated) {
-                            recordPublicDonation();
+                        int added = getItem().getCount() - before;
+                        if (added > 0) {
+                            recordStored(publicDonation, getItem(), added);
                         }
                     }
 
@@ -105,11 +107,10 @@ public final class GranaryBinMenu extends AbstractMiningMenu {
 
                     @Override
                     public void onTake(Player player, ItemStack stack) {
-                        boolean taken = !mayTake();
+                        // 拿走了: 记流水; 公开取用再记一组配额。
+                        boolean publicTake = !mayTake();
                         super.onTake(player, stack);
-                        if (taken) {
-                            recordPublicTake();
-                        }
+                        recordTaken(publicTake, stack);
                     }
                 });
             }
@@ -158,24 +159,37 @@ public final class GranaryBinMenu extends AbstractMiningMenu {
                 GranaryPublicService.nowMinute(level));
     }
 
-    /** 记一组公开捐粮 (一次整堆)。 */
-    private void recordPublicDonation() {
+    /**
+     * 记账: 流水 (谁存了哪个囤多少件) + 公开捐粮的一组配额。
+     *
+     * 流水与配额都只在**服务端**记 —— 客户端手里的方块实体没有账本, 也没有真挂钟。
+     */
+    private void recordStored(boolean publicDonation, ItemStack stack, int count) {
         ServerLevel level = serverLevel();
-        if (level == null || !(viewer instanceof ServerPlayer serverPlayer)) {
+        if (level == null || !(viewer instanceof ServerPlayer serverPlayer) || stack.isEmpty()) {
             return;
         }
-        blockEntity.recordPublicDonation(serverPlayer.getUUID(),
-                GranaryPublic.dayOf(GranaryPublicService.nowMinute(level)), 1);
+        if (publicDonation) {
+            blockEntity.recordPublicDonation(serverPlayer.getUUID(),
+                    GranaryPublic.dayOf(GranaryPublicService.nowMinute(level)), 1);
+        }
+        GranaryJournal.record(level, blockEntity.getBlockPos(), serverPlayer.getUUID(),
+                publicDonation ? GranaryJournal.Kind.DONATE : GranaryJournal.Kind.STORE, stack, count);
     }
 
-    /** 记一组公开取用 (一次整堆)。 */
-    private void recordPublicTake() {
+    /** 记账: 流水 + 公开取用的一组配额。 */
+    private void recordTaken(boolean publicTake, ItemStack stack) {
         ServerLevel level = serverLevel();
-        if (level == null || !(viewer instanceof ServerPlayer serverPlayer)) {
+        if (level == null || !(viewer instanceof ServerPlayer serverPlayer) || stack.isEmpty()) {
             return;
         }
-        blockEntity.recordPublicTake(serverPlayer.getUUID(),
-                GranaryPublic.dayOf(GranaryPublicService.nowMinute(level)), 1);
+        if (publicTake) {
+            blockEntity.recordPublicTake(serverPlayer.getUUID(),
+                    GranaryPublic.dayOf(GranaryPublicService.nowMinute(level)), 1);
+        }
+        GranaryJournal.record(level, blockEntity.getBlockPos(), serverPlayer.getUUID(),
+                publicTake ? GranaryJournal.Kind.PUBLIC_TAKE : GranaryJournal.Kind.TAKE,
+                stack, stack.getCount());
     }
 
     private ServerLevel serverLevel() {

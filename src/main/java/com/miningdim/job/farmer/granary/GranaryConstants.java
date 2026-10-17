@@ -82,6 +82,12 @@ public final class GranaryConstants {
     public static final String KEY_STORED = "Stored";
     public static final String KEY_TAKEN = "Taken";
 
+    /** 流水 (GranaryJournal) 的键: 每座粮仓一张, 只保留最近 300 条。 */
+    public static final String KEY_JOURNAL = "Journal";
+    public static final String KEY_KIND = "Kind";
+    public static final String KEY_ITEM = "Item";
+    public static final String KEY_COUNT = "Count";
+
     /** 存档版本号。 */
     public static final int SAVE_VERSION = 1;
 

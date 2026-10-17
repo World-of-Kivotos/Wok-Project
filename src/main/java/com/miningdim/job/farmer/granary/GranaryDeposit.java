@@ -195,6 +195,7 @@ public final class GranaryDeposit {
                 FreshnessData.stamp(stack, nowMinute);
             }
             int before = stack.getCount();
+            ItemStack source = stack.copy();          // insert 会把 stack 清空, 流水要记原来那件东西
             int moved = insert(bin, stack, nowHour);
             if (moved > 0) {
                 items += moved;
@@ -203,6 +204,9 @@ public final class GranaryDeposit {
                     // 一组 = 一次整堆: 放进去了才记账 (囤满没放下的那一堆不占配额)。
                     bin.recordPublicDonation(player.getUUID(), publicDay, 1);
                 }
+                GranaryJournal.record(level, bin.getBlockPos(), player.getUUID(),
+                        publicDonor ? GranaryJournal.Kind.DONATE : GranaryJournal.Kind.STORE,
+                        source, moved);
             } else {
                 // 一格都放不下 (囤满或被批次规矩挡住)。
                 stack.setCount(before);

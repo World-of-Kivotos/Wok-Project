@@ -52,6 +52,9 @@ public final class FreshnessFdTargets {
     /** 厨锅的成品展示格 (1.2.9: 6; 前 6 格是原料)。 */
     public static final int POT_MEAL_SLOT = 6;
 
+    /** 厨锅的输出格 (1.2.9: 8)。 */
+    public static final int POT_OUTPUT_SLOT = 8;
+
     /** 厨锅的原料格数 (0..5)。 */
     public static final int POT_INPUT_SLOTS = 6;
 

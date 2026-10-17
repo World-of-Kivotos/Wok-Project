@@ -125,6 +125,45 @@ public final class FreshnessFdKitchenGameTests {
         helper.succeed();
     }
 
+    /**
+     * 厨锅: 输出格里已经有同一种菜时, 新做好的那份**并进去**而不是占第二格 (规格 #15 后半)。
+     *
+     * <p>两份菜只差新鲜度, 合并规则就是"同种食物合并"那一套 (加权平均 + 取较老的停表额度),
+     * 不另写一套。</p>
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void potMergesTheNewMealIntoAnExistingOutput(GameTestHelper helper) throws Exception {
+        ServerLevel level = helper.getLevel();
+        BlockPos rel = new BlockPos(SLOT * 3 + 1, 2, 1);
+        helper.setBlock(rel, ModBlocks.COOKING_POT.get());
+        CookingPotBlockEntity pot = (CookingPotBlockEntity) helper.getBlockEntity(rel);
+
+        long nowMinute = FreshnessClockData.nowMinute(level);
+        pot.getInventory().setStackInSlot(0, halfFreshBeef(nowMinute));
+        // 输出格先放两份"刚出锅"的熟牛肉。
+        ItemStack existing = new ItemStack(Items.COOKED_BEEF, 2);
+        FreshnessData.stamp(existing, nowMinute);
+        pot.getInventory().setStackInSlot(FreshnessFdTargets.POT_OUTPUT_SLOT, existing);
+        // 展示格里是这一锅新做好的 (3 份, 还没盖章 —— 由注入点按原料盖)。
+        ItemStack meal = new ItemStack(Items.COOKED_BEEF, 3);
+        pot.getInventory().setStackInSlot(FreshnessFdTargets.POT_MEAL_SLOT, meal);
+
+        Method move = CookingPotBlockEntity.class.getDeclaredMethod("moveMealToOutput");
+        move.setAccessible(true);
+        move.invoke(pot);
+
+        ItemStack output = pot.getInventory().getStackInSlot(FreshnessFdTargets.POT_OUTPUT_SLOT);
+        helper.assertTrue(output.getCount() == 5, "新菜应当并进输出格 (2 + 3), 实得 " + output.getCount());
+        helper.assertTrue(pot.getInventory().getStackInSlot(FreshnessFdTargets.POT_MEAL_SLOT).isEmpty(),
+                "并进去之后展示格要空, 不能留一份卡在那里");
+        // 合并后的新鲜度介于两者之间 (权重按件数), 且比"刚出锅"那份老。
+        int shelfHours = FreshnessCategories.shelfLifeHours(output);
+        double ratio = FreshnessData.remainingMinutes(output, shelfHours,
+                FreshnessClockData.nowMinute(level)) / (shelfHours * 60.0D);
+        helper.assertTrue(ratio > 0.7D && ratio < 1.0D, "合并后应当是加权平均, 实得 " + ratio);
+        helper.succeed();
+    }
+
     // ============================================================
     // 夹具
     // ============================================================

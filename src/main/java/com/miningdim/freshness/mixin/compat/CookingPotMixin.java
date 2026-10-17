@@ -1,5 +1,6 @@
 package com.miningdim.freshness.mixin.compat;
 
+import com.miningdim.freshness.FreshMerge;
 import com.miningdim.freshness.FreshnessClockData;
 import com.miningdim.freshness.FreshnessFdTargets;
 import com.miningdim.freshness.FreshnessProcessing;
@@ -56,6 +57,13 @@ public abstract class CookingPotMixin {
             FreshnessSourceContext.inheritInto(meal, nowMinute);
         } finally {
             FreshnessSourceContext.end();
+        }
+        // 输出格已经有"同一种、只差新鲜度"的一份菜: 先按机器的合并规则并进去 —— 否则同一种菜会在
+        // 输出格里占两格 (FD 只在输出格空时才搬, 多出来的那份会一直卡在展示格里)。
+        ItemStack existing = inventory.getStackInSlot(FreshnessFdTargets.POT_OUTPUT_SLOT);
+        if (!existing.isEmpty()) {
+            FreshMerge.mergeInto(existing, meal);
+            inventory.setStackInSlot(FreshnessFdTargets.POT_OUTPUT_SLOT, existing);
         }
         inventory.setStackInSlot(FreshnessFdTargets.POT_MEAL_SLOT, meal);
     }

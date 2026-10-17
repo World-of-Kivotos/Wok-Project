@@ -4,6 +4,7 @@ import com.miningdim.job.farmer.granary.GranaryAccess;
 import com.miningdim.job.farmer.granary.GranaryBinMenu;
 import com.miningdim.job.farmer.granary.GranaryClock;
 import com.miningdim.job.farmer.granary.GranaryPending;
+import com.miningdim.job.farmer.granary.GranaryPublicService;
 import com.miningdim.job.farmer.granary.GranaryRecord;
 import com.miningdim.job.farmer.granary.GranarySavedData;
 import com.miningdim.job.farmer.granary.GranarySystem;
@@ -100,7 +101,10 @@ public final class GranaryBinBlock extends BaseEntityBlock {
         }
         UUID owner = bin.owner();
         boolean allowed = GranaryAccess.mayStore(owner, bin.access(), serverPlayer.getUUID())
-                || GranaryAccess.mayTake(owner, bin.access(), serverPlayer.getUUID());
+                || GranaryAccess.mayTake(owner, bin.access(), serverPlayer.getUUID())
+                // 官仓的公开模式: 任何走得进房子的人都能打开 (捐粮/取用各自再按人按天限组, 判定在菜单的槽上)。
+                || GranaryPublicService.donationOpen((ServerLevel) level, bin)
+                || GranaryPublicService.takeOpen((ServerLevel) level, bin);
         if (!allowed && !serverPlayer.hasPermissions(2)) {
             serverPlayer.displayClientMessage(Component.translatable(
                     "message.miningdim.granary.bin_not_allowed"), true);

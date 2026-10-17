@@ -5,6 +5,8 @@ import com.miningdim.job.farmer.granary.block.GranaryBinBlockEntity;
 import com.miningdim.menu.AbstractMiningMenu;
 import com.miningdim.menu.MenuValidity;
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.ContainerLevelAccess;
@@ -79,12 +81,35 @@ public final class GranaryBinMenu extends AbstractMiningMenu {
                     public boolean mayPlace(ItemStack stack) {
                         // 开服迁移的老货不能进仓 (规格「开服迁移」): 它们的停表额度已经记满, 进仓再停表等于白送额度。
                         // 一并放在这里, 是为了让界面与「一键存入」给出同一个答案 (那条路在 GranaryDeposit 里跳过并点名)。
-                        return mayStore() && !FreshnessData.isMigrated(stack);
+                        if (mayStore()) {
+                            return !FreshnessData.isMigrated(stack);
+                        }
+                        // 官仓的公开捐粮: 陌生人也能放, 但只收未腐烂的易腐食物, 且今天还有配额。
+                        return publicDonationAllows(stack);
+                    }
+
+                    @Override
+                    public void set(ItemStack stack) {
+                        // 记账只对"靠公开模式放进来"的那一路: 记一组 (一次整堆), 见 GranaryPublic。
+                        boolean donated = !mayStore();
+                        super.set(stack);
+                        if (donated) {
+                            recordPublicDonation();
+                        }
                     }
 
                     @Override
                     public boolean mayPickup(Player player) {
-                        return mayTake();
+                        return mayTake() || publicTakeAllows();
+                    }
+
+                    @Override
+                    public void onTake(Player player, ItemStack stack) {
+                        boolean taken = !mayTake();
+                        super.onTake(player, stack);
+                        if (taken) {
+                            recordPublicTake();
+                        }
                     }
                 });
             }
@@ -104,6 +129,57 @@ public final class GranaryBinMenu extends AbstractMiningMenu {
     /** 这位玩家现在能不能从这个囤里拿。 */
     public boolean mayTake() {
         return GranaryAccess.mayTake(blockEntity.owner(), blockEntity.access(), viewer.getUUID());
+    }
+
+    /**
+     * 官仓的公开捐粮: 这个人今天能不能靠它往这个囤里放。
+     *
+     * <p>判定全在 {@link GranaryPublicService} 一处 (与「一键存入」共用), 这里只负责把「服务端才知道的
+     * 东西」(挂钟、档位、账本) 挡在客户端之外: 客户端一律返回 false, 由服务端的槽更新纠正显示 ——
+     * 客户端手里的区块实体没有名单、也没有账本, 自己算只会算出一个错的答案。</p>
+     */
+    private boolean publicDonationAllows(ItemStack stack) {
+        ServerLevel level = serverLevel();
+        if (level == null || !(viewer instanceof ServerPlayer serverPlayer)) {
+            return false;
+        }
+        long nowMinute = GranaryPublicService.nowMinute(level);
+        return GranaryPublicService.mayDonate(level, blockEntity, serverPlayer, nowMinute)
+                && GranaryPublicService.donatable(stack, nowMinute);
+    }
+
+    /** 官仓的公开取用: 这个人今天还能不能从这个囤里拿。 */
+    private boolean publicTakeAllows() {
+        ServerLevel level = serverLevel();
+        if (level == null || !(viewer instanceof ServerPlayer serverPlayer)) {
+            return false;
+        }
+        return GranaryPublicService.mayTake(level, blockEntity, serverPlayer,
+                GranaryPublicService.nowMinute(level));
+    }
+
+    /** 记一组公开捐粮 (一次整堆)。 */
+    private void recordPublicDonation() {
+        ServerLevel level = serverLevel();
+        if (level == null || !(viewer instanceof ServerPlayer serverPlayer)) {
+            return;
+        }
+        blockEntity.recordPublicDonation(serverPlayer.getUUID(),
+                GranaryPublic.dayOf(GranaryPublicService.nowMinute(level)), 1);
+    }
+
+    /** 记一组公开取用 (一次整堆)。 */
+    private void recordPublicTake() {
+        ServerLevel level = serverLevel();
+        if (level == null || !(viewer instanceof ServerPlayer serverPlayer)) {
+            return;
+        }
+        blockEntity.recordPublicTake(serverPlayer.getUUID(),
+                GranaryPublic.dayOf(GranaryPublicService.nowMinute(level)), 1);
+    }
+
+    private ServerLevel serverLevel() {
+        return viewer.level() instanceof ServerLevel level ? level : null;
     }
 
     /**

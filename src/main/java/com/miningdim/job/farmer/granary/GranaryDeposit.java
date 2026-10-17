@@ -45,10 +45,14 @@ public final class GranaryDeposit {
     }
 
     /** 被跳过的原因分类 (提示里逐条报, 不混成一个数)。 */
-    public record Skips(int exhausted, int fresh, int rotten, int migrated, int noRoom) {
+    public record Skips(int exhausted, int fresh, int rotten, int migrated, int noRoom, int limited) {
+
+        public Skips(int exhausted, int fresh, int rotten, int migrated, int noRoom) {
+            this(exhausted, fresh, rotten, migrated, noRoom, 0);
+        }
 
         public int total() {
-            return exhausted + fresh + rotten + migrated + noRoom;
+            return exhausted + fresh + rotten + migrated + noRoom + limited;
         }
     }
 
@@ -61,7 +65,9 @@ public final class GranaryDeposit {
         /** 粮仓没验收或者损坏了。 */
         GRANARY_DOWN,
         /** 这个囤没开放给这位玩家 (私有囤, 或者名单上是别人)。 */
-        NOT_ALLOWED
+        NOT_ALLOWED,
+        /** 公开捐粮今天的配额已经用完 (按北京 08:00 翻日)。 */
+        DAILY_LIMIT
     }
 
     /** 保留快捷栏的开关在玩家 persistentData 里的键 (规格: 按玩家记住)。 */
@@ -114,10 +120,26 @@ public final class GranaryDeposit {
         long nowHour = nowMinute / 60L;
         GranarySavedData data = GranarySavedData.get(level.getServer().overworld());
         ResourceLocation dimension = level.dimension().location();
-        // 开放名单先判: 私有的囤除了囤主谁都存不进去 (房主也不例外, 反漏洞 #68)。
-        if (!GranaryAccess.mayStore(bin.owner(), bin.access(), player.getUUID())) {
-            return new Result(0, 0, new Skips(0, 0, 0, 0, 0), Rejection.NOT_ALLOWED);
+        /*
+         * 谁能往里放: 囤主与名单上的人走自己那条路; **官仓的公开捐粮**是另一条路 (任何走得进房子的人),
+         * 只收未腐烂的易腐食物、按人按天限组 —— 与界面上的判定同一个入口 (GranaryPublicService),
+         * 两条路给出的答案必须一致, 否则会出现"界面能存、命令不能"。
+         */
+        boolean trusted = GranaryAccess.mayStore(bin.owner(), bin.access(), player.getUUID());
+        boolean publicDonor = false;
+        if (!trusted) {
+            if (!(player instanceof net.minecraft.server.level.ServerPlayer serverPlayer)) {
+                return new Result(0, 0, new Skips(0, 0, 0, 0, 0), Rejection.NOT_ALLOWED);
+            }
+            if (!GranaryPublicService.donationOpen(level, bin)) {
+                return new Result(0, 0, new Skips(0, 0, 0, 0, 0), Rejection.NOT_ALLOWED);
+            }
+            if (!GranaryPublicService.mayDonate(level, bin, serverPlayer, nowMinute)) {
+                return new Result(0, 0, new Skips(0, 0, 0, 0, 0), Rejection.DAILY_LIMIT);
+            }
+            publicDonor = true;
         }
+        long publicDay = GranaryPublic.dayOf(nowMinute);
         if (!data.binState(dimension, bin.getBlockPos()).acceptsDeposits()) {
             return new Result(0, 0, new Skips(0, 0, 0, 0, 0), Rejection.NOT_ACTIVE);
         }
@@ -139,6 +161,7 @@ public final class GranaryDeposit {
         int fresh = 0;
         int rotten = 0;
         int migrated = 0;
+        int limited = 0;
         for (int slot : slots) {
             ItemStack stack = player.getInventory().getItem(slot);
             if (stack.isEmpty() || !FreshnessCategories.spoils(stack) || FreshnessCategories.isExempt(stack)) {
@@ -176,12 +199,21 @@ public final class GranaryDeposit {
             if (moved > 0) {
                 items += moved;
                 stacks++;
+                if (publicDonor) {
+                    // 一组 = 一次整堆: 放进去了才记账 (囤满没放下的那一堆不占配额)。
+                    bin.recordPublicDonation(player.getUUID(), publicDay, 1);
+                }
             } else {
                 // 一格都放不下 (囤满或被批次规矩挡住)。
                 stack.setCount(before);
             }
+            if (publicDonor && GranaryPublic.remainingDonations(bin.publicSettings(),
+                    bin.publicUsage(player.getUUID(), publicDay)) <= 0) {
+                limited++;   // 今天的捐粮配额用完了: 剩下的留在他背包里, 明天 08:00 之后再来
+                break;
+            }
         }
-        return new Result(items, stacks, new Skips(exhausted, fresh, rotten, migrated, 0), Rejection.NONE);
+        return new Result(items, stacks, new Skips(exhausted, fresh, rotten, migrated, 0, limited), Rejection.NONE);
     }
 
     // ============================================================

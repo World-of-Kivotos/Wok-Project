@@ -3,6 +3,7 @@ package com.miningdim.job.farmer.granary.block;
 import com.miningdim.job.farmer.granary.GranaryAccess;
 import com.miningdim.job.farmer.granary.GranaryConfig;
 import com.miningdim.job.farmer.granary.GranaryConstants;
+import com.miningdim.job.farmer.granary.GranaryPublic;
 import com.miningdim.job.farmer.granary.GranarySettle;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.NonNullList;
@@ -50,6 +51,10 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
     private boolean stopping;
     /** 开放名单 (空 = 私有); 谁放下这个囤谁才能改它。 */
     private List<GranaryAccess.Trustee> access = new ArrayList<>();
+    /** 官仓公开模式设置 (默认全关; 老档没有这个键就是全关)。 */
+    private GranaryPublic.Settings publicSettings = GranaryPublic.Settings.OFF;
+    /** 公开模式的按人按天用量 (只留今天与昨天; 翻日之后旧记录在下次写入时清掉)。 */
+    private List<GranaryPublic.Usage> publicUsage = new ArrayList<>();
 
     public GranaryBinBlockEntity(BlockPos pos, BlockState state) {
         super(GranaryBlocks.BIN_ENTITY.get(), pos, state);
@@ -109,6 +114,60 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
             setChanged();
         }
         return removed;
+    }
+
+    // ============================================================
+    // 官仓公开模式 (每个囤单独设; 只有官仓能开, 判定在 GranaryPublicService)
+    // ============================================================
+
+    /** 这个囤的公开设置 (默认全关)。 */
+    public GranaryPublic.Settings publicSettings() {
+        return publicSettings;
+    }
+
+    /** 整份替换设置 (命令与界面改开关都走它)。 */
+    public void setPublicSettings(GranaryPublic.Settings settings) {
+        this.publicSettings = settings == null ? GranaryPublic.Settings.OFF : settings;
+        setChanged();
+    }
+
+    /** 这个人这一天在这个囤的用量 (没有记录就是 0)。 */
+    public GranaryPublic.Usage publicUsage(UUID player, long day) {
+        return GranaryPublic.usageOf(publicUsage, player, day);
+    }
+
+    /**
+     * 记一组公开捐粮; 超出今天的配额返回 false (调用方**先问后放**, 不能先放进来再回滚)。
+     *
+     * <p>记账放在方块实体里而不是调用方: 界面那条路与「一键存入」那条路各调一次, 两处各算一份配额
+     * 会立刻出现「界面还能存、命令说满了」。</p>
+     */
+    public boolean recordPublicDonation(UUID player, long day, int groups) {
+        GranaryPublic.Usage used = publicUsage(player, day);
+        if (GranaryPublic.remainingDonations(publicSettings, used) < groups) {
+            return false;
+        }
+        storePublicUsage(used.plusStored(groups), day);
+        return true;
+    }
+
+    /** 记一组公开取用; 超出今天的配额返回 false。 */
+    public boolean recordPublicTake(UUID player, long day, int groups) {
+        GranaryPublic.Usage used = publicUsage(player, day);
+        if (GranaryPublic.remainingTakes(publicSettings, used) < groups) {
+            return false;
+        }
+        storePublicUsage(used.plusTaken(groups), day);
+        return true;
+    }
+
+    /** 写入一条用量, 顺带清掉前天的记录 (只留今天与昨天: 翻日那一刻还能看到昨天的余额)。 */
+    private void storePublicUsage(GranaryPublic.Usage entry, long day) {
+        publicUsage.removeIf(existing -> existing.day() == entry.day()
+                && existing.player().equals(entry.player()));
+        publicUsage.removeIf(existing -> existing.day() < day - 1L);
+        publicUsage.add(entry);
+        setChanged();
     }
 
     // ============================================================
@@ -336,6 +395,8 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
         tag.putIntArray(KEY_CREDITED_HOURS, creditedHours.clone());
         tag.putBoolean(KEY_STOPPING, stopping);
         tag.put(GranaryConstants.KEY_ACCESS, GranaryAccess.save(access));
+        tag.put(GranaryConstants.KEY_PUBLIC, publicSettings.save());
+        tag.put(GranaryConstants.KEY_PUBLIC_USE, GranaryPublic.saveUsage(publicUsage));
     }
 
     @Override
@@ -358,6 +419,11 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
         // 名单是后加的字段: 老档没有就是私有 (按空名单读), 内容存在时照旧严格校验。
         access = tag.get(GranaryConstants.KEY_ACCESS) instanceof ListTag list
                 ? new ArrayList<>(GranaryAccess.load(list)) : new ArrayList<>();
+        // 公开模式也是后加的字段: 老档没有就是全关 (按默认设置读), 用量同样按空表读。
+        publicSettings = tag.get(GranaryConstants.KEY_PUBLIC) instanceof CompoundTag publicTag
+                ? GranaryPublic.Settings.load(publicTag) : GranaryPublic.Settings.OFF;
+        publicUsage = tag.get(GranaryConstants.KEY_PUBLIC_USE) instanceof ListTag useTag
+                ? new ArrayList<>(GranaryPublic.loadUsage(useTag)) : new ArrayList<>();
     }
 
     /** 格账长度必须与格数一致: 对不上说明存档被改过, 如实报错而不是静默截断。 */

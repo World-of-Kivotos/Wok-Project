@@ -108,6 +108,32 @@ public final class GranaryCommands {
                         .then(Commands.literal("remove")
                                 .then(Commands.argument("player", EntityArgument.player())
                                         .executes(GranaryCommands::trustRemove))))
+                .then(Commands.literal("public")
+                        .executes(GranaryCommands::publicReport)
+                        .then(Commands.literal("donate")
+                                .then(Commands.literal("off")
+                                        .executes(context -> publicChange(context,
+                                                GranaryPublicService.Action.DONATE_OFF, 0)))
+                                .then(Commands.literal("on")
+                                        .executes(context -> publicChange(context,
+                                                GranaryPublicService.Action.DONATE_ON,
+                                                GranaryPublic.DEFAULT_DONATE_GROUPS))
+                                        .then(Commands.argument("groups",
+                                                        com.mojang.brigadier.arguments.IntegerArgumentType
+                                                                .integer(0, GranaryPublic.MAX_GROUPS))
+                                                .executes(GranaryCommands::publicDonateOn))))
+                        .then(Commands.literal("take")
+                                .then(Commands.literal("off")
+                                        .executes(context -> publicChange(context,
+                                                GranaryPublicService.Action.TAKE_OFF, 0)))
+                                .then(Commands.literal("on")
+                                        .executes(context -> publicChange(context,
+                                                GranaryPublicService.Action.TAKE_ON,
+                                                GranaryPublic.DEFAULT_TAKE_GROUPS))
+                                        .then(Commands.argument("groups",
+                                                        com.mojang.brigadier.arguments.IntegerArgumentType
+                                                                .integer(0, GranaryPublic.MAX_GROUPS))
+                                                .executes(GranaryCommands::publicTakeOn)))))
                 .then(Commands.literal("member")
                         .then(Commands.literal("list").executes(GranaryCommands::memberList))
                         .then(Commands.literal("add")
@@ -583,6 +609,93 @@ public final class GranaryCommands {
     }
 
     // ============================================================
+    // 官仓公开模式 (/granary public): 囤主设, 只有官仓能开
+    // ============================================================
+
+    /** 看一眼正看着的那个囤的公开模式 (谁能存、谁能取、今天自己还剩多少)。 */
+    private static int publicReport(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        GranaryBinBlockEntity target = targetBin(player);
+        if (target == null) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.no_bin_in_sight"));
+            return 0;
+        }
+        ServerLevel level = player.serverLevel();
+        boolean state = GranaryPublicService.isStateGranary(level, target);
+        GranaryPublic.Settings settings = target.publicSettings();
+        GranaryPublic.Usage usage = target.publicUsage(player.getUUID(),
+                GranaryPublic.dayOf(GranaryPublicService.nowMinute(level)));
+        source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.public_header",
+                Component.translatable(state
+                        ? "message.miningdim.granary.command.public_is_state"
+                        : "message.miningdim.granary.command.public_is_not_state")), false);
+        source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.public_donate_row",
+                onOff(settings.donate()), settings.donateGroupsPerDay()), false);
+        source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.public_take_row",
+                onOff(settings.take()), settings.takeGroupsPerDay()), false);
+        if (state && settings.anythingOn()) {
+            source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.public_usage",
+                    usage.stored(), usage.taken()), false);
+        }
+        return settings.anythingOn() ? 2 : 1;
+    }
+
+    private static int publicDonateOn(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        return publicChange(context, GranaryPublicService.Action.DONATE_ON,
+                com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(context, "groups"));
+    }
+
+    private static int publicTakeOn(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        return publicChange(context, GranaryPublicService.Action.TAKE_ON,
+                com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(context, "groups"));
+    }
+
+    /** 开/关公开模式的一项 (判定全在 {@link GranaryPublicService}: 囤主、官仓、配额范围)。 */
+    private static int publicChange(CommandContext<CommandSourceStack> context,
+                                    GranaryPublicService.Action action, int groups) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        GranaryBinBlockEntity target = targetBin(player);
+        if (target == null) {
+            source.sendFailure(Component.translatable("message.miningdim.granary.command.no_bin_in_sight"));
+            return 0;
+        }
+        GranaryPublicService.Result result = GranaryPublicService.apply(
+                player.serverLevel(), target, player, action, groups);
+        switch (result.outcome()) {
+            case NOT_OWNER -> {
+                source.sendFailure(Component.translatable("message.miningdim.granary.command.access_not_owner"));
+                return 0;
+            }
+            case NOT_STATE -> {
+                source.sendFailure(Component.translatable(
+                        "message.miningdim.granary.command.public_not_state"));
+                return 0;
+            }
+            default -> {
+            }
+        }
+        GranaryPublic.Settings settings = result.settings();
+        boolean donate = action == GranaryPublicService.Action.DONATE_ON
+                || action == GranaryPublicService.Action.DONATE_OFF;
+        boolean on = action == GranaryPublicService.Action.DONATE_ON
+                || action == GranaryPublicService.Action.TAKE_ON;
+        if (donate) {
+            source.sendSuccess(() -> Component.translatable(on
+                    ? "message.miningdim.granary.command.public_donate_on"
+                    : "message.miningdim.granary.command.public_donate_off",
+                    settings.donateGroupsPerDay()), true);
+        } else {
+            source.sendSuccess(() -> Component.translatable(on
+                    ? "message.miningdim.granary.command.public_take_on"
+                    : "message.miningdim.granary.command.public_take_off",
+                    settings.takeGroupsPerDay()), true);
+        }
+        return 1;
+    }
+
+    // ============================================================
     // 存进正看着的那个囤 (自己的, 或别人开放给你的)
     // ============================================================
 
@@ -606,6 +719,7 @@ public final class GranaryCommands {
             source.sendFailure(Component.translatable(switch (result.rejection()) {
                 case NOT_ALLOWED -> "message.miningdim.granary.command.store_not_allowed";
                 case GRANARY_DOWN -> "message.miningdim.granary.command.deposit_blocked";
+                case DAILY_LIMIT -> "message.miningdim.granary.command.store_daily_limit";
                 default -> "message.miningdim.granary.command.store_not_active";
             }));
             return 0;
@@ -617,6 +731,11 @@ public final class GranaryCommands {
         }
         source.sendSuccess(() -> Component.translatable("message.miningdim.granary.command.store",
                 result.items(), result.stacks()), false);
+        if (result.skips().limited() > 0) {
+            // 公开捐粮的配额是"一组一次整堆", 放不下的那些还在背包里 —— 说清楚为什么, 别让玩家以为丢了。
+            source.sendSuccess(() -> Component.translatable(
+                    "message.miningdim.granary.command.store_daily_limit"), false);
+        }
         return result.items();
     }
 

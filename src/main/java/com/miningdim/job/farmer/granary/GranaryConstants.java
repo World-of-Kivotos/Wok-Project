@@ -66,6 +66,22 @@ public final class GranaryConstants {
     public static final String KEY_PERM = "Perm";
     public static final String KEY_TRUST_DEFAULTS = "TrustDefaults";
 
+    /**
+     * 官仓公开模式 (GranaryPublic) 的键: 每个囤一份设置加一份按人按天的用量。
+     *
+     * 与开放名单同一个位置 (囤自己的方块实体), 因为它们的寿命一样长: 一起随囤被拆走、一起随囤被搬进
+     * 待领粮单, 不需要在账本里再维护一份随之失效的镜像。
+     */
+    public static final String KEY_PUBLIC = "Public";
+    public static final String KEY_PUBLIC_USE = "PublicUse";
+    public static final String KEY_DONATE = "Donate";
+    public static final String KEY_DONATE_GROUPS = "DonateGroups";
+    public static final String KEY_TAKE = "Take";
+    public static final String KEY_TAKE_GROUPS = "TakeGroups";
+    public static final String KEY_DAY = "Day";
+    public static final String KEY_STORED = "Stored";
+    public static final String KEY_TAKEN = "Taken";
+
     /** 存档版本号。 */
     public static final int SAVE_VERSION = 1;
 

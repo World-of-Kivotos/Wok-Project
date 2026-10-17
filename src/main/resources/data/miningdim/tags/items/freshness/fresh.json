@@ -1,6 +1,7 @@
 {
   "replace": false,
   "values": [
+    "#miningdim:freshness/fd/fresh",
     "minecraft:beef",
     "minecraft:porkchop",
     "minecraft:chicken",

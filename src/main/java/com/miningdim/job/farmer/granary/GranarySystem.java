@@ -52,6 +52,9 @@ public final class GranarySystem {
         GranaryBlocks.register(modBus);
         GranaryMenus.register(modBus);
         GranaryMenus.touch();
+        // 账台界面的两个包: 在公共装配窗口注册 (线程安全; 与厨师/腐烂那两个 channel 同一范式)。
+        modBus.addListener((net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent event) ->
+                event.enqueueWork(GranaryNetwork::register));
         GranaryCommands.register(forgeBus);
         forgeBus.addListener(EventPriority.LOWEST, GranarySystem::onBlockPlaced);
         forgeBus.addListener(GranarySystem::onPlayerLoggedIn);

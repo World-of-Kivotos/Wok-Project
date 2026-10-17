@@ -23,6 +23,10 @@ public final class GranaryMenus {
     public static final RegistryObject<MenuType<GranaryBinMenu>> BIN =
             MENUS.register("granary_bin", () -> ModMenus.blockMenuType(GranaryBinMenu::new));
 
+    /** 账台的多页签界面 (规格「账台的多页签界面」)。 */
+    public static final RegistryObject<MenuType<GranaryCenterMenu>> CENTER =
+            MENUS.register("granary_center", () -> ModMenus.blockMenuType(GranaryCenterMenu::new));
+
     private GranaryMenus() {
     }
 
@@ -34,5 +38,6 @@ public final class GranaryMenus {
     /** 触发本类的静态初始化, 让上面的 RegistryObject 被收集 (范式见 ChefSystem.touch)。 */
     public static void touch() {
         java.util.Objects.requireNonNull(BIN);
+        java.util.Objects.requireNonNull(CENTER);
     }
 }

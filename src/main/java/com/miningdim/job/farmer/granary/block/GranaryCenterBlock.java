@@ -21,6 +21,10 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import com.miningdim.job.farmer.granary.GranaryCenterMenu;
+import com.miningdim.job.farmer.granary.GranaryCenterPage;
+import com.miningdim.job.farmer.granary.GranaryCenterPageS2C;
+import net.minecraftforge.network.NetworkHooks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.BlockHitResult;
@@ -111,7 +115,26 @@ public final class GranaryCenterBlock extends BaseEntityBlock {
                     Component.translatable("message.miningdim.granary.not_a_granary"), false);
             return InteractionResult.CONSUME;
         }
-        showStatus(serverPlayer, report);
+        /*
+         * 普通右键: 开多页签界面 (规格「账台的多页签界面」)。界面里的每一页都由服务端现算
+         * (GranaryCenterView), 结构报告与 /granary status 是同一批行 —— 文字版仍然留给命令与脚本。
+         */
+        NetworkHooks.openScreen(serverPlayer, new net.minecraft.world.MenuProvider() {
+            @Override
+            public Component getDisplayName() {
+                return Component.translatable("container.miningdim.granary_center");
+            }
+
+            @Override
+            public net.minecraft.world.inventory.AbstractContainerMenu createMenu(
+                    int windowId, net.minecraft.world.entity.player.Inventory inventory,
+                    net.minecraft.world.entity.player.Player player) {
+                return new GranaryCenterMenu(windowId, inventory, pos);
+            }
+        }, buffer -> buffer.writeBlockPos(pos));
+        if (serverPlayer.containerMenu instanceof GranaryCenterMenu menu) {
+            GranaryCenterPageS2C.send(serverPlayer, menu, GranaryCenterPage.STRUCTURE);
+        }
         return InteractionResult.CONSUME;
     }
 

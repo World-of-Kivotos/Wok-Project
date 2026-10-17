@@ -15,5 +15,6 @@ public final class GranaryClientSetup {
 
     public static void registerScreens() {
         MenuScreens.register(GranaryMenus.BIN.get(), GranaryBinScreen::new);
+        MenuScreens.register(GranaryMenus.CENTER.get(), GranaryCenterScreen::new);
     }
 }

@@ -23,6 +23,9 @@ public final class FreshnessCompatStatus {
     /** FD 厨锅那一处 (做好的菜按原料盖章 + 烂原料不开锅)。 */
     public static final String POT = "CookingPotMixin";
 
+    /** FD 煎锅手持烹饪 (#13)。 */
+    public static final String SKILLET_ITEM = "SkilletItemMixin";
+
     /** FD 煎锅「放着照常烂」。 */
     public static final String SKILLET_SETTLE = "SkilletSettleMixin";
 

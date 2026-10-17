@@ -1,8 +1,10 @@
 package com.miningdim.freshness;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.freshness.item.FreshnessItems;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
@@ -58,7 +60,7 @@ public final class FreshnessFdKitchenGameTests {
 
         ItemStack product = findDrop(level, helper.absolutePos(rel), Items.COOKED_BEEF);
         helper.assertTrue(product != null, "煎锅应当把生牛肉煎成熟牛肉 (掉落物 "
-                + level.getEntitiesOfClass(ItemEntity.class, new AABB(helper.absolutePos(rel)).inflate(3.0D))
+                + level.getEntitiesOfClass(ItemEntity.class, new AABB(helper.absolutePos(rel)).inflate(1.5D))
                 .stream().map(entity -> entity.getItem().toString()).toList() + ")");
         assertRatio(helper, product, 0.75D, "煎锅: 原料一半 + 加热 25%");
         helper.assertTrue(FreshnessSourceContext.current().isEmpty(), "出菜之后要清掉来源上下文");
@@ -111,8 +113,12 @@ public final class FreshnessFdKitchenGameTests {
 
         cookNow(pan, level);
 
-        ItemStack product = findDrop(level, helper.absolutePos(rel), Items.COOKED_BEEF);
-        helper.assertTrue(product == null, "烂原料不能做成新菜 (反漏洞)");
+        // "不出品"的判据看锅里: 被拦下的那一趟不该把原料消耗掉 (同批别的用例就在隔壁摆着同样的机器做菜,
+        // 所以这里不扫世界里的掉落物 —— 那会扫到邻居的锅)。
+        ItemStack leftInPan = pan.getStoredStack();
+        helper.assertTrue(!leftInPan.isEmpty(), "烂原料不能做成新菜 (反漏洞): 原料应当还在锅里");
+        helper.assertTrue(leftInPan.is(FreshnessItems.ROT.get()) || leftInPan.is(Items.BEEF),
+                "锅里应当是原来那块 (或它烂成的腐烂物), 实得 " + leftInPan);
         helper.assertTrue(FreshnessSourceContext.current().isEmpty(), "被拦下也要清掉来源上下文");
 
         // 炉灶: 只核对注入点 (行为断言要真跑烹饪 tick, 列进测试服实机清单)。
@@ -164,6 +170,58 @@ public final class FreshnessFdKitchenGameTests {
         helper.succeed();
     }
 
+    /**
+     * 煎锅**手持烹饪** (#13): 成品直接进背包, 不走 ItemUtils —— 所以它要自己按原料盖章;
+     * 锅里是烂的就什么都不出。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void handCookingInheritsAndRefusesRottenFood(GameTestHelper helper) throws Exception {
+        ServerLevel level = helper.getLevel();
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        long nowMinute = FreshnessClockData.nowMinute(level);
+
+        // 一半新鲜的生牛肉塞进煎锅物品的 NBT (FD 1.2.9: 子 compound "Cooking")。
+        ItemStack skillet = skilletWith(Items.BEEF, nowMinute - 6L * 60L);
+        ItemStack returned = skillet.getItem().finishUsingItem(skillet, level, player);
+        helper.assertTrue(returned.is(ModItems.SKILLET.get()), "煎锅物品要原样还回来");
+
+        ItemStack product = findInInventory(player, Items.COOKED_BEEF);
+        helper.assertTrue(product != null, "手持烹饪应当把熟牛肉放进背包");
+        assertRatio(helper, product, 0.75D, "手持烹饪: 原料一半 + 加热 25%");
+
+        // 锅里的肉烂了: 这一趟不出品。
+        player.getInventory().clearContent();
+        ItemStack rottenPan = skilletWith(Items.BEEF, nowMinute - 40L * 24L * 60L);
+        rottenPan.getItem().finishUsingItem(rottenPan, level, player);
+        helper.assertTrue(findInInventory(player, Items.COOKED_BEEF) == null, "烂原料不能做出新菜");
+
+        helper.assertTrue(FreshnessCompatStatus.woven(FreshnessCompatStatus.SKILLET_ITEM),
+                "煎锅物品 mixin 没织进去: " + System.getProperty(
+                        FreshnessCompatMixinPlugin.PROPERTY_PREFIX + FreshnessCompatStatus.SKILLET_ITEM));
+        helper.succeed();
+    }
+
+    /** 一个装了指定生肉 (按给定批次) 的煎锅物品。 */
+    private static ItemStack skilletWith(net.minecraft.world.item.Item food, long batchMinute) {
+        ItemStack skillet = new ItemStack(ModItems.SKILLET.get());
+        ItemStack stored = new ItemStack(food, 1);
+        FreshnessData.stampAt(stored, batchMinute, 0);
+        CompoundTag foodTag = new CompoundTag();
+        stored.save(foodTag);
+        skillet.getOrCreateTag().put(FreshnessFdTargets.SKILLET_ITEM_COOKING, foodTag);
+        return skillet;
+    }
+
+    private static ItemStack findInInventory(ServerPlayer player, net.minecraft.world.item.Item item) {
+        for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
+            ItemStack stack = player.getInventory().getItem(slot);
+            if (!stack.isEmpty() && stack.is(item)) {
+                return stack;
+            }
+        }
+        return null;
+    }
+
     // ============================================================
     // 夹具
     // ============================================================
@@ -195,7 +253,7 @@ public final class FreshnessFdKitchenGameTests {
 
     /** 产物落在地上: 在方块附近找指定物品的掉落物。 */
     private static ItemStack findDrop(ServerLevel level, BlockPos pos, net.minecraft.world.item.Item item) {
-        List<ItemEntity> drops = level.getEntitiesOfClass(ItemEntity.class, new AABB(pos).inflate(3.0D));
+        List<ItemEntity> drops = level.getEntitiesOfClass(ItemEntity.class, new AABB(pos).inflate(1.0D));
         return drops.stream().map(ItemEntity::getItem).filter(stack -> stack.is(item)).findFirst().orElse(null);
     }
 

@@ -10,6 +10,7 @@
     "CookingPotMixin",
     "ItemUtilsMixin",
     "PotSettleMixin",
+    "SkilletItemMixin",
     "SkilletMixin",
     "SkilletSettleMixin",
     "StoveMixin",

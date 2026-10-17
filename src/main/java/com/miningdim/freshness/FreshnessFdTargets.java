@@ -40,6 +40,15 @@ public final class FreshnessFdTargets {
     /** 炉灶出菜: {@code void cookAndOutputItems()} (逐格, 无参)。 */
     public static final String STOVE_COOK = "cookAndOutputItems";
 
+    /** 煎锅**物品** (#13: 手持烹饪)。 */
+    public static final String SKILLET_ITEM = "vectorwing.farmersdelight.common.item.SkilletItem";
+
+    /** 煎锅物品做好一道菜: {@code ItemStack finishUsingItem(ItemStack, Level, LivingEntity)}。 */
+    public static final String SKILLET_ITEM_FINISH = "finishUsingItem";
+
+    /** 煎锅物品里存原料的 NBT 子 compound (FD 1.2.9)。 */
+    public static final String SKILLET_ITEM_COOKING = "Cooking";
+
     /** 厨锅的方块实体 (#15)。 */
     public static final String POT = "vectorwing.farmersdelight.common.block.entity.CookingPotBlockEntity";
 

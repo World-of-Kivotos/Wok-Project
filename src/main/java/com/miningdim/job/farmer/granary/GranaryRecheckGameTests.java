@@ -43,6 +43,15 @@ public final class GranaryRecheckGameTests {
 
     private static final long TICK = 4_000_000L;   // 随便一个大 tick, 避开「还没扫过」的哨兵 0
 
+    /**
+     * 这一批结束后把账本清干净: 粮仓账本是**全服共享**的存档数据, 留下会在下一轮 (以及下一批) 的
+     * 错峰自查里变成"不知道哪来的一座粮仓", 与 {@link #clashFreeSlot} 想要避免的撞车是同一个病根。
+     */
+    @net.minecraft.gametest.framework.AfterBatch(batch = BATCH)
+    public static void clearLedger(ServerLevel level) {
+        GranaryTestLedger.clear(level);
+    }
+
     // ============================================================
     // 方块一变就查
     // ============================================================
@@ -183,7 +192,7 @@ public final class GranaryRecheckGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void theSelfCheckPicksTheGranaryWhoseHashMatchesTheTick(GameTestHelper helper) {
-        int slot = 5;
+        int slot = clashFreeSlot(helper);
         ServerLevel level = helper.getLevel();
         ServerPlayer owner = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
         setFarmerLevel(owner, 1);
@@ -243,6 +252,33 @@ public final class GranaryRecheckGameTests {
             }
         }
         return -1L;
+    }
+
+    /**
+     * 挑一段「不撞车」的地基: 轮值余数是 {@code floorMod(tick + 坐标)} 算的, 一座粮仓只会在**一个**余数上到期
+     * (6000 tick 一轮)。账本里若还留着别批 / 上一轮跑剩的粮仓, 而它的中心正好与我们的同余, 那一 tick 的预算
+     * 就永远被别人先用掉 —— 于是这里不再写死 slot, 而是往右找一段没人同余的地基。
+     *
+     * <p>这不是为了迁就脏数据: 轮值是全服一条公式, 同余的两座本来就有一座永远排不上, 用例要钉的是"到期的
+     * 那一座被扫到", 就不能让结论取决于账本里还躺着什么。</p>
+     */
+    private static int clashFreeSlot(GameTestHelper helper) {
+        var centers = GranarySavedData.get(helper.getLevel().getServer().overworld()).centers();
+        for (int slot = 5; slot < 120; slot++) {
+            long mine = helper.absolutePos(center(slot)).asLong();
+            boolean clash = false;
+            for (GranarySavedData.PosKey center : centers) {
+                if (center.packedPos() != mine && Math.floorMod(center.packedPos() - mine,
+                        GranaryRecheck.SELF_CHECK_PERIOD_TICKS) == 0) {
+                    clash = true;
+                    break;
+                }
+            }
+            if (!clash) {
+                return slot;
+            }
+        }
+        throw new IllegalStateException("找不到一段不撞车的地基");
     }
 
     // ============================================================

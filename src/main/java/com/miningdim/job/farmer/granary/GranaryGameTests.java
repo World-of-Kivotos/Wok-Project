@@ -37,6 +37,12 @@ public final class GranaryGameTests {
     private static final String EMPTY = "empty";
     private static final String BATCH = "granary_bins";
 
+    /** 这一批结束后把账本清干净 (粮仓账本是全服共享的存档数据, 留着会干扰后面的批次与下一轮的自查)。 */
+    @net.minecraft.gametest.framework.AfterBatch(batch = BATCH)
+    public static void clearLedger(ServerLevel level) {
+        GranaryTestLedger.clear(level);
+    }
+
     private static final BlockPos FIRST = new BlockPos(1, 2, 1);
     private static final BlockPos SECOND = new BlockPos(3, 2, 1);
     private static final BlockPos THIRD = new BlockPos(5, 2, 1);

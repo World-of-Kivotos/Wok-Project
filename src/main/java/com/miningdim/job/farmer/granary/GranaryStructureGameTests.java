@@ -5,6 +5,7 @@ import com.miningdim.job.farmer.granary.block.GranaryBlocks;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -27,6 +28,12 @@ public final class GranaryStructureGameTests {
 
     private static final String EMPTY = "empty";
     private static final String BATCH = "granary_structure";
+
+    /** 这一批结束后把账本清干净 (粮仓账本是全服共享的存档数据, 留着会干扰后面的批次与下一轮的自查)。 */
+    @net.minecraft.gametest.framework.AfterBatch(batch = BATCH)
+    public static void clearLedger(ServerLevel level) {
+        GranaryTestLedger.clear(level);
+    }
 
     /** 每条用例的槽位间距 (够放 5×5×5 的小屋与它外面那一格)。 */
     private static final int SLOT = 16;

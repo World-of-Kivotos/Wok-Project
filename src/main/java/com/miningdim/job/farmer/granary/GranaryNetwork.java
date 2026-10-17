@@ -43,6 +43,12 @@ public final class GranaryNetwork {
         CHANNEL.registerMessage(nextId(), GranaryCenterPageS2C.class,
                 GranaryCenterPageS2C::encode, GranaryCenterPageS2C::decode, GranaryCenterPageS2C::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        CHANNEL.registerMessage(nextId(), GranaryTrustActionC2S.class,
+                GranaryTrustActionC2S::encode, GranaryTrustActionC2S::decode, GranaryTrustActionC2S::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(nextId(), GranaryTrustStateS2C.class,
+                GranaryTrustStateS2C::encode, GranaryTrustStateS2C::decode, GranaryTrustStateS2C::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
     }
 
     /** 仅供用例: 已注册的 discriminator 个数。 */

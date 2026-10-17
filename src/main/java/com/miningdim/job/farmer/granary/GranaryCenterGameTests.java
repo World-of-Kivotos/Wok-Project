@@ -45,6 +45,12 @@ public final class GranaryCenterGameTests {
     private static final int HIGH = 3;
     private static final int LOW = 1;
 
+    /** 这一批结束后把账本清干净 (粮仓账本是全服共享的, 留着会干扰别的批次的自查用例)。 */
+    @net.minecraft.gametest.framework.AfterBatch(batch = BATCH)
+    public static void clearLedger(ServerLevel level) {
+        GranaryTestLedger.clear(level);
+    }
+
     // ============================================================
     // 1. 页内容
     // ============================================================
@@ -73,6 +79,7 @@ public final class GranaryCenterGameTests {
         helper.assertTrue(orphan.size() == 1
                         && textOf(orphan.get(0)).contains("not_a_granary"),
                 "查不到粮仓时结构页要明说, 实得 " + orphan);
+        fixture.close(helper);
         helper.succeed();
     }
 
@@ -96,6 +103,7 @@ public final class GranaryCenterGameTests {
                 "行里要带坐标 (玩家靠它找到那个囤), 实得 " + row);
         helper.assertTrue(row.contains("granary.bin_state."),
                 "行里要带状态键 (启用/待启用/停用), 实得 " + row);
+        fixture.close(helper);
         helper.succeed();
     }
 
@@ -111,6 +119,7 @@ public final class GranaryCenterGameTests {
         helper.assertTrue(lines.size() == 2 && textOf(lines.get(0)).contains("member_owner")
                         && textOf(lines.get(1)).contains("no_members"),
                 "房主一行 + 没有成员一行, 实得 " + lines);
+        fixture.close(helper);
         helper.succeed();
     }
 
@@ -181,6 +190,7 @@ public final class GranaryCenterGameTests {
         GranaryCenterMenu menu = (GranaryCenterMenu) owner.containerMenu;
         helper.assertTrue(menu.centerPos().equals(pos), "菜单要记住是哪一座账台");
         helper.assertTrue(menu.slots.size() == 36, "界面里只有玩家背包那 36 格 (不挂任何容器格)");
+        fixture.close(helper);
         helper.succeed();
     }
 
@@ -207,6 +217,35 @@ public final class GranaryCenterGameTests {
 
         void placeBin(GameTestHelper helper, BlockPos relative) {
             GranaryCenterGameTests.placeBin(helper, owner, relative);
+        }
+
+        /**
+         * 收尾: 把这座粮仓从**全服共享的账本**里删干净 (囤与账台记录)。
+         *
+         * 粮仓账本是存档级数据, 跨批次共享 —— 留着这几座, 后面"按 tick 哈希挑一座自查"的用例就找不到
+         * "只轮到自己"的 tick 了。每个用例成功时都必须清掉。
+         */
+        void close(GameTestHelper helper) {
+            GranarySavedData data = GranarySavedData.get(level);
+            for (GranarySavedData.PosKey key : java.util.List.copyOf(data.bins())) {
+                BlockPos pos = BlockPos.of(key.packedPos());
+                if (key.dimension().equals(level.dimension().location()) && insideRoom(helper, pos)) {
+                    data.releaseBin(key.dimension(), pos);
+                }
+            }
+            data.releaseCenter(level.dimension().location(), helper.absolutePos(centerRelative));
+            long gid = data.centerGranary(level.dimension().location(), helper.absolutePos(centerRelative));
+            if (gid >= 0L) {
+                data.removeGranary(gid);
+            }
+        }
+
+        /** 这个囤在不在本用例那间屋里 (按坐标范围判, 不碰别人的房间)。 */
+        private boolean insideRoom(GameTestHelper helper, BlockPos abs) {
+            BlockPos min = helper.absolutePos(new BlockPos(centerRelative.getX() - 2, 0, centerRelative.getZ() - 2));
+            BlockPos max = helper.absolutePos(new BlockPos(centerRelative.getX() + 2, HIGH + 1, centerRelative.getZ() + 2));
+            return abs.getX() >= min.getX() && abs.getX() <= max.getX()
+                    && abs.getZ() >= min.getZ() && abs.getZ() <= max.getZ();
         }
     }
 

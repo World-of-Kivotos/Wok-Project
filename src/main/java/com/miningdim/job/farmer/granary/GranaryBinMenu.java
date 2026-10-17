@@ -91,6 +91,11 @@ public final class GranaryBinMenu extends AbstractMiningMenu {
         }
     }
 
+    /** 这个界面开的是哪个囤 (开放名单那条路要用它; 客户端侧拿到的是视图方块实体)。 */
+    public GranaryBinBlockEntity bin() {
+        return blockEntity;
+    }
+
     /** 这位玩家现在能不能往这个囤里放 (现算: 名单改了立刻生效)。 */
     public boolean mayStore() {
         return GranaryAccess.mayStore(blockEntity.owner(), blockEntity.access(), viewer.getUUID());

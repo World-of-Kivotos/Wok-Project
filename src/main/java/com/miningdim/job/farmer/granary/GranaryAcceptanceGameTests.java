@@ -29,6 +29,12 @@ public final class GranaryAcceptanceGameTests {
     private static final String EMPTY = "empty";
     private static final String BATCH = "granary_acceptance";
 
+    /** 这一批结束后把账本清干净 (粮仓账本是全服共享的存档数据, 留着会干扰后面的批次与下一轮的自查)。 */
+    @net.minecraft.gametest.framework.AfterBatch(batch = BATCH)
+    public static void clearLedger(ServerLevel level) {
+        GranaryTestLedger.clear(level);
+    }
+
     /**
      * 本批只在存档账本里按坐标记账, 不摆方块 —— 位置仍旧选在别的用例够不到的地方,
      * 免得和别批真正摆下的储粮囤撞在同一个坐标上 (撞上会让别批的放置被账本拒绝)。

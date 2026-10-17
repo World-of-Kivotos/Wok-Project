@@ -1,12 +1,14 @@
 package com.miningdim.job.farmer.granary.block;
 
 import com.miningdim.job.farmer.granary.GranaryAccess;
+import com.miningdim.job.farmer.granary.GranaryBinMenu;
 import com.miningdim.job.farmer.granary.GranaryClock;
 import com.miningdim.job.farmer.granary.GranaryPending;
 import com.miningdim.job.farmer.granary.GranaryRecord;
 import com.miningdim.job.farmer.granary.GranarySavedData;
 import com.miningdim.job.farmer.granary.GranarySystem;
 import com.miningdim.job.farmer.granary.GranaryTransfer;
+import com.miningdim.job.farmer.granary.GranaryTrustStateS2C;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -111,6 +113,10 @@ public final class GranaryBinBlock extends BaseEntityBlock {
         }
         bin.settleAll(GranaryClock.nowHour(level.getServer().overworld()));
         NetworkHooks.openScreen(serverPlayer, bin, buffer -> buffer.writeBlockPos(pos));
+        // 开界面就把当前开放名单推下去: 面板一展开看到的是真的那一份, 而不是"等囤主改一次才出现"。
+        if (serverPlayer.containerMenu instanceof GranaryBinMenu menu) {
+            GranaryTrustStateS2C.send(serverPlayer, menu, null);
+        }
         return InteractionResult.CONSUME;
     }
 

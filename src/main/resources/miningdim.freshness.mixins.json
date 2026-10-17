@@ -10,7 +10,8 @@
     "HopperBlockEntityMixin",
     "InventoryMixin",
     "ServerPlaceRecipeMixin",
-    "AbstractContainerMenuMixin"
+    "AbstractContainerMenuMixin",
+    "CampfireBlockEntityMixin"
   ],
   "client": [],
   "server": [],

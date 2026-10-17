@@ -233,6 +233,87 @@ public final class FreshnessProcessingGameTests {
     // ============================================================
     // 夹具
     // ============================================================
+    // 机器: 输出合并取最老 + 营火掉落之前改产物 (规格「机器输出合并取最老」/ mixin #5)
+    // ============================================================
+
+    /**
+     * 输出合并取最老 (规格「机器输出合并取最老」): 输出格里已经放着 f=0 的老牛排, 新烤出来的一件按 +25% 继承
+     * 原料 —— 合并之后**整堆**必须是较老的那一批 (剩余取少、停表取大), 否则反复烤就能把积压的老货一次次刷新。
+     *
+     * 走真实的钩子入口 (HEAD 拍输出格快照 -> RETURN 改写), 与 mixin 注入的那两行是同一个方法:
+     * burn 本身是私有的, 用例按本仓既有范式直接驱动钩子 (注入本身由 required 配置 + defaultRequire 1 兜底)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void furnaceOutputMergesIntoTheOlderBatch(GameTestHelper helper) {
+        long now = FreshnessClockData.nowMinute(helper.getLevel());
+        BlockPos relative = new BlockPos(6, 2, 2);
+        helper.setBlock(relative, Blocks.FURNACE);
+        AbstractFurnaceBlockEntity furnace = (AbstractFurnaceBlockEntity) helper.getBlockEntity(relative);
+        helper.assertTrue(furnace != null, "熔炉方块实体应当已创建");
+
+        int cookedShelf = FreshnessCategories.shelfLifeHours(new ItemStack(Items.COOKED_BEEF));
+        ItemStack oldOutput = new ItemStack(Items.COOKED_BEEF, 3);
+        // 老牛排: 停表额度 200 小时、剩余 5 小时。
+        FreshnessData.stampAt(oldOutput, now - ((long) cookedShelf * 60L - 5L * 60L) - 200L * 60L, 200);
+
+        NonNullList<ItemStack> items = NonNullList.withSize(3, ItemStack.EMPTY);
+        items.set(0, ratioAt(FreshnessConfig.shelfLifeHours(FreshnessCategory.FRESH), 0.6D, Items.BEEF, 1, now));
+        items.set(2, oldOutput);
+
+        // HEAD 那一步: 拍输出格快照 (顺手把没章的原料盖上章)。
+        helper.assertTrue(!FreshnessHooks.refuseRottenFurnaceInput(furnace, items), "没过期的原料不该被拦");
+        // 原版随后把这件产物 grow 进输出格 (件数 +1, 章仍是老的 —— 合并规则在下一步改写)。
+        items.get(2).grow(1);
+        // RETURN 那一步: 按"取最老"改写整堆的章。
+        FreshnessHooks.inheritFurnaceProduct(furnace, items);
+
+        ItemStack merged = items.get(2);
+        helper.assertTrue(merged.getCount() == 4, "件数相加 (3 + 1), 实得 " + merged.getCount());
+        helper.assertTrue(FreshnessData.stoppedHours(merged) == 200,
+                "停表取大 (老牛排的 200 小时), 实得 " + FreshnessData.stoppedHours(merged));
+        long remaining = FreshnessData.remainingMinutes(merged, cookedShelf, now);
+        helper.assertTrue(remaining >= 4L * 60L && remaining <= 5L * 60L,
+                "合并后的剩余必须落在老牛排那一档 (约 5 小时), 实得 " + remaining
+                        + " —— 被新产物拉年轻就是这条规则的失败模式");
+        helper.succeed();
+    }
+
+    /**
+     * 营火: 掉落之前按原料继承 (+25%); 原料在火上放烂了就不出品、改掉一个腐烂物。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void campfireProductInheritsFromTheInputBeforeDropping(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        long now = FreshnessClockData.nowMinute(level);
+        BlockPos relative = new BlockPos(7, 2, 7);
+        helper.setBlock(relative, Blocks.CAMPFIRE);
+        var campfire = (net.minecraft.world.level.block.entity.CampfireBlockEntity) helper.getBlockEntity(relative);
+        helper.assertTrue(campfire != null, "营火方块实体应当已创建");
+
+        int beefShelf = FreshnessConfig.shelfLifeHours(FreshnessCategory.FRESH);
+        ItemStack raw = ratioAt(beefShelf, 0.625D, Items.BEEF, 1, now);
+        helper.assertTrue(campfire.placeFood(null, raw, 100), "前提: 营火收下这块生牛肉");
+
+        ItemStack stamped = FreshnessHooks.stampCampfireProduct(level, campfire,
+                new ItemStack(Items.COOKED_BEEF, 1));
+        helper.assertTrue(FreshnessData.isStamped(stamped), "掉落之前必须已经盖好章");
+        long remaining = FreshnessCheck.remainingMinutes(stamped, now);
+        // 继承口径: 产物剩余比例 = 原料剩余比例 + 加热加成 (加的是**比例**, 不是把剩余乘 1.25), 再封顶。
+        long expected = (long) Math.floor(
+                FreshnessConfig.shelfLifeHours(FreshnessCategory.COOKED) * 60.0D * (0.625D + 0.25D));
+        helper.assertTrue(remaining == expected,
+                "产物剩余比例应为 原料比例 + 0.25 (0.625 + 0.25 = 0.875), 期望 " + expected + " 实得 " + remaining);
+
+        // 原料烂了: 不出品, 掉一个腐烂物。
+        campfire.clearContent();
+        ItemStack rotten = ancientAt(Items.BEEF, 1, now);
+        helper.assertTrue(campfire.placeFood(null, rotten, 100), "前提: 营火收下这块已经烂了的生牛肉");
+        ItemStack dropped = FreshnessHooks.stampCampfireProduct(level, campfire, new ItemStack(Items.COOKED_BEEF, 1));
+        helper.assertTrue(FreshnessItems.ROT.get() == dropped.getItem(),
+                "原料过期就换腐烂物、不出品, 实得 " + dropped.getItem());
+        helper.succeed();
+    }
+    // ============================================================
 
     /** 一件「在 FIXED_NOW 时剩 ratio 比例」的东西 (策略层用例用)。 */
     private static ItemStack ratio(int shelfLifeHours, double ratio, Item item, int count) {

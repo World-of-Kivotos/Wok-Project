@@ -1105,6 +1105,7 @@ P0 收口后按「先底座、后粮仓」推进，每块都以 `compileJava` + 
 - **厨锅输出格的合并**（提交 `c84fd9a9`，规格「可选配置」#15 后半）：盖章之后先看输出格，有同种菜就 `FreshMerge.mergeInto` 并进去再写回（与背包那条路同一个合并规则）；1 条用例。
 - **FD 煎锅的手持烹饪**（提交 `57bae9c0`，规格「可选配置」#13）：`FreshnessFdHandCooking`（烂原料整趟取消；返回时在背包/附近掉落物里找还没盖章的同类产物按原料继承 +25%）、`SkilletItemMixin`（`finishUsingItem` 的 HEAD/RETURN 转发）、1 条用例。
 - **公开模式的界面开关**（提交 `5de6732c`）：`GranaryPublicActionC2S` / `GranaryPublicStateS2C`（判定全在服务端、越界值兜底、开关不动份额）、打开界面时与开放名单一起推状态、客户端没收到状态就不画按钮、8 条文案、1 条用例。
+- **加人之前的输入框预检**（提交 `e913d09c`）：`GranaryTrustService.check`（只回答不落地，与 `apply` 同一套语义）、`GranaryTrustCheckC2S` / `GranaryTrustCheckS2C`（输入框变化时问一次）、面板上那句提示、1 条用例。
 - **机器两条**（提交 `d42b5faf`）：熔炉三件套的**输出合并取最老**（`burn` 的 HEAD 先拍输出格快照 —— 原版会把新产物直接 grow 进输出格，RETURN 时已分不出哪几件是刚出炉的；RETURN 按「剩余取少、停表取大」改写整堆），与**营火掉落之前改产物**（新增 `CampfireBlockEntityMixin`，`@Redirect` 那一下 `Containers.dropItemStack`：营火存的是原料、产物是掉落时按配方现算的，所以「放置时盖章」没有用；按 +25% 继承，原料在火上放烂了就不出品、改掉一个腐烂物，同火两件同类原料取最老的那一件）；2 条用例。
 - **Shift 快移的同种合并**（mixin #9，提交 `15dd4021`）：`FreshnessMergeHooks.mergeShiftMove`（vanilla 搬东西之前先试整堆并入"只差新鲜度"的目标槽，并上了就返回 TRUE 结束这一段）、`FreshnessContainers`（「哪些容器参与合并」的唯一判据：玩家背包四类槽 + 箱子/潜影盒/漏斗/发射器；观察点结算那份私有的 whitelisted 改为委托它）、`mixin/AbstractContainerMenuMixin`（HEAD cancellable）、`menu/ShiftMergeHooks`（wok-core 里的可注册空接缝，默认不做事）、4 条用例。**主 MOD 那两处整段重写的 `moveItemStackTo`（`AbstractMiningMenu`、`MarriageBackpackMenu`）走接缝而不是 mixin** —— 让核心反过来依赖腐烂底座会把依赖方向掰反（模块边界校验器当场拒绝），婚姻模块因此不需要新增任何依赖。
 - **客户端显示**（提交 `1b04e911`）：`FreshnessShelfLives`（六类保质期的唯一读取口：服务端读配置、客户端读同步值、未同步退回代码默认值；客户端**绝不能**读 SERVER 配置 —— 开发期直接抛 "Cannot get config value before config is loaded"，`FreshnessCategories.shelfLifeHours` 因此改走它）、`FreshnessSyncS2C` + `FreshnessNetwork`（本模块自己的 SimpleChannel：时钟 / 偏移 / 档位 / 六类保质期，解码对越界与长度不符兜底）、`FreshnessSync`（登录推一次 + 每 600 tick 校准）、`FreshnessDisplay` 与 `FreshnessReminder`（两端共用的纯算术：条长 = 剩余 ÷ 保质期、5h/2d/&lt;1h、24/6 小时档位、提醒冷却）、`client/` 六个类（缓存、`miningdim-freshness-client.toml` 三个开关、`RegisterItemDecorationsEvent` 装饰器、tooltip 两行、action bar 提醒、装配与断面清理）、5 条 `freshness_sync` 用例；渲染与 JEI/MouseTweaks 的重叠核对列入测试服实机清单。
@@ -1248,9 +1249,9 @@ P0 收口后按「先底座、后粮仓」推进，每块都以 `compileJava` + 
 - **GameTest 的 empty 模板让同批用例的机器就摆在隔壁。** 机器类用例的断言别扫大范围掉落物（扫 3 格会扫到邻居的锅，实测红过一次）：看锅里状态、或只看锅边 1 格。
 - **`finishUsingItem` 是 FD 覆盖的 MC 方法。** 开发环境按官方名织入，正式服用 SRG 名（`m_5922_`）—— 这一条列进测试服实机核对清单（与 FD 版本变更一起过）。- **界面上的开关只翻"开/关", 不动份额。** 份额 (每天几组) 是囤主的参数, 用命令改; 按钮点一下就把份额也顺手改掉的话, 玩家会在不知道的情况下改掉自己的设置。
 - **没收到过状态就不画按钮。** 客户端手里的方块实体没有名单、也没有账本, 自己算只会算出一个错的答案; 状态包没到 (刚开界面 / 掉包) 时宁可不画, 也不画一个假开关。
-- **粮仓账本每个批次都要清干净。** 它是**存档级、全服共享**的数据，留着不只是"脏"，而是会真的改变结论：错峰自查按 `floorMod(tick + 坐标, 6000)` 轮值，同余的两座里必有一座永远排不上，于是「按哈希挑中这一座」的用例会找不到"只轮到自己"的 tick。清理收在 `GranaryTestLedger.clear` 一处（各写一套迟早漏键、还会误删别批的粮仓），17 个测试类在 `@AfterBatch` 里各调一次；用例自己再挑一段与账本现存的粮仓不同余的地基，这样结论不取决于账本里还躺着什么。
+- **预检必须与真操作共用一份判定。** 界面上写着"能加"、点下去却报"名单满了"，玩家只会觉得这个界面不可信 —— 所以 `check` 与 `apply` 是同一段语义，用例里也专门钉住"预检的答案与真操作一致"。- **粮仓账本每个批次都要清干净。** 它是**存档级、全服共享**的数据，留着不只是"脏"，而是会真的改变结论：错峰自查按 `floorMod(tick + 坐标, 6000)` 轮值，同余的两座里必有一座永远排不上，于是「按哈希挑中这一座」的用例会找不到"只轮到自己"的 tick。清理收在 `GranaryTestLedger.clear` 一处（各写一套迟早漏键、还会误删别批的粮仓），17 个测试类在 `@AfterBatch` 里各调一次；用例自己再挑一段与账本现存的粮仓不同余的地基，这样结论不取决于账本里还躺着什么。
 
-底座剩下的分片：BnC 与 refurbished 的兼容 mixin（本地没有这两个 jar，需服主提供）、类别标签的其余模组条目（按模组拆子标签的口子已就位，本地只有 FD 的 jar）。粮仓剩下的分片：冷源清单扩展（refurbished 冰箱 / 冷柜 / 冷藏箱）、粮仓自有界面贴图（现在账台借原版箱子、囤借潜影盒的）、界面打磨（按钮图标、输入框的校验提示）。
+底座剩下的分片：BnC 与 refurbished 的兼容 mixin（本地没有这两个 jar，需服主提供）、类别标签的其余模组条目（按模组拆子标签的口子已就位，本地只有 FD 的 jar）。粮仓剩下的分片：冷源清单扩展（refurbished 冰箱 / 冷柜 / 冷藏箱）、粮仓自有界面贴图（现在账台借原版箱子、囤借潜影盒的）、界面打磨（按钮图标）。
 
 粮仓十九块落地后：退出、拆走、移出的每一条路都通了（自己退出 / 被移出 / 被拆 / 未入册被拆 / 远程打包，外加 `/granary claim` 领回）；`/granary audit` 三对配对齐全；开放名单的模型、判定、命令与界面都齐了；官仓的公开捐粮与公开取用也通了（按人按天限组、翻日按北京 08:00、降档自动失效），流水也写清了谁存谁取。剩下的粮仓工作集中在**冷源清单扩展**与**界面打磨/自有贴图**。
 

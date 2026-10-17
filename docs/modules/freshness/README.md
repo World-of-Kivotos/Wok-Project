@@ -73,7 +73,7 @@ FD 与 BnC/refurbished 兼容 mixin 按设计文档后续切片推进。
 
 ### Java 源码
 
-- `src/main/java/com/miningdim/freshness/`（65 个文件，含 `item/`、`mixin/`、`client/` 三个子包与 12 个测试类）。
+- `src/main/java/com/miningdim/freshness/`（66 个文件，含 `item/`、`mixin/`、`client/` 三个子包与 12 个测试类）。
 
 ### 专属资源
 
@@ -183,14 +183,14 @@ freshness/
   FreshnessCommands.java    /freshness stats|clock|dump|stamp|strip
   FreshnessLootModifier(s)  全局掉落修改器
   item/                     freshness_rot
-  mixin/                    合成格 / 熔炉三件套 / 漏斗 / 背包入包 / 配方书（原版目标）
+  mixin/                    合成格 / 熔炉三件套 / 漏斗 / 背包入包 / 配方书 / Shift 快移 / 营火（原版目标）
   mixin/compat/             计划：FD、BnC、refurbished（可选配置）
   client/                   计划：物品栏保鲜条、剩余数字、快捷栏提醒
 ```
 
 ## 7. 验证清单
 
-当前十二个测试类共 77 条 GameTest：
+当前十二个测试类共 79 条 GameTest：
 
 - `FreshnessGameTests`（batch `freshness_foundation`，13 条）
   - 时钟：首次观察、正常前进、停服按整小时补偿、运行中跳变补「差值 − 1」、挂钟回跳只增不减、测试偏移入口钳负值。

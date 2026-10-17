@@ -73,7 +73,7 @@ FD 与 BnC/refurbished 兼容 mixin 按设计文档后续切片推进。
 
 ### Java 源码
 
-- `src/main/java/com/miningdim/freshness/`（62 个文件，含 `item/`、`mixin/`、`client/` 三个子包与 12 个测试类）。
+- `src/main/java/com/miningdim/freshness/`（65 个文件，含 `item/`、`mixin/`、`client/` 三个子包与 12 个测试类）。
 
 ### 专属资源
 
@@ -135,9 +135,10 @@ FD 与 BnC/refurbished 兼容 mixin 按设计文档后续切片推进。
 - **机器输出合并取最老还没做**：熔炉与合成格的产物只做继承盖章，原版「同物品同数据才并堆」在带章之后
   不会把不同批次并起来；这条与「同种食物合并」的核心算术已经就位（`FreshMerge.preferOlderBatch`），
   差的是把熔炉/厨锅的输出格也接上它。
-- **Shift 快移还没接**：规格要求的 `AbstractContainerMenu.moveItemStackTo` 合并（整堆搬完就返回 true、
-  没搬完用 ThreadLocal 在 RETURN 处合并 moved 标志）还没写；目前 Shift 快移仍按原版「完全相同才叠」，
-  只差新鲜度的两堆不会被并起来。粮仓「一键存入」的合并入口随粮仓那一批。
+- **Shift 快移已接**（提交 `15dd4021`）：vanilla 那一支走 `AbstractContainerMenuMixin`，主 MOD 两处整段重写的
+  `moveItemStackTo` 走核心接缝 `menu/ShiftMergeHooks`（默认不做事，装配时由本模块挂上同一个函数）。
+  口径是「整堆装得下才并」—— 装不下时不插手，那部分跟着目标槽的老章走才是保守方向，因此也不需要
+  「没搬完合并 moved 标志」那套机制。粮仓「一键存入」的合并入口随粮仓那一批。
 - **合成格只锁了策略**：`CraftingMenuMixin` 的两个注入点由启动即编译进 jar 保证（`defaultRequire: 1`，
   注入不上直接崩服），但走模拟玩家的合成夹具还没写，列入同种合并的收尾。
 - `FreshnessHooks` 用一个 `ThreadLocal` 在熔炉的 HEAD 与 RETURN 之间传原料快照（`burn` 成功后会先把原料扣掉，
@@ -165,6 +166,8 @@ freshness/
   FreshnessDisplay.java     条长 / 标签 / 档位（两端共用的纯算术）
   FreshnessReminder.java    快捷栏提醒的冷却与「快烂了」判据
   client/                   客户端六个类（缓存、客户端配置、装饰器、tooltip、action bar、装配）
+  FreshnessContainers.java  「哪些容器参与合并」的唯一判据
+  mixin/AbstractContainerMenuMixin.java  Shift 快移的同种合并（mixin #9）
   FreshnessProcessing.java  加工继承的纯策略（取最差、加热加成、封顶、下限、停表取大）
   FreshMerge.java           同种合并的纯核心（三条门槛 + 加权平均 + 配方书取最老）
   FreshnessHooks.java       mixin 适配层（薄）
@@ -187,7 +190,7 @@ freshness/
 
 ## 7. 验证清单
 
-当前十二个测试类共 73 条 GameTest：
+当前十二个测试类共 77 条 GameTest：
 
 - `FreshnessGameTests`（batch `freshness_foundation`，13 条）
   - 时钟：首次观察、正常前进、停服按整小时补偿、运行中跳变补「差值 − 1」、挂钟回跳只增不减、测试偏移入口钳负值。

@@ -9,8 +9,11 @@
     "CuttingBoardMixin",
     "CookingPotMixin",
     "ItemUtilsMixin",
+    "PotSettleMixin",
     "SkilletMixin",
-    "StoveMixin"
+    "SkilletSettleMixin",
+    "StoveMixin",
+    "StoveSettleMixin"
   ],
   "client": [],
   "server": [],

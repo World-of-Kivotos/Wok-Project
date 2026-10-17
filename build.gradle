@@ -200,6 +200,12 @@ dependencies {
     def farmersDelightDevJar = file("libs/FarmersDelight-1.20.1-1.2.9.jar")
     if (farmersDelightDevJar.exists()) {
         runtimeOnly fg.deobf("local:FarmersDelight-1.20.1:1.2.9")
+        // compileOnly 只为**编译期**能引用 FD 的类型 (兼容 GameTest 要摆一块砧板、调它的处理方法)。
+        // mixin 本体仍用 @Pseudo + 字符串目标 (见 com.miningdim.freshness.FreshnessFdTargets):
+        // 正式服没装 FD 时这些 mixin 由 FreshnessCompatMixinPlugin 整体跳过, 不碰任何 FD 类。
+        // 与 TacZ 那种 compileOnly 不同, FD 不进 dev 运行期 classpath 的问题在这里不存在 ——
+        // 它同时是 runtimeOnly, dev GameTest 跑的就是这一个 jar。
+        compileOnly fg.deobf("local:FarmersDelight-1.20.1:1.2.9")
     }
 
     // Flan 1.20.1-1.11.16 (Forge): 自管区的领地后端 (docs/District_Backend_Design.md 20.1)。

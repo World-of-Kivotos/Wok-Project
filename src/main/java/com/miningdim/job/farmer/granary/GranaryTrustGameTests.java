@@ -10,6 +10,7 @@ import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
@@ -226,6 +227,58 @@ public final class GranaryTrustGameTests {
         lie.writeUtf("{\"text\":\"one\"}", 8_192);
         helper.assertTrue(GranaryTrustStateS2C.decode(lie).lines().size() <= GranaryAccess.MAX_TRUSTEES + 1,
                 "回执行数要按上限截断");
+        helper.succeed();
+    }
+
+    // ============================================================
+    // 4. 输入框的预检
+    // ============================================================
+
+    /**
+     * 预检只回答"如果现在加会怎么样", 不动名单; 它的答案要与真操作一致
+     * (否则界面上写着"能加", 点下去却报别的)。
+     */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void preCheckMatchesWhatTheRealActionWouldDo(GameTestHelper helper) {
+        Fixture fixture = Fixture.accept(helper, 5);
+        GranaryBinBlockEntity bin = fixture.bin(helper);
+        MinecraftServer server = fixture.level().getServer();
+        ServerPlayer owner = fixture.owner();
+        ServerPlayer guest = mockNamed(helper, "trust_guest_5");
+
+        helper.assertTrue(GranaryTrustService.check(server, bin, owner, "no_such_player_ever")
+                        == GranaryTrustService.Outcome.UNKNOWN_PLAYER,
+                "认不出的名字要预检成 UNKNOWN_PLAYER");
+        helper.assertTrue(GranaryTrustService.check(server, bin, owner, owner.getGameProfile().getName())
+                        == GranaryTrustService.Outcome.IS_OWNER,
+                "自己要被预检成 IS_OWNER");
+        helper.assertTrue(GranaryTrustService.check(server, bin, owner, guest.getGameProfile().getName())
+                        == GranaryTrustService.Outcome.ADDED,
+                "还没加过的人预检成 ADDED");
+
+        // 真加一次之后, 同一个名字的预检要变成"改权限"。
+        GranaryTrustService.apply(server, bin, owner, GranaryTrustService.Action.ADD,
+                guest.getGameProfile().getName(), GranaryAccess.Permission.STORE_ONLY);
+        helper.assertTrue(GranaryTrustService.check(server, bin, owner, guest.getGameProfile().getName())
+                        == GranaryTrustService.Outcome.UPDATED,
+                "已在名单里的人预检成 UPDATED");
+
+        // 陌生人预检一律 NOT_OWNER。
+        ServerPlayer stranger = mockNamed(helper, "trust_stranger_5");
+        helper.assertTrue(GranaryTrustService.check(server, bin, stranger, guest.getGameProfile().getName())
+                        == GranaryTrustService.Outcome.NOT_OWNER,
+                "不是囤主时预检成 NOT_OWNER");
+
+        // 两个包逐字还原。
+        GranaryTrustCheckC2S request = new GranaryTrustCheckC2S(4, "trust_guest_5");
+        FriendlyByteBuf buf = new FriendlyByteBuf(io.netty.buffer.Unpooled.buffer());
+        GranaryTrustCheckC2S.encode(request, buf);
+        helper.assertTrue(GranaryTrustCheckC2S.decode(buf).equals(request), "预检请求要逐字还原");
+        GranaryTrustCheckS2C response = new GranaryTrustCheckS2C(4,
+                GranaryTrustService.Outcome.UPDATED.translationKey(), "trust_guest_5");
+        FriendlyByteBuf out = new FriendlyByteBuf(io.netty.buffer.Unpooled.buffer());
+        GranaryTrustCheckS2C.encode(response, out);
+        helper.assertTrue(GranaryTrustCheckS2C.decode(out).equals(response), "预检回执要逐字还原");
         helper.succeed();
     }
 

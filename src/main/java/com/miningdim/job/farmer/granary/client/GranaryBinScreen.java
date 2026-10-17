@@ -6,6 +6,7 @@ import com.miningdim.job.farmer.granary.GranaryNetwork;
 import com.miningdim.job.farmer.granary.GranaryPublicActionC2S;
 import com.miningdim.job.farmer.granary.GranaryPublicService;
 import com.miningdim.job.farmer.granary.GranaryTrustActionC2S;
+import com.miningdim.job.farmer.granary.GranaryTrustCheckC2S;
 import com.miningdim.job.farmer.granary.GranaryTrustService;
 import com.miningdim.menu.AbstractMiningScreen;
 import net.minecraft.client.gui.GuiGraphics;
@@ -112,6 +113,7 @@ public final class GranaryBinScreen extends AbstractMiningScreen<GranaryBinMenu>
             // 底板先画: 控件是在 super.render 里画的, 底板画在它后面就会把按钮与输入框盖掉。
             drawPanelBackdrop(graphics);
         }
+        maybeCheckName();
         super.render(graphics, mouseX, mouseY, partialTick);
         if (panelOpen) {
             drawPanelText(graphics);
@@ -122,6 +124,18 @@ public final class GranaryBinScreen extends AbstractMiningScreen<GranaryBinMenu>
     private void drawPanelBackdrop(GuiGraphics graphics) {
         graphics.fill(leftPos + PANEL_X, topPos + PANEL_Y, leftPos + PANEL_X + PANEL_WIDTH,
                 topPos + PANEL_Y + PANEL_HEIGHT, 0xC0000000);
+    }
+
+    /** 输入框内容变了就发一次预检 (同一个名字不重复问)。 */
+    private void maybeCheckName() {
+        if (nameBox == null) {
+            return;
+        }
+        String name = nameBox.getValue().trim();
+        if (name.isEmpty() || name.equals(GranaryTrustClientState.checkName())) {
+            return;
+        }
+        GranaryNetwork.CHANNEL.sendToServer(new GranaryTrustCheckC2S(menu.containerId, name));
     }
 
     /** 翻一项公开模式 (份额不动, 只开/关)。 */
@@ -144,6 +158,12 @@ public final class GranaryBinScreen extends AbstractMiningScreen<GranaryBinMenu>
         if (!outcome.isEmpty()) {
             graphics.drawString(font, Component.translatable(outcome),
                     leftPos + PANEL_X + 4, topPos + PANEL_Y + 14, 0xFFFFD54F, false);
+        }
+        // 输入框预检的那一句 (名字认不出来 / 已在名单里 / 名单满了 / 那是你自己), 由服务端算好下发。
+        String checkKey = GranaryTrustClientState.checkKey();
+        if (!checkKey.isEmpty() && !GranaryTrustClientState.checkName().isEmpty()) {
+            graphics.drawString(font, Component.translatable(checkKey),
+                    leftPos + PANEL_X + 4, topPos + PANEL_Y + 60, 0xFF9CCC65, false);
         }
         // 公开模式的结果码 (同样是服务端给的; 没操作过 / 没收到过状态就不画)。
         if (GranaryPublicClientState.known() && !GranaryPublicClientState.outcomeKey().isEmpty()) {

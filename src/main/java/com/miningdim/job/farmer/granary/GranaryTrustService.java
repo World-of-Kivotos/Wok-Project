@@ -109,6 +109,34 @@ public final class GranaryTrustService {
     }
 
     /**
+     * 预检: 只回答"如果现在点一下会怎么样", **不动任何东西**。
+     *
+     * <p>界面用它给输入框一句提示 (名字认不出来 / 已在名单里 / 名单满了 / 那是你自己) —— 判定与
+     * {@link #apply} 共用同一份代码语义, 所以提示不会与真操作打架。</p>
+     */
+    public static Outcome check(MinecraftServer server, GranaryBinBlockEntity bin, ServerPlayer actor,
+                                String name) {
+        if (bin == null || actor == null) {
+            return Outcome.NOT_OWNER;
+        }
+        if (!actor.getUUID().equals(bin.owner())) {
+            return Outcome.NOT_OWNER;
+        }
+        Optional<UUID> target = resolve(server, name);
+        if (target.isEmpty()) {
+            return Outcome.UNKNOWN_PLAYER;
+        }
+        UUID uuid = target.get();
+        if (uuid.equals(bin.owner())) {
+            return Outcome.IS_OWNER;
+        }
+        if (GranaryAccess.permissionOf(bin.access(), uuid) != null) {
+            return Outcome.UPDATED;
+        }
+        return bin.access().size() >= GranaryAccess.MAX_TRUSTEES ? Outcome.FULL : Outcome.ADDED;
+    }
+
+    /**
      * 名字 -> UUID: **只认在线玩家** (与 {@code /granary trust <玩家>} 完全同口径 —— 命令侧要的就是一个在线
      * 选择器, 界面侧也就别再另发明一套"离线也算"的规矩)。
      *

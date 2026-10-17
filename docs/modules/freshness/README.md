@@ -9,7 +9,7 @@
 ④ 同种食物合并（核心 + 拾取入包 / 点击叠放 / 配方书追加三个入口）；
 ⑤ 开服标签自检 + 按小时统计环（保留 30 天）+ `/freshness` 命令。
 类别标签工程的第三方条目、Shift 快移的合并入口、
-FD 与 BnC/refurbished 兼容 mixin、物品栏保鲜条按设计文档后续切片推进。
+FD 与 BnC/refurbished 兼容 mixin 按设计文档后续切片推进。
 
 设计真源：[`../../Spoilage_Granary_DesignSpec.md`](../../Spoilage_Granary_DesignSpec.md)（14 项已按推荐拍板，
 2026-10-15；P0 环境核实记录在该文末）。
@@ -73,7 +73,7 @@ FD 与 BnC/refurbished 兼容 mixin、物品栏保鲜条按设计文档后续切
 
 ### Java 源码
 
-- `src/main/java/com/miningdim/freshness/`（49 个文件，含 `item/`、`mixin/` 两个子包与 11 个测试类）。
+- `src/main/java/com/miningdim/freshness/`（62 个文件，含 `item/`、`mixin/`、`client/` 三个子包与 12 个测试类）。
 
 ### 专属资源
 
@@ -105,7 +105,8 @@ FD 与 BnC/refurbished 兼容 mixin、物品栏保鲜条按设计文档后续切
 - 物品 tag：`miningdim:freshness/{fresh,produce,cooked,root,grain,preserved}`、`miningdim:freshness_exempt`。
 - mixin 配置名：`miningdim.freshness.mixins.json`（必需）、`miningdim.freshness.compat.mixins.json`（可选）；
   mixin 包：`com.miningdim.freshness.mixin`、`com.miningdim.freshness.mixin.compat`。
-- 配置文件：`miningdim-freshness.toml`；计划中的命令根 `/freshness`。
+- 配置文件：`miningdim-freshness.toml`（SERVER）、`miningdim-freshness-client.toml`（CLIENT，只影响显示）；
+  命令根 `/freshness`；网络 channel `miningdim:freshness`（协议版本 "1"，只有一个 S2C 同步包）。
 - 腐烂物物品 ID：`freshness_rot`。
 
 ## 4. 依赖登记
@@ -158,6 +159,12 @@ freshness/
   FreshnessMigrationHooks.java 四个迁移入口（开服、区块、实体、老玩家登录，全 HIGHEST）
   FreshnessRecipeFilter.java   压缩块拆回的判据（规则 1）与收集/重建/白名单/日志
   FreshnessRecipeFilterHooks.java  reload 与开服两个入口，把配方表整体换成筛过的副本
+  FreshnessShelfLives.java  六类保质期的唯一读取口（服务端读配置 / 客户端读同步值）
+  FreshnessSyncS2C.java     时钟与保质期的同步包（S2C）
+  FreshnessSync.java        登录推一次 + 每 600 tick 校准
+  FreshnessDisplay.java     条长 / 标签 / 档位（两端共用的纯算术）
+  FreshnessReminder.java    快捷栏提醒的冷却与「快烂了」判据
+  client/                   客户端六个类（缓存、客户端配置、装饰器、tooltip、action bar、装配）
   FreshnessProcessing.java  加工继承的纯策略（取最差、加热加成、封顶、下限、停表取大）
   FreshMerge.java           同种合并的纯核心（三条门槛 + 加权平均 + 配方书取最老）
   FreshnessHooks.java       mixin 适配层（薄）
@@ -180,7 +187,7 @@ freshness/
 
 ## 7. 验证清单
 
-当前十一个测试类共 68 条 GameTest：
+当前十二个测试类共 73 条 GameTest：
 
 - `FreshnessGameTests`（batch `freshness_foundation`，13 条）
   - 时钟：首次观察、正常前进、停服按整小时补偿、运行中跳变补「差值 − 1」、挂钟回跳只增不减、测试偏移入口钳负值。
@@ -218,7 +225,17 @@ freshness/
   - 判定与盖章：最少剩余与「最早腐烂时刻」都取最坏的那一层（没有烂层时是哨兵值，不是 0）；
     `stampDeep` 必须把章**写回容器 NBT**（`ItemStack.of` 读出来的是副本，只给副本盖章等于什么都没做），
     且对已有章的层幂等。
-- `FreshnessRecipeFilterGameTests`（batch `freshness_recipes`，4 条）
+- `FreshnessSyncGameTests`（batch `freshness_sync`，5 条）
+  - 载荷：包里的钟必须是服务端**此刻**的分钟序号、保质期必须是当下配置的六个值、档位必须是当下档位
+    （任意一项拿了旧值或常量，客户端就会一直画错的数）。
+  - 线格式：编码再解码逐字还原；越界保质期钳到 1..8760、档位越界按试运行算、长度不符退回出厂默认值
+    （网络来的东西一律当不可信）。
+  - 保质期读取口：写进同步值之后，`FreshnessCategories` 与 `FreshnessCheck`（消费点与客户端显示共用的那条路）
+    立刻按新值算；清掉之后回到兜底值（服务端即配置）。
+  - 显示算术：条长 = 剩余 ÷ 保质期（上限 1、烂了是 0、没有保质期不画）、标签 `rot` / `<1h` / `5h` / `2d`、
+    档位阈值 24 / 6 小时、不腐烂的东西是 UNTIMED 且不画。
+  - 提醒频率：第一次提醒、同一小时内不再提醒、满一小时可以再提醒；只提醒"还没烂、但一小时内会烂"的东西；
+    每 20 tick 扫一次。- `FreshnessRecipeFilterGameTests`（batch `freshness_recipes`，4 条）
   - 判据正反两侧：不腐烂的压缩块 → 9 件易腐品要删；产出 3 件、原料也会腐烂、产物不腐烂、两种原料、
     特殊配方（结果不随材料变化）一律不许动。
   - 收集与重建：白名单里的配方留着（整合包有正当的 1 料多产配方时靠它）；命中的从**新副本**里消失，

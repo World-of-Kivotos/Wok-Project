@@ -264,6 +264,43 @@ public final class GranaryPublicGameTests {
     }
 
     // ============================================================
+    // 6. 界面开关的线格式
+    // ============================================================
+
+    /** 两个包逐字还原; 越界动作/配额在解码处兜回安全值 (网络来的东西一律当不可信)。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void publicPacketsRoundTripAndClamp(GameTestHelper helper) {
+        GranaryPublicActionC2S request = new GranaryPublicActionC2S(9,
+                GranaryPublicService.Action.TAKE_ON.ordinal(), 3);
+        net.minecraft.network.FriendlyByteBuf buf =
+                new net.minecraft.network.FriendlyByteBuf(io.netty.buffer.Unpooled.buffer());
+        GranaryPublicActionC2S.encode(request, buf);
+        GranaryPublicActionC2S decoded = GranaryPublicActionC2S.decode(buf);
+        helper.assertTrue(decoded.windowId() == 9
+                        && decoded.action() == GranaryPublicService.Action.TAKE_ON.ordinal()
+                        && decoded.groups() == 3,
+                "请求包要逐字还原, 实得 " + decoded);
+
+        net.minecraft.network.FriendlyByteBuf hostile =
+                new net.minecraft.network.FriendlyByteBuf(io.netty.buffer.Unpooled.buffer());
+        hostile.writeVarInt(1);
+        hostile.writeVarInt(999);
+        hostile.writeVarInt(70);
+        GranaryPublicActionC2S clamped = GranaryPublicActionC2S.decode(hostile);
+        helper.assertTrue(clamped.action() == GranaryPublicService.Action.DONATE_OFF.ordinal()
+                        && clamped.groups() == GranaryPublic.MAX_GROUPS,
+                "越界动作与配额都要兜底, 实得 " + clamped);
+
+        GranaryPublicStateS2C state = new GranaryPublicStateS2C(9, "message.miningdim.granary.public.enabled",
+                true, 2, false, 1, true);
+        net.minecraft.network.FriendlyByteBuf out =
+                new net.minecraft.network.FriendlyByteBuf(io.netty.buffer.Unpooled.buffer());
+        GranaryPublicStateS2C.encode(state, out);
+        helper.assertTrue(GranaryPublicStateS2C.decode(out).equals(state), "状态包要逐字还原");
+        helper.succeed();
+    }
+
+    // ============================================================
     // 夹具
     // ============================================================
 

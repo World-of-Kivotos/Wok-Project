@@ -46,7 +46,11 @@ public final class GranaryPublicService {
         /** 这囤不是你的。 */
         NOT_OWNER,
         /** 这座粮仓不是官仓 (公开模式只有官仓有)。 */
-        NOT_STATE
+        NOT_STATE;
+
+        public String translationKey() {
+            return "message.miningdim.granary.public." + name().toLowerCase(java.util.Locale.ROOT);
+        }
     }
 
     /** 一次操作的完整回执 (结果码 + 操作后的设置)。 */

@@ -5,6 +5,7 @@ import com.miningdim.job.farmer.granary.GranaryBinMenu;
 import com.miningdim.job.farmer.granary.GranaryClock;
 import com.miningdim.job.farmer.granary.GranaryPending;
 import com.miningdim.job.farmer.granary.GranaryPublicService;
+import com.miningdim.job.farmer.granary.GranaryPublicStateS2C;
 import com.miningdim.job.farmer.granary.GranaryRecord;
 import com.miningdim.job.farmer.granary.GranarySavedData;
 import com.miningdim.job.farmer.granary.GranarySystem;
@@ -117,9 +118,11 @@ public final class GranaryBinBlock extends BaseEntityBlock {
         }
         bin.settleAll(GranaryClock.nowHour(level.getServer().overworld()));
         NetworkHooks.openScreen(serverPlayer, bin, buffer -> buffer.writeBlockPos(pos));
-        // 开界面就把当前开放名单推下去: 面板一展开看到的是真的那一份, 而不是"等囤主改一次才出现"。
+        // 开界面就把当前开放名单与公开模式的状态推下去: 面板一展开看到的是真的那一份, 而不是"等囤主改一次才出现"。
         if (serverPlayer.containerMenu instanceof GranaryBinMenu menu) {
             GranaryTrustStateS2C.send(serverPlayer, menu, null);
+            GranaryPublicStateS2C.send(serverPlayer, menu, null, bin.publicSettings(),
+                    GranaryPublicService.isStateGranary((ServerLevel) level, bin));
         }
         return InteractionResult.CONSUME;
     }

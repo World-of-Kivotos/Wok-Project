@@ -3,6 +3,8 @@ package com.miningdim.job.farmer.granary.client;
 import com.miningdim.job.farmer.granary.GranaryAccess;
 import com.miningdim.job.farmer.granary.GranaryBinMenu;
 import com.miningdim.job.farmer.granary.GranaryNetwork;
+import com.miningdim.job.farmer.granary.GranaryPublicActionC2S;
+import com.miningdim.job.farmer.granary.GranaryPublicService;
 import com.miningdim.job.farmer.granary.GranaryTrustActionC2S;
 import com.miningdim.job.farmer.granary.GranaryTrustService;
 import com.miningdim.menu.AbstractMiningScreen;
@@ -36,7 +38,7 @@ public final class GranaryBinScreen extends AbstractMiningScreen<GranaryBinMenu>
     private static final int PANEL_X = 8;
     private static final int PANEL_Y = 6;
     private static final int PANEL_WIDTH = 160;
-    private static final int PANEL_HEIGHT = 94;
+    private static final int PANEL_HEIGHT = 130;
 
     private boolean panelOpen;
     private EditBox nameBox;
@@ -52,6 +54,7 @@ public final class GranaryBinScreen extends AbstractMiningScreen<GranaryBinMenu>
         // 缓存只在"换了另一个囤的界面"时清: 窗口尺寸变化会重建控件, 那一下不该把刚收到的名单抹掉。
         if (GranaryTrustClientState.windowId() != menu.containerId) {
             GranaryTrustClientState.clear();
+            GranaryPublicClientState.clear();
         }
         openButton = this.addRenderableWidget(Button.builder(
                         Component.translatable("screen.miningdim.granary.access.toggle"), button -> {
@@ -76,6 +79,22 @@ public final class GranaryBinScreen extends AbstractMiningScreen<GranaryBinMenu>
             this.addRenderableWidget(Button.builder(Component.translatable("screen.miningdim.granary.access.private"),
                             button -> send(GranaryTrustService.Action.CLEAR, GranaryAccess.Permission.STORE_ONLY))
                     .bounds(leftPos + PANEL_X + 4, buttonY + 16, 60, 14).build());
+            // 官仓的公开模式: 两个开关 (份额用 /granary public 设, 开关在这里翻)。状态由服务端下发,
+            // 没收到过状态就不画, 免得画出一个假开关。
+            if (GranaryPublicClientState.known()) {
+                this.addRenderableWidget(Button.builder(publicLabel("screen.miningdim.granary.public.donate",
+                                GranaryPublicClientState.donate(), GranaryPublicClientState.donateGroups()),
+                                button -> sendPublic(GranaryPublicClientState.donate()
+                                        ? GranaryPublicService.Action.DONATE_OFF
+                                        : GranaryPublicService.Action.DONATE_ON))
+                        .bounds(leftPos + PANEL_X + 4, buttonY + 34, 110, 14).build());
+                this.addRenderableWidget(Button.builder(publicLabel("screen.miningdim.granary.public.take",
+                                GranaryPublicClientState.take(), GranaryPublicClientState.takeGroups()),
+                                button -> sendPublic(GranaryPublicClientState.take()
+                                        ? GranaryPublicService.Action.TAKE_OFF
+                                        : GranaryPublicService.Action.TAKE_ON))
+                        .bounds(leftPos + PANEL_X + 4, buttonY + 50, 110, 14).build());
+            }
         }
     }
 
@@ -105,6 +124,17 @@ public final class GranaryBinScreen extends AbstractMiningScreen<GranaryBinMenu>
                 topPos + PANEL_Y + PANEL_HEIGHT, 0xC0000000);
     }
 
+    /** 翻一项公开模式 (份额不动, 只开/关)。 */
+    private void sendPublic(GranaryPublicService.Action action) {
+        GranaryNetwork.CHANNEL.sendToServer(new GranaryPublicActionC2S(menu.containerId, action.ordinal(), 0));
+    }
+
+    /** 开关上的字: "公开捐粮: 开 (2 组/天)"。 */
+    private static Component publicLabel(String prefix, boolean on, int groups) {
+        return Component.translatable(prefix + (on ? ".on" : ".off"),
+                on ? groups : 0);
+    }
+
     /** 面板上的字: 标题 / 上一次操作的结果 / 当前名单 (全部来自服务端, 界面自己不算)。 */
     private void drawPanelText(GuiGraphics graphics) {
         graphics.drawString(font, Component.translatable("screen.miningdim.granary.access.title"),
@@ -114,6 +144,11 @@ public final class GranaryBinScreen extends AbstractMiningScreen<GranaryBinMenu>
         if (!outcome.isEmpty()) {
             graphics.drawString(font, Component.translatable(outcome),
                     leftPos + PANEL_X + 4, topPos + PANEL_Y + 14, 0xFFFFD54F, false);
+        }
+        // 公开模式的结果码 (同样是服务端给的; 没操作过 / 没收到过状态就不画)。
+        if (GranaryPublicClientState.known() && !GranaryPublicClientState.outcomeKey().isEmpty()) {
+            graphics.drawString(font, Component.translatable(GranaryPublicClientState.outcomeKey()),
+                    leftPos + PANEL_X + 4, topPos + PANEL_Y + 118, 0xFFFFD54F, false);
         }
         // 当前名单 (服务端发来的行) —— 面板就这么高, 只画前两行。
         int y = topPos + PANEL_Y + 24;

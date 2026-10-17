@@ -28,6 +28,33 @@ public final class FreshnessFdTargets {
     /** 喷一件物品: {@code void spawnItemEntity(Level, ItemStack, double×6)}。 */
     public static final String SPAWN_ITEM_ENTITY = "spawnItemEntity";
 
+    /** 煎锅的方块实体 (#12)。 */
+    public static final String SKILLET = "vectorwing.farmersdelight.common.block.entity.SkilletBlockEntity";
+
+    /** 煎锅出菜: {@code void cookAndOutputItems(ItemStack cookingStack, Level level)}。 */
+    public static final String SKILLET_COOK = "cookAndOutputItems";
+
+    /** 炉灶的方块实体 (#14)。 */
+    public static final String STOVE = "vectorwing.farmersdelight.common.block.entity.StoveBlockEntity";
+
+    /** 炉灶出菜: {@code void cookAndOutputItems()} (逐格, 无参)。 */
+    public static final String STOVE_COOK = "cookAndOutputItems";
+
+    /** 厨锅的方块实体 (#15)。 */
+    public static final String POT = "vectorwing.farmersdelight.common.block.entity.CookingPotBlockEntity";
+
+    /** 厨锅把做好的菜挪进输出格: {@code void moveMealToOutput()} (无参, 菜此刻在成品展示格里)。 */
+    public static final String POT_MOVE_MEAL = "moveMealToOutput";
+
+    /** 厨锅开始烹饪: {@code boolean processCooking(CookingPotRecipe, CookingPotBlockEntity)}。 */
+    public static final String POT_PROCESS = "processCooking";
+
+    /** 厨锅的成品展示格 (1.2.9: 6; 前 6 格是原料)。 */
+    public static final int POT_MEAL_SLOT = 6;
+
+    /** 厨锅的原料格数 (0..5)。 */
+    public static final int POT_INPUT_SLOTS = 6;
+
     private FreshnessFdTargets() {
     }
 }

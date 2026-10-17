@@ -7,7 +7,10 @@
   "plugin": "com.miningdim.freshness.FreshnessCompatMixinPlugin",
   "mixins": [
     "CuttingBoardMixin",
-    "ItemUtilsMixin"
+    "CookingPotMixin",
+    "ItemUtilsMixin",
+    "SkilletMixin",
+    "StoveMixin"
   ],
   "client": [],
   "server": [],

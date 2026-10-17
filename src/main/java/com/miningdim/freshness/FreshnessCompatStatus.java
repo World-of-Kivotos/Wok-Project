@@ -14,6 +14,15 @@ public final class FreshnessCompatStatus {
     /** FD 喷物品那一处 (按来源盖章)。 */
     public static final String ITEM_UTILS = "ItemUtilsMixin";
 
+    /** FD 煎锅出菜那一处。 */
+    public static final String SKILLET = "SkilletMixin";
+
+    /** FD 炉灶出菜那一处。 */
+    public static final String STOVE = "StoveMixin";
+
+    /** FD 厨锅那一处 (做好的菜按原料盖章 + 烂原料不开锅)。 */
+    public static final String POT = "CookingPotMixin";
+
     private FreshnessCompatStatus() {
     }
 

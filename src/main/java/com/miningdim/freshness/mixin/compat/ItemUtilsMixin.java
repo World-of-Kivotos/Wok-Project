@@ -2,7 +2,6 @@ package com.miningdim.freshness.mixin.compat;
 
 import com.miningdim.freshness.FreshnessClockData;
 import com.miningdim.freshness.FreshnessFdTargets;
-import com.miningdim.freshness.FreshnessProcessing;
 import com.miningdim.freshness.FreshnessSourceContext;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
@@ -30,7 +29,6 @@ public abstract class ItemUtilsMixin {
         if (!(level instanceof ServerLevel serverLevel)) {
             return;
         }
-        FreshnessSourceContext.inheritInto(stack, FreshnessProcessing.NO_BONUS,
-                FreshnessClockData.nowMinute(serverLevel));
+        FreshnessSourceContext.inheritInto(stack, FreshnessClockData.nowMinute(serverLevel));
     }
 }

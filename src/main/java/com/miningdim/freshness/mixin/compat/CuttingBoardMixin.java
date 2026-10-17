@@ -1,6 +1,7 @@
 package com.miningdim.freshness.mixin.compat;
 
 import com.miningdim.freshness.FreshnessFdTargets;
+import com.miningdim.freshness.FreshnessProcessing;
 import com.miningdim.freshness.FreshnessSourceContext;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -29,7 +30,7 @@ public abstract class CuttingBoardMixin {
     @Inject(method = FreshnessFdTargets.CUTTING_BOARD_PROCESS, at = @At("HEAD"), remap = false)
     private void miningdim$beginSourceContext(ItemStack tool, Player player,
                                               CallbackInfoReturnable<Boolean> callback) {
-        FreshnessSourceContext.begin(getStoredItem());
+        FreshnessSourceContext.begin(getStoredItem(), FreshnessProcessing.NO_BONUS);
     }
 
     @Inject(method = FreshnessFdTargets.CUTTING_BOARD_PROCESS, at = @At("RETURN"), remap = false)

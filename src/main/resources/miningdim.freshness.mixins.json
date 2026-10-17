@@ -9,7 +9,8 @@
     "AbstractFurnaceBlockEntityMixin",
     "HopperBlockEntityMixin",
     "InventoryMixin",
-    "ServerPlaceRecipeMixin"
+    "ServerPlaceRecipeMixin",
+    "AbstractContainerMenuMixin"
   ],
   "client": [],
   "server": [],

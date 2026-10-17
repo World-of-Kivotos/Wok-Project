@@ -146,6 +146,12 @@ public abstract class AbstractMiningMenu extends AbstractContainerMenu {
      */
     @Override
     protected boolean moveItemStackTo(ItemStack stack, int startIndex, int endIndex, boolean reverseDirection) {
+        // 同种食物的 Shift 快移合并 (Spoilage_Granary_DesignSpec mixin 清单 #9): 这一处整段重写了 vanilla, 所以
+        // 不走 mixin, 走核心自己的接缝 (默认不做事; 腐烂底座装配时把合并函数挂上来)。
+        Boolean merged = ShiftMergeHooks.tryMerge(this, stack, startIndex, endIndex, reverseDirection);
+        if (merged != null) {
+            return merged;
+        }
         boolean moved = false;
         int i = reverseDirection ? endIndex - 1 : startIndex;
 

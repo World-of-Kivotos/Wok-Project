@@ -168,11 +168,9 @@ public final class FreshnessObservation {
     }
 
     /** 白名单: 原版箱子 (含末影箱、9×1 到 9×6)、3×3 发射器、潜影盒、漏斗。 */
+    /** 白名单容器 (箱子 / 潜影盒 / 漏斗 / 发射器): 与 Shift 快移合并共用 {@link FreshnessContainers} 那一份判据。 */
     private static boolean whitelisted(AbstractContainerMenu menu) {
-        return menu instanceof ChestMenu
-                || menu instanceof ShulkerBoxMenu
-                || menu instanceof HopperMenu
-                || menu instanceof DispenserMenu;
+        return FreshnessContainers.isWhitelistedMenu(menu);
     }
 
     private static void giveOrDrop(ServerPlayer player, List<ItemStack> returns) {

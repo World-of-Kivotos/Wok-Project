@@ -67,6 +67,8 @@ public final class FreshnessModule implements Subsystem {
         forgeBus.addListener(FreshnessMigrationHooks::onPlayerLoggedIn);
 
         // 配方过滤: 压缩块拆回 (规则 1) 在每次数据包 reload 的 apply 阶段扫一遍合成配方。
+        // Shift 快移合并: 把合并函数挂到核心的接缝上 (主 MOD 那两处重写过的 moveItemStackTo 从那里回调)。
+        com.miningdim.menu.ShiftMergeHooks.register(FreshnessMergeHooks::mergeShiftMove);
         forgeBus.addListener(FreshnessRecipeFilterHooks::onAddReloadListener);
         forgeBus.addListener(FreshnessRecipeFilterHooks::onServerStarted);
         forgeBus.addListener(FreshnessCommands::register);
@@ -75,6 +77,8 @@ public final class FreshnessModule implements Subsystem {
         modBus.addListener(this::onRegisterItemDecorations);
         forgeBus.addListener(this::onClientSetup);
         forgeBus.addListener(this::onPlayerLoggedIn);
+        // Shift 快移合并: 把合并函数挂到核心的接缝上 (主 MOD 那两处重写过的 moveItemStackTo 从那里回调)。
+        com.miningdim.menu.ShiftMergeHooks.register(FreshnessMergeHooks::mergeShiftMove);
         forgeBus.addListener(FreshnessRecipeFilterHooks::onAddReloadListener);
         forgeBus.addListener(FreshnessRecipeFilterHooks::onServerStarted);
         LOGGER.info("[miningdim] {} registered (clock + item data + categories + rot item + 观察点; mixin 那批与粮仓在后续切片)",

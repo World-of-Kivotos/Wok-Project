@@ -2,6 +2,8 @@ package com.miningdim.freshness;
 
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.event.ItemStackedOnOtherEvent;
 
@@ -58,6 +60,43 @@ public final class FreshnessMergeHooks {
      * 点击叠放 (光标上的一堆点到格子里的一堆): 两堆只差新鲜度时自己写回两边并取消原版处理。
      * 原版只认「完全相同才叠」, 不拦的话玩家点一下会被拒 (或者叠不上)。
      */
+    /**
+     * Shift 快移的合并预跑 (规格 mixin 清单 #9 / {@code AbstractContainerMenu.moveItemStackTo}):
+     * 在 vanilla 搬东西**之前**, 先试着把整堆并进"只差新鲜度"的目标槽。
+     *
+     * 语义刻意与 vanilla 的合并阶段对齐:
+     * <ul>
+     *   <li>**整堆装得下才并** (与 {@link FreshMerge#prepareAppend} 同一条规矩): 装不下时 vanilla 只会搬一部分,
+     *       那部分跟着目标槽的老章走是保守方向, 不该被平均拉年轻 —— 于是这里也不插手, 交给 vanilla 的
+     *       "完全相同才叠" 与找空槽阶段;</li>
+     *   <li>只认白名单目标 ({@link FreshnessContainers#isMergeTarget}): 机器格子有自己的批次与事务规矩;</li>
+     *   <li>并成功了就返回 {@code true} (等价于"整堆搬完"), 由注入点直接结束 vanilla 那一段 —— 玩家按一次
+     *       Shift, 该见到的是东西已经进包了。</li>
+     * </ul>
+     *
+     * @return 真并了返回 {@link Boolean#TRUE}; 没插手返回 null (调用方继续走原版)
+     */
+    public static Boolean mergeShiftMove(AbstractContainerMenu menu, ItemStack stack,
+                                         int startIndex, int endIndex, boolean reverseDirection) {
+        if (menu == null || stack.isEmpty() || endIndex <= startIndex) {
+            return null;
+        }
+        int index = reverseDirection ? endIndex - 1 : startIndex;
+        while (reverseDirection ? index >= startIndex : index < endIndex) {
+            Slot slot = menu.slots.get(index);
+            if (FreshnessContainers.isMergeTarget(menu, slot) && slot.mayPlace(stack)) {
+                ItemStack target = slot.getItem();
+                if (FreshMerge.mergeInto(target, stack) > 0) {
+                    slot.set(target);
+                    slot.setChanged();
+                    menu.broadcastChanges();
+                    return Boolean.TRUE;
+                }
+            }
+            index += reverseDirection ? -1 : 1;
+        }
+        return null;
+    }
     public static void onStackedOnOther(ItemStackedOnOtherEvent event) {
         if (!(event.getPlayer() instanceof ServerPlayer player)) {
             return; // 客户端不算账, 一律以服务端结果为准

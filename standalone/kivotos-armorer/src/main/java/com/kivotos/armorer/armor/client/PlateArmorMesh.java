@@ -21,9 +21,9 @@ import java.util.Set;
  * 四个顶点各 x、y、z、u、v（部位局部坐标，单位为皮肤像素，y 朝下、正面为 -z；u、v 已除以贴图尺寸，落在 0 至 1，
  * v 朝下），最后是一条单位法线。手臂部位可以为空数组，body 必须非空（导出端遇到空 body 直接报错）。</p>
  *
- * <p>本类只依赖 Gson，不引用任何客户端类：GameTest 在专用服务端进程里会直接调用 {@link #parse} 校验打包进 JAR 的
- * 网格，保证客户端解析器与导出格式不会悄悄分叉。虽然放在 client 包里，也不要在这里引入 net.minecraft.client 下的类，
- * 否则服务端 GameTest 加载本类时会因分端剥离直接崩溃（clientMeshParserAcceptsEveryShippedMesh 会最先报出来）。</p>
+ * <p>本类只依赖 Gson，不引用任何 Minecraft 类：构建期任务 verifyPlateArmorMeshes（PlateArmorMeshVerifier）在游戏之外
+ * 的普通 JVM 里直接调用 {@link #parse} 校验打包进 JAR 的网格，保证客户端解析器与导出格式不会悄悄分叉。虽然放在
+ * client 包里，也不要在这里引入需要游戏运行时的类，否则那个校验任务加载本类时就会失败。</p>
  */
 public final class PlateArmorMesh {
 

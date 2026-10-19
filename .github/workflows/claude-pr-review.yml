@@ -203,6 +203,7 @@ jobs:
                - 每个修复闭环一个提交, 直接在当前 HEAD 上往后提交, 不 amend、不 rebase:
                  中文 Conventional Commits(例: fix(market): 修复挂单撤回时余额未退回), git add 只加本次改动的精确文件;
                  提交信息里不得出现 Co-Authored-By、Generated with 或任何 AI 署名。
+               - 改文件时写入被权限拒绝, 视同修复无法在 CI 里验证, 按下一条处理。
                - 质量门修不绿, 或修到一半发现需要拍板: 执行 git reset --hard ${{ github.event.pull_request.head.sha }}
                  丢弃你的全部修复(含已做的本地提交), 改走 C, 并在表里写明原先打算怎么修、卡在哪里。
                - 评论列出每条问题、对应提交的短哈希和跑过的质量门, 结尾 @${{ env.REVIEW_OWNER }} 请维护者看一眼, 没问题由维护者合并。
@@ -210,13 +211,14 @@ jobs:
                列为: 序号、类型(需拍板 / 可直接修)、严重度、位置、问题与证据、建议;
                结尾 @${{ env.REVIEW_OWNER }} 说明以上全部由维护者处理。
 
-            ## 五、交付物(后续步骤会机械校验, 缺一项整轮失败)
-            - build/claude-review/route: 只写一个大写字母 A、B 或 C。B 必须有提交, A 和 C 必须零提交。
-            - build/claude-review/comment.md: 评论正文。第一行写「Claude 审查(提交 <被审提交的短哈希>)」, 第二行写走的是 A、B 还是 C。
-            build/ 已被 .gitignore 忽略, 这两个文件不要提交。
+            ## 五、交付物
+            不要写任何交付文件, 用结构化输出返回(后续步骤会机械校验):
+            - route: A、B 或 C。B 必须有提交, A 和 C 必须零提交。
+            - comment: 评论正文(Markdown)。第一行写「Claude 审查(提交 <被审提交的短哈希>)」, 第二行写走的是 A、B 还是 C。
           claude_args: |
             --model opus
             --permission-mode acceptEdits
+            --json-schema '{"type":"object","properties":{"route":{"type":"string","enum":["A","B","C"]},"comment":{"type":"string","minLength":1}},"required":["route","comment"],"additionalProperties":false}'
             --allowedTools "Glob,Grep,LS,Read,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git reset --hard ${{ github.event.pull_request.head.sha }}),Bash(git add:*),Bash(git commit:*),Bash(bash ./gradlew:*),Bash(bash standalone/kivotos-armorer/gradlew:*),Bash(pnpm -C webui:*)"
 
       # action 默认只记录被拒次数, 不记录拒了什么; 这里把每次工具调用与被拒明细打进日志, 便于核对 Claude 做了什么。
@@ -240,8 +242,19 @@ jobs:
           PY
 
       - name: 校验并打包审查产出
+        env:
+          STRUCTURED: ${{ steps.claude.outputs.structured_output }}
         run: |
           out=build/claude-review
+          # 交付物走结构化输出: 写进被 .gitignore 忽略的 build/ 会被 Claude Code 的权限拒绝(第三轮冒烟实测), 由这里落盘。
+          python3 - <<'PY'
+          import json, os
+          data = json.loads(os.environ["STRUCTURED"])
+          with open("build/claude-review/route", "w", encoding="utf-8") as f:
+              f.write(data["route"])
+          with open("build/claude-review/comment.md", "w", encoding="utf-8") as f:
+              f.write(data["comment"])
+          PY
           test -s "$out/comment.md" || { echo "::error::Claude 没有写出评论文件 $out/comment.md"; exit 1; }
           route=$(tr -d '[:space:]' < "$out/route")
           case "$route" in A|B|C) ;; *) echo "::error::route 文件内容不是 A/B/C: '$route'"; exit 1 ;; esac

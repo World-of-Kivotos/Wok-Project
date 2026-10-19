@@ -13,9 +13,9 @@ import java.util.Set;
 /**
  * 一件插板护甲离线烘焙好的穿戴网格，对应 assets/kivotos_armorer/armor_meshes/plate_armor_&lt;id&gt;.json。
  *
- * <p>数据由 tools/plate_armor/export.mjs 从预览设计（armors/&lt;key&gt;.js 的 M 档）直接导出，游戏里看到的就是预览里
- * 看到的：每个四边形已经按原版 ModelPart.Polygon 的顶点顺序展开，旋转盒子的位置与法线也已离线算好，渲染时只做
- * 部位位姿变换，不再有任何几何推导。</p>
+ * <p>数据由 WOK 本体工程的 tools/plate_armor/export.mjs 从预览设计（armors/&lt;key&gt;.js 的 M 档）导出，
+ * 再原样同步到本子工程；本子工程不带导出器，网格与贴图只读，要改外观得回本体重导后再同步。每个四边形已经按原版
+ * ModelPart.Polygon 的顶点顺序展开，旋转盒子的位置与法线也已离线算好，渲染时只做部位位姿变换，不再有任何几何推导。</p>
  *
  * <p>每个部位的四边形连续压在一个 float 数组里，每个四边形 {@link #QUAD_FLOATS} 个数：
  * 四个顶点各 x、y、z、u、v（部位局部坐标，单位为皮肤像素，y 朝下、正面为 -z；u、v 已除以贴图尺寸，落在 0 至 1，

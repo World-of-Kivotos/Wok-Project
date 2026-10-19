@@ -129,6 +129,7 @@ jobs:
             > build/claude-review/pr.json
 
       - name: Claude 审查
+        id: claude
         uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515 # v1.0.245
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -217,6 +218,26 @@ jobs:
             --model opus
             --permission-mode acceptEdits
             --allowedTools "Glob,Grep,LS,Read,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git reset --hard ${{ github.event.pull_request.head.sha }}),Bash(git add:*),Bash(git commit:*),Bash(bash ./gradlew:*),Bash(bash standalone/kivotos-armorer/gradlew:*),Bash(pnpm -C webui:*)"
+
+      # action 默认只记录被拒次数, 不记录拒了什么; 这里把每次工具调用与被拒明细打进日志, 便于核对 Claude 做了什么。
+      # 只打印工具名与参数前 300 字, 不打印工具返回内容。
+      - name: 列出 Claude 的工具调用
+        if: always() && steps.claude.outputs.execution_file != ''
+        env:
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          messages = json.load(open(os.environ["EXEC_FILE"], encoding="utf-8"))
+          for message in messages:
+              if message.get("type") == "assistant":
+                  for block in message.get("message", {}).get("content", []):
+                      if block.get("type") == "tool_use":
+                          print("[tool]", block["name"], json.dumps(block.get("input"), ensure_ascii=False)[:300])
+              elif message.get("type") == "result":
+                  for denial in message.get("permission_denials") or []:
+                      print("[denied]", denial.get("tool_name"), json.dumps(denial.get("tool_input"), ensure_ascii=False)[:300])
+          PY
 
       - name: 校验并打包审查产出
         run: |

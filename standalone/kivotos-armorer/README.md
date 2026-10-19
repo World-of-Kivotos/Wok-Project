@@ -29,6 +29,10 @@
 
 成品位于 `build/libs/kivotos_armorer-1.20.1-1.1.0.jar`。
 
+`build` 会经 `check` 执行 `verifyPlateArmorMeshes`，在普通 JVM 里逐件校验打包的烘焙网格与穿戴贴图（结构、法线、
+部位锚点、贴图尺寸与不透明像素、客户端解析器能否接受），任一件违约即构建失败；同步本体美术后也可单独执行
+`./gradlew.bat verifyPlateArmorMeshes`。
+
 ## 接入别的项目
 
 最简单的方式是把成品 JAR 放进目标整合包的 `mods`。若目标也是 ForgeGradle 工程，可把 JAR 放进目标工程的
@@ -45,6 +49,11 @@
 - 美术同步 WOK 本体 `3d0c4b72`：新增 54 个 `armor_meshes/plate_armor_<id>.json`，替换 54 张
   `textures/models/armor/plate_armor_<id>_layer_1.png` 为逐面图集，并更新 3 个物品图标
   （`plate_armor_kirasa_n_green`、`plate_armor_tv115`、`plate_armor_6b5_15_flora`）与名称条目。
+- 观感变化：`6b45_general`、`6b45_medic`、`jaypc_olive`、`jaypc_black`、`mbss`、`paca`、`tv115` 这 7 件的旧模型
+  把肩带或护肩挂在手臂部位上，会随摆臂；新网格两臂为空，肩部结构改由躯干承载（6B45 两件、MBSS、TV115 伸出到躯干
+  两侧，JPC 两件与 PACA 收在躯干宽度内），走路摆臂时不再跟随手臂。这是本体重做的设计结果，不是同步遗漏。
+- 新增构建期任务 `verifyPlateArmorMeshes`（校验代码在 `src/verify`，不进 JAR），校验项与阈值取自本体
+  `3d0c4b72` 的网格契约用例。
 - 物品 ID、数值、配置、电浆护盾与 TaCZ 集成都未改动。
 
 ### 1.0.0

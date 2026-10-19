@@ -67,10 +67,9 @@ jobs:
 
       - name: 安装 Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        # 不开 pnpm 缓存: 多数 PR 不碰 webui, 没跑 pnpm install 时 setup-node 的收尾步骤会因缓存目录不存在而把整个 job 判红(第四轮冒烟实测)。
         with:
           node-version: '22'
-          cache: pnpm
-          cache-dependency-path: webui/pnpm-lock.yaml
 
       # libs/ 下的 TACZ、Champions、MCEF jar 不入库, 没有它们主工程编译不了。
       # 配了 WOK_LIBS_ARCHIVE_URL(一个只含这三个 jar 的 zip 的私有下载地址)才能在 CI 里编译和跑 GameTest;

@@ -23,6 +23,7 @@ import com.miningdim.achievement.trigger.QuestCompleteTrigger;
 import com.miningdim.achievement.trigger.SpouseTeleportTrigger;
 import com.miningdim.achievement.trigger.StatAtLeastTrigger;
 import com.miningdim.achievement.trigger.TarotPlayTrigger;
+import com.miningdim.achievement.trigger.TarotCodexTrigger;
 import com.miningdim.caseopening.CaseRarity;
 import com.miningdim.champion.AffixDef;
 import com.miningdim.core.Difficulty;
@@ -208,7 +209,7 @@ final class AchievementDeclarations {
     }
 
     /**
-     * 9.3 职业的 P2 部分, 17 条: 职业等级五条、农夫收获三条, 以及厨师、酿酒、塔罗、特勤、纳米板、弹药。钓鱼三条
+     * 9.3 职业的 P2 部分, 20 条: 职业等级五条、农夫收获三条, 以及厨师、酿酒、塔罗、特勤、纳米板、弹药。钓鱼三条
      * ({@code fishing_trophy}、{@code journal_50}、{@code journal_100}) 等渔夫模块的监听接口落地后再加。
      */
     private static List<AchievementDeclaration> p2Jobs() {
@@ -253,6 +254,18 @@ final class AchievementDeclarations {
                 .criterion("brewed", BrewCompleteTrigger.TriggerInstance.atLeast(WineQuality.BRILLIANT)).build());
         jobs.add(achievement("profession/first_tarot", BRONZE, "profession/root", modItem("tarot_pack_common"))
                 .criterion("played", TarotPlayTrigger.TriggerInstance.any()).build());
+        jobs.add(achievement(TarotCodexTrigger.Milestone.STARDUST.advancementId().getPath(), GOLD,
+                "profession/root", modItem("tarot_card"))
+                .criterion("collected", TarotCodexTrigger.TriggerInstance.of(TarotCodexTrigger.Milestone.STARDUST))
+                .build());
+        jobs.add(achievement(TarotCodexTrigger.Milestone.SHINING.advancementId().getPath(), PLATINUM,
+                "profession/root", modItem("tarot_card"))
+                .criterion("collected", TarotCodexTrigger.TriggerInstance.of(TarotCodexTrigger.Milestone.SHINING))
+                .build());
+        jobs.add(achievement(TarotCodexTrigger.Milestone.STARMASTER.advancementId().getPath(), LEGEND,
+                "profession/tarot_stardust", modItem("tarot_card"))
+                .criterion("collected", TarotCodexTrigger.TriggerInstance.of(TarotCodexTrigger.Milestone.STARMASTER))
+                .build());
         jobs.add(achievement("profession/agent_first_seal", SILVER, "profession/root", Items.CHAIN)
                 .criterion("sealed", AgentSealTrigger.TriggerInstance.any()).build());
         jobs.add(achievement("profession/first_nano_plate", BRONZE, "profession/root", modItem("nano_plate_low"))

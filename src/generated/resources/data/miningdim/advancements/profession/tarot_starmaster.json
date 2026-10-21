@@ -1,0 +1,54 @@
+{
+  "parent": "miningdim:profession/tarot_stardust",
+  "criteria": {
+    "collected": {
+      "conditions": {
+        "milestone": "starmaster"
+      },
+      "trigger": "miningdim:tarot_codex"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.profession.tarot_starmaster.desc"
+    },
+    "frame": "challenge",
+    "hidden": false,
+    "icon": {
+      "item": "miningdim:tarot_card"
+    },
+    "show_toast": true,
+    "title": {
+      "extra": [
+        {
+          "bold": true,
+          "color": "#FF3D3D",
+          "text": "星"
+        },
+        {
+          "bold": true,
+          "color": "#FF7029",
+          "text": "辰"
+        },
+        {
+          "bold": true,
+          "color": "#FFA22A",
+          "text": "之"
+        },
+        {
+          "bold": true,
+          "color": "#FFD23F",
+          "text": "主"
+        }
+      ],
+      "text": ""
+    }
+  },
+  "requirements": [
+    [
+      "collected"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

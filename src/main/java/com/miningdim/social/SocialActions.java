@@ -69,7 +69,9 @@ public final class SocialActions {
         return guard(() -> {
             SocialStore store = SocialService.store();
             SocialData.Profile self = store.touch(sender.getUUID(), sender.getName().getString());
-            // 开机前重算一次图鉴里程碑：登录补扫/配置开关变化/服务端刚启动都不会漏掉老玩家的解锁。
+            // /reload 后新加入的成就也能从持久图鉴静默补发，再核对皮肤奖励。
+            com.miningdim.core.AdvancementSilence.run(() ->
+                    com.miningdim.job.tarot.codex.TarotCodex.notifyChanged(sender));
             SocialCodexMilestones.apply(sender);
             com.miningdim.job.tarot.codex.TarotCodex.Summary codex =
                     com.miningdim.job.tarot.codex.TarotCodex.summary(sender);

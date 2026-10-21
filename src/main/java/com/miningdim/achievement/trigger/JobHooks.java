@@ -9,6 +9,7 @@ import com.miningdim.job.chef.ChefEvents;
 import com.miningdim.job.engineer.EngineerEvents;
 import com.miningdim.job.munitions.MunitionsEvents;
 import com.miningdim.job.tarot.TarotEvents;
+import com.miningdim.job.tarot.codex.TarotCodex;
 import com.miningdim.progression.ExperienceAward;
 import com.miningdim.progression.ExperienceServices;
 import com.miningdim.progression.IExperienceService;
@@ -76,6 +77,7 @@ public final class JobHooks {
                 guarded("brew_complete", brewer, () -> JobTriggers.BREW_COMPLETE.trigger(brewer, type, quality)));
         TarotEvents.addPlayListener((player, cardId, quality) ->
                 guarded("tarot_play", player, () -> JobTriggers.TAROT_PLAY.trigger(player, cardId, quality)));
+        TarotCodex.addListener(player -> guarded("tarot_codex", player, () -> checkTarotCodex(player)));
         AgentEvents.addSealListener((agent, star, affix, category) ->
                 guarded("agent_seal", agent, () -> JobTriggers.AGENT_SEAL.trigger(agent, star, affix, category)));
         EngineerEvents.addPlateListener((engineer, tier, plates) -> guarded("nano_plate_produced", engineer,
@@ -94,6 +96,11 @@ public final class JobHooks {
         Map<JobId, Integer> levels = new EnumMap<>(JobId.class);
         JOB_TRACKS.forEach((track, job) -> levels.put(job, experience.snapshot(player, track).level()));
         JobTriggers.JOB_LEVEL.trigger(player, levels);
+    }
+
+    /** 新获得与登录追溯共用同一份持久图鉴，成就条件不依赖当前背包。 */
+    public static void checkTarotCodex(ServerPlayer player) {
+        JobTriggers.TAROT_CODEX.trigger(player, TarotCodex.summary(player));
     }
 
     /** 一笔经验已经落到轨道: 农夫收获计数, 以及职业升级时的等级判定。 */

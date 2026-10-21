@@ -1,5 +1,7 @@
 package com.miningdim.social;
 
+import com.miningdim.achievement.trigger.TarotCodexTrigger.Milestone;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -7,8 +9,7 @@ import java.util.Optional;
  * 平板主题目录。主题的视觉参数在页面 CSS 里，服务端只保存 id 与解锁状态。
  *
  * <p>{@code unlockKey} 是成就系统的绑定键：为空表示默认主题；非空表示需要对应成就解锁。
- * 服务端始终是解锁状态的权威：三档塔罗皮肤（星屑 / 闪耀星辰 / 星辰之主）由塔罗图鉴里程碑经
- * {@link SocialService#unlockTheme(java.util.UUID, String)} 解锁，客户端没有任何写入入口。
+ * 服务端始终是解锁状态的权威：三档塔罗皮肤在本体对应成就完成后解锁，客户端没有任何写入入口。
  * {@code starlight} 仍保留给社交成就位。</p>
  */
 public final class SocialThemes {
@@ -41,9 +42,9 @@ public final class SocialThemes {
             new Theme("millennium", "千年 · 薄荷", "冷青与实验白", ""),
             new Theme("trinity", "圣三一 · 茶会", "奶油、玫瑰与金色边", ""),
             new Theme("starlight", "星光 · 夜航", "完成社交成就后解锁", "achievement.social.starlight"),
-            new Theme(STARDUST, "星屑", "静态星尘 · 烫金卡框", "achievement.tarot.stardust"),
-            new Theme(SHINING, "闪耀星辰", "星点呼吸 · 扫光 · 全息卡边", "achievement.tarot.shining"),
-            new Theme(STARMASTER, "星辰之主", "视差星图 · 翻牌 · 洗牌", "achievement.tarot.starmaster"));
+            new Theme(STARDUST, "星屑", "静态星尘 · 烫金卡框", Milestone.STARDUST.advancementId().toString()),
+            new Theme(SHINING, "闪耀星辰", "星点呼吸 · 扫光 · 全息卡边", Milestone.SHINING.advancementId().toString()),
+            new Theme(STARMASTER, "星辰之主", "视差星图 · 翻牌 · 洗牌", Milestone.STARMASTER.advancementId().toString()));
 
     private SocialThemes() {
     }

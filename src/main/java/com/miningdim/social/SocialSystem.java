@@ -16,8 +16,7 @@ public final class SocialSystem implements Subsystem {
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
         SocialActions.register();
-        // 图鉴里程碑 → 平板主题解锁（社交侧注册监听；塔罗侧不认识社交模块）。
-        SocialCodexMilestones.register();
+        SocialCodexMilestones.register(forgeBus);
         forgeBus.addListener(this::onServerStarted);
         forgeBus.addListener(this::onServerStopping);
         forgeBus.addListener(this::onLogin);
@@ -35,6 +34,7 @@ public final class SocialSystem implements Subsystem {
     private void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player && SocialService.isLoaded()) {
             SocialService.store().touch(player.getUUID(), player.getName().getString());
+            SocialCodexMilestones.apply(player);
         }
     }
 

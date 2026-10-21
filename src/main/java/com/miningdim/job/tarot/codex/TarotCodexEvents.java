@@ -1,5 +1,6 @@
 package com.miningdim.job.tarot.codex;
 
+import com.miningdim.core.AdvancementSilence;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -14,7 +15,7 @@ public final class TarotCodexEvents {
     @SubscribeEvent
     public void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            TarotCodex.scan(player);
+            AdvancementSilence.run(() -> TarotCodex.scan(player));
         }
     }
 

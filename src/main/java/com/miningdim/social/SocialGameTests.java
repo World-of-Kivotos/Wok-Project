@@ -1,11 +1,17 @@
 package com.miningdim.social;
 
+import com.miningdim.achievement.AchievementServices;
+import com.miningdim.achievement.reward.AchievementReward;
+import com.miningdim.achievement.trigger.AchievementBackfill;
+import com.miningdim.achievement.trigger.TarotCodexTrigger.Milestone;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.job.tarot.TarotArcana;
 import com.miningdim.job.tarot.TarotCardItem;
+import com.miningdim.job.tarot.TarotConfig;
 import com.miningdim.job.tarot.TarotQuality;
 import com.miningdim.job.tarot.TarotRegistry;
 import com.miningdim.job.tarot.codex.TarotCodex;
+import com.miningdim.job.tarot.codex.TarotCodexSavedData;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -192,17 +198,21 @@ public final class SocialGameTests {
                 SocialService.installForTests(store);
                 UUID id = player.getUUID();
                 store.touch(id, player.getName().getString());
+                int countBefore = AchievementServices.catalog().countEarned(player.getAdvancements());
                 for (int cardId = 0; cardId < TarotArcana.COUNT - 1; cardId++) {
                     TarotCodex.record(player, cardId, TarotQuality.R, true);
                 }
                 assertCode(helper, "THEME_LOCKED", () -> store.selectTheme(id, SocialThemes.STARDUST));
+                helper.assertTrue(!earned(player, Milestone.STARDUST), "21 arcana must not earn the formal achievement");
                 TarotCodex.record(player, TarotArcana.COUNT - 1, TarotQuality.R, true);
+                helper.assertTrue(earned(player, Milestone.STARDUST), "22 arcana must earn the formal achievement");
                 store.selectTheme(id, SocialThemes.STARDUST);
                 helper.assertTrue(SocialThemes.STARDUST.equals(store.theme(id)),
                         "the 22nd arcana must unlock stardust through the registered listener");
 
                 assertCode(helper, "THEME_LOCKED", () -> store.selectTheme(id, SocialThemes.SHINING));
                 TarotCodex.record(player, 0, TarotQuality.SHINY, true);
+                helper.assertTrue(earned(player, Milestone.SHINING), "a shiny form must earn the formal achievement");
                 store.selectTheme(id, SocialThemes.SHINING);
                 helper.assertTrue(SocialThemes.SHINING.equals(store.theme(id)),
                         "a shiny card must unlock shining through the registered listener");
@@ -218,8 +228,10 @@ public final class SocialGameTests {
                     }
                 }
                 helper.assertTrue(TarotCodex.summary(player).count() == 219, "one final form must remain");
+                helper.assertTrue(!earned(player, Milestone.STARMASTER), "219 forms must not earn the formal achievement");
                 assertCode(helper, "THEME_LOCKED", () -> store.selectTheme(id, SocialThemes.STARMASTER));
                 TarotCodex.record(player, TarotArcana.COUNT - 1, TarotQuality.SHINY, false);
+                helper.assertTrue(earned(player, Milestone.STARMASTER), "220 forms must earn the formal achievement");
                 store.selectTheme(id, SocialThemes.STARMASTER);
                 helper.assertTrue(SocialThemes.STARMASTER.equals(store.theme(id)),
                         "the 220th form must unlock starmaster through the registered listener");
@@ -228,6 +240,14 @@ public final class SocialGameTests {
                 helper.assertTrue(TarotCodex.summary(player).count() == 220
                                 && store.profile(id).unlockedThemes.size() == 3,
                         "duplicate records must preserve exactly 220 forms and three theme rewards");
+                TarotCodex.notifyChanged(player);
+                List<AchievementReward> pending = AchievementServices.rewards().pending(id);
+                helper.assertTrue(pending.size() == 3 && pending.stream().mapToInt(AchievementReward::points).sum() == 950,
+                        "three formal achievements must create exactly three pending rewards worth 950 points");
+                helper.assertTrue(AchievementServices.rewards().points(id).balance() == 0,
+                        "skins unlock on completion while points remain pending manual claim");
+                helper.assertTrue(AchievementServices.catalog().countEarned(player.getAdvancements()) == countBefore + 3,
+                        "all three tarot achievements must count in the main achievement catalogue");
             });
         } finally {
             SocialService.installForTests(previous);
@@ -249,8 +269,85 @@ public final class SocialGameTests {
             TarotCodex.scan(player);
             helper.assertTrue(TarotCodex.summary(player).count() == 0,
                     "creative inventory scanning must leave the codex empty");
+            for (Milestone milestone : Milestone.values()) {
+                helper.assertTrue(!earned(player, milestone), "creative acquisition must not earn " + milestone.id());
+            }
             helper.succeed();
         } finally {
+            MockGameTestPlayers.logout(player);
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void historicCodexRequiresFormalAchievementBeforeTheme(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
+        SocialStore previous = SocialService.store();
+        try {
+            withStore(helper, (store, dir) -> {
+                SocialService.installForTests(store);
+                store.touch(player.getUUID(), player.getName().getString());
+                // 模拟升级前已经落盘的图鉴，此时没有新获得事件。
+                TarotCodexSavedData.get(player.server).record(player.getUUID(), 0, TarotQuality.SHINY, true);
+                SocialCodexMilestones.apply(player);
+                helper.assertTrue(!earned(player, Milestone.SHINING), "raw historical bits alone must not award a skin");
+                assertCode(helper, "THEME_LOCKED", () -> store.selectTheme(player.getUUID(), SocialThemes.SHINING));
+                AchievementBackfill.runSilently(player);
+                AchievementBackfill.runSilently(player);
+                helper.assertTrue(earned(player, Milestone.SHINING), "login backfill must earn the formal achievement");
+                store.selectTheme(player.getUUID(), SocialThemes.SHINING);
+                helper.assertTrue(AchievementServices.rewards().pending(player.getUUID()).size() == 1,
+                        "repeated backfill must create only one pending reward");
+            });
+        } finally {
+            SocialService.installForTests(previous);
+            MockGameTestPlayers.logout(player);
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void earnedThemeReconcilesAfterSocialProfileCreation(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
+        SocialStore previous = SocialService.store();
+        try {
+            withStore(helper, (store, dir) -> {
+                SocialService.installForTests(store);
+                TarotCodex.record(player, 0, TarotQuality.SHINY, true);
+                helper.assertTrue(earned(player, Milestone.SHINING), "achievement must complete before a social profile exists");
+                helper.assertTrue(store.profile(player.getUUID()) == null, "achievement callback must not create a profile");
+                store.touch(player.getUUID(), player.getName().getString());
+                SocialCodexMilestones.apply(player);
+                store.selectTheme(player.getUUID(), SocialThemes.SHINING);
+                helper.assertTrue(SocialThemes.SHINING.equals(store.theme(player.getUUID())),
+                        "login reconciliation must unlock a theme earned before the profile existed");
+            });
+        } finally {
+            SocialService.installForTests(previous);
+            MockGameTestPlayers.logout(player);
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void themeSwitchDoesNotDisableFormalAchievements(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
+        SocialStore previous = SocialService.store();
+        boolean previousEnabled = TarotConfig.CODEX_UNLOCK_THEMES.get();
+        try {
+            withStore(helper, (store, dir) -> {
+                SocialService.installForTests(store);
+                store.touch(player.getUUID(), player.getName().getString());
+                TarotConfig.CODEX_UNLOCK_THEMES.set(false);
+                TarotCodex.record(player, 0, TarotQuality.SHINY, true);
+                helper.assertTrue(earned(player, Milestone.SHINING), "theme switch must not disable formal achievements");
+                assertCode(helper, "THEME_LOCKED", () -> store.selectTheme(player.getUUID(), SocialThemes.SHINING));
+                TarotConfig.CODEX_UNLOCK_THEMES.set(true);
+                SocialCodexMilestones.apply(player);
+                store.selectTheme(player.getUUID(), SocialThemes.SHINING);
+                helper.assertTrue(AchievementServices.rewards().pending(player.getUUID()).size() == 1,
+                        "enabling theme unlocks must not duplicate the achievement reward");
+            });
+        } finally {
+            TarotConfig.CODEX_UNLOCK_THEMES.set(previousEnabled);
+            SocialService.installForTests(previous);
             MockGameTestPlayers.logout(player);
         }
     }
@@ -295,6 +392,14 @@ public final class SocialGameTests {
             String huge = "data:image/jpeg;base64," + "A".repeat(7000);
             assertCode(helper, "IMAGE_TOO_LARGE", () -> store.postMoment(a, "Alpha", "with image", huge));
         });
+    }
+
+    private static boolean earned(ServerPlayer player, Milestone milestone) {
+        var advancement = player.server.getAdvancements().getAdvancement(milestone.advancementId());
+        if (advancement == null) {
+            throw new IllegalStateException("Missing formal tarot achievement " + milestone.advancementId());
+        }
+        return player.getAdvancements().getOrStartProgress(advancement).isDone();
     }
 
     private interface StoreAction {

@@ -1,6 +1,6 @@
 # 塔罗三档平板皮肤 · 实现说明
 
-> 适用：WOK 本体，modId `miningdim`。整合分支：`codex/tarot-social-integration`；工作区：
+> 适用：WOK 本体，modId `miningdim`。整合分支：`codex/tarot-social-pr`；工作区：
 > `D:\Wok\build\worktrees\tarot-social-integration`。原规格与成品位于 `G:\Wok\_tarot_skins`（v0.1）；
 > 页面样式、交互和图片已内联进社交平板，构建与运行不依赖该原型目录。
 
@@ -39,15 +39,24 @@
 
 补扫只补“当前看得到”的牌（背包 + 副手），已消耗掉的历史追不回；创造模式的开包、合成、兑换和补扫均不计入图鉴（避免测试污染）。
 
-### 2.3 里程碑 → 主题解锁（方向：社交 → 塔罗）
+### 2.3 里程碑 → 本体成就 → 主题解锁
 
-职业代码不反向依赖展示层：
+塔罗职业代码不反向依赖成就或展示层。图鉴里程碑先进入 WOK 本体成就目录，再由社交侧读取已完成的正式成就状态：
 
 - `TarotCodex.addListener(MilestoneListener)`：点亮新形态 / 补扫结束后回调，异常只记日志。
-- `com.miningdim.social.SocialCodexMilestones`：社交侧注册监听，命中三条里程碑就调
-  `SocialStore.unlockTheme`（内部 `contains` 判重，幂等）；玩家档案不存在时跳过（不代建档案）。
-- 开关：`miningdim-tarot.toml` → `codex.codexUnlockThemes`（默认 true）。
-- 兜底：`social.bootstrap` 每次开机前重算一次里程碑，登录补扫/配置变更/老玩家都能补上。
+- `JobHooks` 订阅 `TarotCodex`，按 `milestone` 必填且仅允许 `stardust` / `shining` / `starmaster` 的 `JobTriggers.TAROT_CODEX` 触发对应 advancement。三条正式 id 分别为 `miningdim:profession/tarot_stardust`、`miningdim:profession/tarot_shining`、`miningdim:profession/tarot_starmaster`。
+- 原版 advancement 完成后由 `AdvancementEarnEvent` 接入 `AchievementRewardSystem`，按成就系统的快照和去重规则生成待领取奖励；成就点仍需玩家手动领取。
+- 社交侧通过完成状态同步解锁皮肤，调用 `SocialStore.unlockTheme`（内部 `contains` 判重，幂等）；玩家档案不存在时跳过，不代建档案。`SocialThemes.unlockKey` 保存完整 advancement id。
+- `miningdim-tarot.toml` → `codex.codexUnlockThemes`（默认 true）只控制皮肤解锁，不控制三条正式成就。
+- `social.bootstrap` 每次开机前重算一次，登录补扫、配置变更和老玩家都能补对皮肤状态；成就追溯由 `AchievementBackfill` 负责。
+
+| 正式成就 id | 名称 | 本体成就档位 | 默认待领取积分 | 解锁皮肤 |
+|---|---|---|---|---|
+| `miningdim:profession/tarot_stardust` | 星屑 | 金 | 50 | `stardust` |
+| `miningdim:profession/tarot_shining` | 闪耀星辰 | 白金 | 100 | `shining` |
+| `miningdim:profession/tarot_starmaster` | 星辰之主 | 传说 | 800 | `starmaster` |
+
+三条声明与配套元数据由本体 `AchievementDeclarations` 同时生成。皮肤达成即解锁，无需先领取积分；积分沿用本体手动领取规则。前两条各自挂在职业根节点，第三条挂在星屑之下，获得闪耀不要求先集齐 22 张。
 
 ### 2.4 下发（`social.bootstrap`）
 
@@ -55,7 +64,7 @@
 
 ```json
 { "id": "starmaster", "name": "星辰之主", "subtitle": "视差星图 · 翻牌 · 洗牌",
-  "unlockKey": "achievement.tarot.starmaster", "unlocked": false,
+  "unlockKey": "miningdim:profession/tarot_starmaster", "unlocked": false,
   "progress": { "now": 137, "max": 220, "percent": 62, "label": "137 / 220" } }
 ```
 
@@ -108,11 +117,16 @@
 | 三档主题在册、默认锁定、`unlockTheme` 幂等、进度边界 | `SocialGameTests` 新增 2 项 |
 | 真实记录触发三档解锁、21/22 与 219/220 门槛、重复记录 | `SocialGameTests.codexRecordsUnlockAllThreeTabletThemes` 通过 |
 | 创造模式直接获取、产物记录和背包补扫 | `SocialGameTests.creativeAcquisitionDoesNotRecordCodex` 通过，图鉴保持 0 |
-| 本次全量回归（2026-10-21） | 日志明确出现 `All 2117 required tests passed` |
+| 首次皮肤整合的历史全量记录（2026-10-21） | 当时日志曾出现 `All 2117 required tests passed` |
+| 正式接入本体成就后的全量回归（2026-10-21） | 日志明确出现 `All 2120 required tests passed` |
+| 正式成就、数量统计、950 点待领取奖励与即时皮肤 | `codexRecordsUnlockAllThreeTabletThemes` 通过，重复通知仍只有三条奖励 |
+| 历史图鉴补发、社交档案稍后建立、配置开关恢复 | 三项新增服务端用例通过；不通过图鉴状态直接解锁皮肤 |
 | 编译、数据生成、模块边界、生产 JAR | `compileJava`、`runData`、`verifyModuleBoundaries`、`jarJar` 与 `reobfJarJar` 通过 |
 | 成品同步与脚本语法 | 三档 CSS 与原成品一致；全部内联 JS 解析通过；图片占位符已替换 |
 | 三档 + 选择器 + 翻牌/洗牌/点星座的视觉 | Chromium 116 渲染截图（`_tarot_skins/prod/shots/`） |
-| 解锁链路 | 服务端权威：`social.bootstrap` 前重算 + 里程碑回调，客户端无写入口 |
+| 解锁链路 | 服务端权威：图鉴触发正式成就，成就完成事件及登录/开机同步解锁；客户端无写入口 |
+
+本轮重新验证了正式成就定义、元数据、条件 JSON 往返与非法条件拒收，以及成就到皮肤奖励的完整链路。实机 MCEF 画面不在本轮服务端回归结论内。
 
 ## 5. 未完成 / 风险
 
@@ -125,8 +139,11 @@
 ## 6. 整合交付（2026-10-21）
 
 - 在已有社交平板与最新主线合并态上，收口三档主题、图鉴持久化、主题解锁与进度回包；保留平板开合动画、相机及原有五个主题。
-- 模块登记表将社交平板的源码、页面、设备贴图和动画声音登记为 `wok-social`，依赖 `wok-job-tarot`，MCEF 仍是可选客户端集成。
+- 模块登记表将社交平板的源码、页面、设备贴图和动画声音登记为 `wok-social`，依赖 `wok-achievement` 与 `wok-job-tarot`，MCEF 仍是可选客户端集成。
 - 修正统一记录入口遗漏的创造模式限制，并新增两项真实服务端链路用例。原始工作区和根目录其他未提交改动未覆盖。
+- 保留旧图鉴数据与已解锁皮肤存档，不删除或重置既有玩家状态。
+- 本轮将三档正式注册至本体 `wok-achievement`，并提交生成的三份进度 JSON 与三份元数据 JSON；完整回归 2120 项通过。
+- 本会话未提供 Context7，Forge/Minecraft 接口按项目锁定的 1.20.1-47.3.0 依赖源码与字节码签名核对。
 - 分发产物：`D:\Wok\dist\tarot-social-integration\miningdim-1.20.1-1.0.33-all.jar`。该文件是 WOK 本体整合 JAR，包含 SQLite 驱动；不是步战附属 MOD。
 - 本机 JDK 17.0.19 的 Unix socket 临时路径需要设为短路径。验证时仅对当前构建进程设置 `JAVA_TOOL_OPTIONS=-Djdk.net.unixdomain.tmpdir=D:\Wok\tmp`，未修改工程构建配置。
 - 本次未重做实机 MCEF 画面验收；第 5 节的首帧问题继续保留，不能将服务端全绿等同于客户端视觉验收通过。

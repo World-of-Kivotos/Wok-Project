@@ -24,6 +24,13 @@ public final class TarotConfig {
      */
     public static final ForgeConfigSpec.BooleanValue TEST_MODE;
 
+    // ---- 图鉴 → 平板皮肤联动 ----
+    /**
+     * 图鉴里程碑是否解锁平板主题（星屑 / 闪耀星辰 / 星辰之主）。默认 true；置 false 时只记录图鉴、不解锁主题，
+     * 方便单独验证图鉴或活动期临时关闭联动。
+     */
+    public static final ForgeConfigSpec.BooleanValue CODEX_UNLOCK_THEMES;
+
     // ---- 用牌冷却 (spec 9.5) ----
     /** 全局 GCD (ticks); 1.5s = 30 ticks。 */
     public static final ForgeConfigSpec.IntValue GCD_TICKS;
@@ -92,6 +99,11 @@ public final class TarotConfig {
         b.push("testing");
         TEST_MODE = b.comment("Testing only: bypass card gates/consumption/XP; tarot pack purchases are free and ignore the daily purchase limit")
                 .define("testMode", false);
+        b.pop();
+
+        b.push("codex");
+        CODEX_UNLOCK_THEMES = b.comment("Unlock tablet themes (stardust / shining / starmaster) from tarot codex milestones")
+                .define("codexUnlockThemes", true);
         b.pop();
 
         b.push("cooldown");

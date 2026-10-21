@@ -26,6 +26,13 @@ public final class MiningClientConfig {
     public static final ForgeConfigSpec.IntValue WEBUI_COVERAGE_PERCENT;
     public static final ForgeConfigSpec.IntValue WEBUI_MAX_RENDER_WIDTH;
 
+    /** 社交平板掏/收动画：full = 完整 3D；quick = 80ms 快开；off = 不播动画。 */
+    public static final ForgeConfigSpec.ConfigValue<String> SOCIAL_TABLET_ANIMATION;
+    /** 掏/收平板的音效。 */
+    public static final ForgeConfigSpec.BooleanValue SOCIAL_TABLET_SOUNDS;
+    /** 掏平板的手：glove = 白手套；skin = 玩家自己的皮肤手臂。 */
+    public static final ForgeConfigSpec.ConfigValue<String> SOCIAL_TABLET_HANDS;
+
     /** 16.5 client.dangerVisualMode 枚举。 */
     public enum DangerVisualMode {
         OFF,
@@ -88,6 +95,18 @@ public final class MiningClientConfig {
                                 + "compensated so the CSS viewport and layout stay identical) to cut CEF's CPU raster "
                                 + "cost. Lower = smoother in-page animation, blurrier text")
                 .defineInRange("maxRenderWidth", 1600, 320, 7680);
+        b.pop();
+
+        b.push("social");
+        SOCIAL_TABLET_ANIMATION = b.comment(
+                        "Tablet take-out / put-away animation: full (3D tablet and gloved hands), "
+                                + "quick (80 ms) or off (open the page directly)")
+                .define("tabletAnimation", "full");
+        SOCIAL_TABLET_SOUNDS = b.comment("Play the tablet take-out / put-away sounds")
+                .define("tabletSounds", true);
+        SOCIAL_TABLET_HANDS = b.comment(
+                        "Hands in the tablet take-out animation: glove (white gloves) or skin (the player's own skin arm)")
+                .define("tabletHands", "glove");
         b.pop();
 
         SPEC = b.build();

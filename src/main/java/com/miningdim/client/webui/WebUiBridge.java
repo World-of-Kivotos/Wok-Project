@@ -230,8 +230,35 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
             callback.success("{\"closed\":true}");
             return;
         }
+        if ("client.openingDone".equals(action)) {
+            WebUiClient.markSocialOpeningDone();
+            callback.success("{\"done\":true}");
+            return;
+        }
         if ("client.textFocus".equals(action)) {
             handleTextFocus(payloadJson, callback);
+            return;
+        }
+        if ("client.openTextInput".equals(action)) {
+            handleOpenTextInput(payloadJson, callback);
+            return;
+        }
+        if ("client.capturePhoto".equals(action)) {
+            if (!(Minecraft.getInstance().screen instanceof WebUiScreen)) {
+                callback.failure(-1, "社交平板当前未打开");
+                return;
+            }
+            Minecraft.getInstance().execute(WebUiClient::captureSocialPhoto);
+            callback.success("{\"capturing\":true}");
+            return;
+        }
+        if ("client.openCamera".equals(action)) {
+            if (!(Minecraft.getInstance().screen instanceof WebUiScreen)) {
+                callback.failure(-1, "社交平板当前未打开");
+                return;
+            }
+            Minecraft.getInstance().execute(WebUiClient::openSocialCamera);
+            callback.success("{\"camera\":true}");
             return;
         }
         if ("client.display.get".equals(action)) {
@@ -327,6 +354,33 @@ public final class WebUiBridge extends CefMessageRouterHandlerAdapter {
             callback.success("{\"ok\":true}");
         } catch (RuntimeException e) {
             callback.failure(-1, "client.textFocus failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 页面里的 input/textarea 在 MCEF 里收不到可靠的中文 IME 组字，统一转成宿主底部的原生 EditBox。
+     * 提交后由 {@link WebUiScreen} 调 window.miningdimSubmitField(fieldId,text) 回填页面。
+     */
+    private void handleOpenTextInput(String payloadJson, CefQueryCallback callback) {
+        try {
+            JsonObject payload = JsonParser.parseString(payloadJson).getAsJsonObject();
+            String fieldId = payload.get("fieldId").getAsString();
+            String initial = payload.has("initial") ? payload.get("initial").getAsString() : "";
+            String placeholder = payload.has("placeholder") ? payload.get("placeholder").getAsString() : "";
+            int maxLength = payload.has("maxLength") ? payload.get("maxLength").getAsInt() : 200;
+            Minecraft mc = Minecraft.getInstance();
+            if (!(mc.screen instanceof WebUiScreen)) {
+                callback.failure(-1, "社交平板当前未打开");
+                return;
+            }
+            mc.execute(() -> {
+                if (Minecraft.getInstance().screen instanceof WebUiScreen screen) {
+                    screen.beginTextInput(fieldId, initial, placeholder, maxLength);
+                }
+            });
+            callback.success("{\"opened\":true}");
+        } catch (RuntimeException e) {
+            callback.failure(-1, "client.openTextInput failed: " + e.getMessage());
         }
     }
 

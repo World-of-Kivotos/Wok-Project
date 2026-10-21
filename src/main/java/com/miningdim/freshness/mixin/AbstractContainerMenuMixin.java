@@ -23,6 +23,17 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(AbstractContainerMenu.class)
 public abstract class AbstractContainerMenuMixin {
 
+    @Inject(method = "clicked", at = @At("HEAD"), cancellable = true)
+    private void freshness$revalidateCrafting(int slot, int button, net.minecraft.world.inventory.ClickType type,
+                                             net.minecraft.world.entity.player.Player player,
+                                             org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
+        if (com.miningdim.freshness.FreshnessHooks.revalidateCrafting(
+                (AbstractContainerMenu) (Object) this, player)) {
+            ci.cancel();
+        }
+    }
+
+
     @Inject(method = "moveItemStackTo", at = @At("HEAD"), cancellable = true)
     private void freshness$mergeShiftMove(ItemStack stack, int startIndex, int endIndex, boolean reverseDirection,
                                           CallbackInfoReturnable<Boolean> cir) {

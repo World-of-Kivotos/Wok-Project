@@ -28,7 +28,7 @@ public abstract class CraftingMenuMixin {
     private static void freshness$refuseRottenIngredients(AbstractContainerMenu menu, Level level, Player player,
                                                           CraftingContainer craftSlots, ResultContainer resultSlots,
                                                           CallbackInfo ci) {
-        if (FreshnessHooks.clearCraftingResultIfRotten(craftSlots, resultSlots, level)) {
+        if (FreshnessHooks.clearCraftingResultIfRotten(craftSlots, resultSlots, level, player)) {
             ci.cancel();
         }
     }

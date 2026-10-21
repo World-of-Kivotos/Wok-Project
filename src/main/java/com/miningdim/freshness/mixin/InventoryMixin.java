@@ -1,6 +1,9 @@
 package com.miningdim.freshness.mixin;
 
 import com.miningdim.freshness.FreshnessMergeHooks;
+import com.miningdim.freshness.FreshnessConfig;
+import com.miningdim.freshness.FreshnessClockData;
+import com.miningdim.freshness.FreshnessSourceContext;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import org.spongepowered.asm.mixin.Mixin;
@@ -23,6 +26,18 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  */
 @Mixin(Inventory.class)
 public abstract class InventoryMixin {
+
+    @org.spongepowered.asm.mixin.Shadow
+    @org.spongepowered.asm.mixin.Final
+    public net.minecraft.world.entity.player.Player player;
+
+    @Inject(method = "add(ILnet/minecraft/world/item/ItemStack;)Z", at = @At("HEAD"))
+    private void freshness$inheritServedPortion(int index, ItemStack stack, CallbackInfoReturnable<Boolean> cir) {
+        if (FreshnessConfig.stampingEnabled() && player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+            FreshnessSourceContext.inheritInto(stack, FreshnessClockData.nowMinute(serverPlayer.serverLevel()));
+        }
+    }
+
 
     @Inject(method = "findSlotMatchingUnusedItem", at = @At("HEAD"), cancellable = true)
     private void freshness$findMergeableSlot(ItemStack stack, CallbackInfoReturnable<Integer> cir) {

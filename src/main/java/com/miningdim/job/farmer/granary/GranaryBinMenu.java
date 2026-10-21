@@ -1,6 +1,6 @@
 package com.miningdim.job.farmer.granary;
 
-import com.miningdim.freshness.FreshnessData;
+import com.miningdim.freshness.FreshnessClockData;
 import com.miningdim.job.farmer.granary.block.GranaryBinBlockEntity;
 import com.miningdim.menu.AbstractMiningMenu;
 import com.miningdim.menu.MenuValidity;
@@ -10,8 +10,13 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.ContainerLevelAccess;
+import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.List;
 
 /**
  * 储粮囤的 27 格界面 (Spoilage_Granary_DesignSpec「界面」: 「储粮囤本身右键打开是 27 格界面加开放设置页」)。
@@ -29,6 +34,8 @@ import net.minecraft.world.item.ItemStack;
  */
 public final class GranaryBinMenu extends AbstractMiningMenu {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/granary");
+
     /** 容器槽数 (与囤的格数一致)。 */
     public static final int CONTAINER_SLOTS = GranaryConstants.BIN_SLOTS;
 
@@ -45,6 +52,7 @@ public final class GranaryBinMenu extends AbstractMiningMenu {
     private final Player viewer;
     /** 上一次结算到的小时 (0 = 还没结算过); 只在小时变了之后真结算。 */
     private long lastSettleHour;
+    private boolean trackingClick;
 
     /** 服务端构造 (方块实体自己实现 MenuProvider, 直接传引用)。 */
     public GranaryBinMenu(int windowId, Inventory playerInv, GranaryBinBlockEntity be) {
@@ -79,24 +87,26 @@ public final class GranaryBinMenu extends AbstractMiningMenu {
                 this.addSlot(new Slot(be, index, x, y) {
                     @Override
                     public boolean mayPlace(ItemStack stack) {
-                        // 开服迁移的老货不能进仓 (规格「开服迁移」): 它们的停表额度已经记满, 进仓再停表等于白送额度。
-                        // 一并放在这里, 是为了让界面与「一键存入」给出同一个答案 (那条路在 GranaryDeposit 里跳过并点名)。
-                        if (mayStore()) {
-                            return !FreshnessData.isMigrated(stack);
+                        ServerLevel level = serverLevel();
+                        if (level == null || !GranaryAdmission.accepts(level, blockEntity, viewer, stack,
+                                FreshnessClockData.nowMinute(level))) {
+                            return false;
                         }
-                        // 官仓的公开捐粮: 陌生人也能放, 但只收未腐烂的易腐食物, 且今天还有配额。
-                        return publicDonationAllows(stack);
+                        ItemStack existing = blockEntity.getItem(index);
+                        if (!existing.isEmpty() && ItemStack.isSameItemSameTags(existing, stack)) {
+                            return blockEntity.entryHour(index) == FreshnessClockData.nowMinute(level) / 60L;
+                        }
+                        return true;
                     }
 
                     @Override
                     public void set(ItemStack stack) {
-                        // 放进来了: 记流水; 若这一趟走的是公开捐粮, 再记一组配额 (一次整堆, 见 GranaryPublic)。
                         boolean publicDonation = !mayStore();
-                        int before = getItem().getCount();
+                        boolean publicTake = !mayTake();
+                        ItemStack before = getItem().copy();
                         super.set(stack);
-                        int added = getItem().getCount() - before;
-                        if (added > 0) {
-                            recordStored(publicDonation, getItem(), added);
+                        if (!trackingClick) {
+                            recordSlotChange(publicDonation, publicTake, before, getItem());
                         }
                     }
 
@@ -107,10 +117,10 @@ public final class GranaryBinMenu extends AbstractMiningMenu {
 
                     @Override
                     public void onTake(Player player, ItemStack stack) {
-                        // 拿走了: 记流水; 公开取用再记一组配额。
-                        boolean publicTake = !mayTake();
                         super.onTake(player, stack);
-                        recordTaken(publicTake, stack);
+                        if (!trackingClick) {
+                            recordTaken(!mayTake(), stack);
+                        }
                     }
                 });
             }
@@ -124,29 +134,14 @@ public final class GranaryBinMenu extends AbstractMiningMenu {
 
     /** 这位玩家现在能不能往这个囤里放 (现算: 名单改了立刻生效)。 */
     public boolean mayStore() {
-        return GranaryAccess.mayStore(blockEntity.owner(), blockEntity.access(), viewer.getUUID());
+        return GranaryAccess.mayStore(blockEntity.owner(), blockEntity.access(), viewer.getUUID())
+                || GranaryAdmission.isOperator(viewer);
     }
 
     /** 这位玩家现在能不能从这个囤里拿。 */
     public boolean mayTake() {
-        return GranaryAccess.mayTake(blockEntity.owner(), blockEntity.access(), viewer.getUUID());
-    }
-
-    /**
-     * 官仓的公开捐粮: 这个人今天能不能靠它往这个囤里放。
-     *
-     * <p>判定全在 {@link GranaryPublicService} 一处 (与「一键存入」共用), 这里只负责把「服务端才知道的
-     * 东西」(挂钟、档位、账本) 挡在客户端之外: 客户端一律返回 false, 由服务端的槽更新纠正显示 ——
-     * 客户端手里的区块实体没有名单、也没有账本, 自己算只会算出一个错的答案。</p>
-     */
-    private boolean publicDonationAllows(ItemStack stack) {
-        ServerLevel level = serverLevel();
-        if (level == null || !(viewer instanceof ServerPlayer serverPlayer)) {
-            return false;
-        }
-        long nowMinute = GranaryPublicService.nowMinute(level);
-        return GranaryPublicService.mayDonate(level, blockEntity, serverPlayer, nowMinute)
-                && GranaryPublicService.donatable(stack, nowMinute);
+        return GranaryAccess.mayTake(blockEntity.owner(), blockEntity.access(), viewer.getUUID())
+                || GranaryAdmission.isOperator(viewer);
     }
 
     /** 官仓的公开取用: 这个人今天还能不能从这个囤里拿。 */
@@ -175,6 +170,11 @@ public final class GranaryBinMenu extends AbstractMiningMenu {
         }
         GranaryJournal.record(level, blockEntity.getBlockPos(), serverPlayer.getUUID(),
                 publicDonation ? GranaryJournal.Kind.DONATE : GranaryJournal.Kind.STORE, stack, count);
+        if (GranaryAdmission.isOperator(serverPlayer)) {
+            LOGGER.info("granary bin at {} in {} operator {} stored {} of {}",
+                    blockEntity.getBlockPos(), level.dimension().location(), serverPlayer.getGameProfile().getName(),
+                    count, stack.getHoverName().getString());
+        }
     }
 
     /** 记账: 流水 + 公开取用的一组配额。 */
@@ -190,6 +190,11 @@ public final class GranaryBinMenu extends AbstractMiningMenu {
         GranaryJournal.record(level, blockEntity.getBlockPos(), serverPlayer.getUUID(),
                 publicTake ? GranaryJournal.Kind.PUBLIC_TAKE : GranaryJournal.Kind.TAKE,
                 stack, stack.getCount());
+        if (GranaryAdmission.isOperator(serverPlayer)) {
+            LOGGER.info("granary bin at {} in {} operator {} took {} of {}",
+                    blockEntity.getBlockPos(), level.dimension().location(), serverPlayer.getGameProfile().getName(),
+                    stack.getCount(), stack.getHoverName().getString());
+        }
     }
 
     private ServerLevel serverLevel() {
@@ -213,6 +218,65 @@ public final class GranaryBinMenu extends AbstractMiningMenu {
             }
         }
         return valid;
+    }
+
+    @Override
+    public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        ServerLevel level = serverLevel();
+        if (level == null) {
+            super.clicked(slotId, button, clickType, player);
+            return;
+        }
+        observeBin(level, player);
+        long nowMinute = FreshnessClockData.nowMinute(level);
+        boolean publicDonation = GranaryAdmission.context(level, blockEntity, player, nowMinute).publicDonor();
+        boolean publicTake = !mayTake();
+        ItemStack[] before = new ItemStack[CONTAINER_SLOTS];
+        for (int slot = 0; slot < CONTAINER_SLOTS; slot++) {
+            before[slot] = blockEntity.getItem(slot).copy();
+        }
+        trackingClick = true;
+        try {
+            super.clicked(slotId, button, clickType, player);
+        } finally {
+            trackingClick = false;
+        }
+        for (int slot = 0; slot < CONTAINER_SLOTS; slot++) {
+            Slot binSlot = slots.get(slot);
+            recordSlotChange(publicDonation, publicTake, before[slot], binSlot.getItem());
+        }
+    }
+
+    private void observeBin(ServerLevel level, Player player) {
+        long nowMinute = FreshnessClockData.nowMinute(level);
+        long nowHour = nowMinute / 60L;
+        lastSettleHour = nowHour;
+        blockEntity.settleAll(nowHour);
+        List<ItemStack> returns = blockEntity.settleFreshness(nowMinute);
+        for (ItemStack stack : returns) {
+            if (!stack.isEmpty() && !player.getInventory().add(stack)) {
+                player.drop(stack, false);
+            }
+        }
+    }
+
+    private void recordSlotChange(boolean publicDonation, boolean publicTake,
+                                  ItemStack before, ItemStack after) {
+        if (ItemStack.isSameItemSameTags(before, after)) {
+            int difference = after.getCount() - before.getCount();
+            if (difference > 0) {
+                recordStored(publicDonation, after.copyWithCount(difference), difference);
+            } else if (difference < 0) {
+                recordTaken(publicTake, before.copyWithCount(-difference));
+            }
+            return;
+        }
+        if (!before.isEmpty()) {
+            recordTaken(publicTake, before);
+        }
+        if (!after.isEmpty()) {
+            recordStored(publicDonation, after, after.getCount());
+        }
     }
 
     public GranaryBinBlockEntity blockEntity() {

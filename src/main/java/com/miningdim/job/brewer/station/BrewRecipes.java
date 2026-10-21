@@ -177,7 +177,8 @@ public final class BrewRecipes {
         Map<Item, Integer> counts = new HashMap<>();
         for (int slot = 0; slot < input.getSlots(); slot++) {
             ItemStack stack = input.getStackInSlot(slot);
-            if (stack.isEmpty() || FreshnessCheck.isRottenNow(stack, nowMinute)) {
+            if (stack.isEmpty() || (com.miningdim.freshness.FreshnessConfig.replacementEnabled()
+                    && FreshnessCheck.isRottenNow(stack, nowMinute))) {
                 continue;
             }
             counts.merge(stack.getItem(), stack.getCount(), Integer::sum);
@@ -198,7 +199,9 @@ public final class BrewRecipes {
         List<Integer> slots = new ArrayList<>();
         for (int slot = 0; slot < input.getSlots(); slot++) {
             ItemStack stack = input.getStackInSlot(slot);
-            if (!stack.isEmpty() && stack.is(item) && !FreshnessCheck.isRottenNow(stack, nowMinute)) {
+            if (!stack.isEmpty() && stack.is(item)
+                    && (!com.miningdim.freshness.FreshnessConfig.replacementEnabled()
+                        || !FreshnessCheck.isRottenNow(stack, nowMinute))) {
                 slots.add(slot);
             }
         }

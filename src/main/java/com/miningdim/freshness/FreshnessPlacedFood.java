@@ -5,6 +5,8 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.Level;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ChunkPos;
@@ -52,7 +54,9 @@ public final class FreshnessPlacedFood {
     }
 
     /** 每个已加载区块一份 (区块卸载时丢掉, 存盘由 ChunkDataEvent.Save 负责)。 */
-    private static final Map<Long, Map<BlockPos, Placed>> BY_CHUNK = new HashMap<>();
+    private record ChunkKey(ResourceKey<Level> dimension, long pos) {}
+
+    private static final Map<ChunkKey, Map<BlockPos, Placed>> BY_CHUNK = new HashMap<>();
 
     private FreshnessPlacedFood() {
     }
@@ -62,9 +66,30 @@ public final class FreshnessPlacedFood {
     // ============================================================
 
     /** 这个位置放着的食物记录 (没有就是空)。 */
-    public static Optional<Placed> at(BlockPos pos) {
-        Map<BlockPos, Placed> chunk = BY_CHUNK.get(ChunkPos.asLong(pos.getX() >> 4, pos.getZ() >> 4));
+    public static Optional<Placed> at(ResourceKey<Level> dimension, BlockPos pos) {
+        Map<BlockPos, Placed> chunk = BY_CHUNK.get(key(dimension, pos));
         return chunk == null ? Optional.empty() : Optional.ofNullable(chunk.get(pos));
+    }
+
+    private static ChunkKey key(ResourceKey<Level> dimension, BlockPos pos) {
+        return new ChunkKey(dimension, ChunkPos.asLong(pos.getX() >> 4, pos.getZ() >> 4));
+    }
+
+    /** 取份与食用共享这份来源；旧位置已换方块时清理旧账。 */
+    public static ItemStack sourceAt(ServerLevel level, BlockPos pos) {
+        Optional<Placed> found = at(level.dimension(), pos);
+        if (found.isEmpty()) {
+            return ItemStack.EMPTY;
+        }
+        BlockState state = level.getBlockState(pos);
+        if (!found.get().block().equals(ForgeRegistries.BLOCKS.getKey(state.getBlock()))) {
+            forget(level.dimension(), pos);
+            level.getChunkAt(pos).setUnsaved(true);
+            return ItemStack.EMPTY;
+        }
+        ItemStack source = new ItemStack(state.getBlock().asItem());
+        FreshnessData.stampAt(source, found.get().batchMinute(), found.get().stoppedHours());
+        return source;
     }
 
     /** 现在记着多少条 (诊断与用例用)。 */
@@ -95,16 +120,17 @@ public final class FreshnessPlacedFood {
         if (block == null) {
             return;
         }
-        BY_CHUNK.computeIfAbsent(ChunkPos.asLong(pos.getX() >> 4, pos.getZ() >> 4), key -> new HashMap<>())
+        BY_CHUNK.computeIfAbsent(key(level.dimension(), pos), key -> new HashMap<>())
                 .put(pos.immutable(), new Placed(block, (int) FreshnessData.batchMinute(stack),
                         FreshnessData.stoppedHours(stack)));
+        level.getChunkAt(pos).setUnsaved(true);
     }
 
     /** 忘掉这个位置的记录 (继承过了, 或者方块已经不是它了)。 */
-    public static void forget(BlockPos pos) {
-        Map<BlockPos, Placed> chunk = BY_CHUNK.get(ChunkPos.asLong(pos.getX() >> 4, pos.getZ() >> 4));
+    public static void forget(ResourceKey<Level> dimension, BlockPos pos) {
+        Map<BlockPos, Placed> chunk = BY_CHUNK.get(key(dimension, pos));
         if (chunk != null && chunk.remove(pos) != null && chunk.isEmpty()) {
-            BY_CHUNK.remove(ChunkPos.asLong(pos.getX() >> 4, pos.getZ() >> 4));
+            BY_CHUNK.remove(key(dimension, pos));
         }
     }
 
@@ -119,22 +145,23 @@ public final class FreshnessPlacedFood {
             return Optional.empty();
         }
         BlockPos pos = BlockPos.containing(origin);
-        Optional<Placed> found = at(pos);
+        Optional<Placed> found = at(context.getLevel().dimension(), pos);
         if (found.isEmpty()) {
             return Optional.empty();
         }
         BlockState state = context.getParamOrNull(LootContextParams.BLOCK_STATE);
         ResourceLocation current = state == null ? null : ForgeRegistries.BLOCKS.getKey(state.getBlock());
         if (current == null || !current.equals(found.get().block())) {
+            forget(context.getLevel().dimension(), pos);
             return Optional.empty();
         }
-        forget(pos);
+        forget(context.getLevel().dimension(), pos);
         return found;
     }
 
     /** 区块卸载: 丢掉这一片的记录 (存盘在 ChunkDataEvent.Save 里做过)。 */
-    public static void unload(ChunkPos chunkPos) {
-        BY_CHUNK.remove(chunkPos.toLong());
+    public static void unload(ResourceKey<Level> dimension, ChunkPos chunkPos) {
+        BY_CHUNK.remove(new ChunkKey(dimension, chunkPos.toLong()));
     }
 
     /** 用例与诊断用: 清空全部内存记录。 */
@@ -147,7 +174,7 @@ public final class FreshnessPlacedFood {
     // ============================================================
 
     /** 把一个区块的附加数据读进内存 (没有就是空)。 */
-    public static void loadFrom(ChunkPos chunkPos, CompoundTag data) {
+    public static void loadFrom(ResourceKey<Level> dimension, ChunkPos chunkPos, CompoundTag data) {
         if (!data.contains(KEY_PLACED, Tag.TAG_LIST)) {
             return;
         }
@@ -166,13 +193,13 @@ public final class FreshnessPlacedFood {
                             entry.getInt(KEY_H), entry.getInt(KEY_F)));
         }
         if (!chunk.isEmpty()) {
-            BY_CHUNK.put(chunkPos.toLong(), chunk);
+            BY_CHUNK.put(new ChunkKey(dimension, chunkPos.toLong()), chunk);
         }
     }
 
     /** 把一个区块的记录写进附加数据 (没有记录就不写键)。 */
-    public static void saveTo(ChunkPos chunkPos, CompoundTag data) {
-        Map<BlockPos, Placed> chunk = BY_CHUNK.get(chunkPos.toLong());
+    public static void saveTo(ResourceKey<Level> dimension, ChunkPos chunkPos, CompoundTag data) {
+        Map<BlockPos, Placed> chunk = BY_CHUNK.get(new ChunkKey(dimension, chunkPos.toLong()));
         if (chunk == null || chunk.isEmpty()) {
             data.remove(KEY_PLACED);
             return;

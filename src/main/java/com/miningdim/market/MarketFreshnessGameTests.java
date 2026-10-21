@@ -12,6 +12,7 @@ import com.miningdim.economy.IEconomyService;
 import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.economy.SqliteEconomyLedger;
 import com.miningdim.freshness.FreshnessCategories;
+import com.miningdim.freshness.FreshnessConfig;
 import com.miningdim.freshness.FreshnessData;
 import com.miningdim.freshness.FreshnessNested;
 import com.miningdim.market.store.ListingRow;
@@ -76,7 +77,9 @@ public final class MarketFreshnessGameTests {
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void placeRejectsTooShortWarnsOnNearMissAndIgnoresNonPerishables(GameTestHelper helper) {
+        FreshnessConfig.Mode previousMode = FreshnessConfig.MODE.get();
         Fixture fx = Fixture.open(helper);
+        FreshnessConfig.MODE.set(FreshnessConfig.Mode.ON);
         try {
             ServerPlayer seller = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             long now = fx.engine.nowMinute();
@@ -121,6 +124,7 @@ public final class MarketFreshnessGameTests {
             helper.succeed();
         } finally {
             fx.close();
+            FreshnessConfig.MODE.set(previousMode);
         }
     }
 
@@ -137,7 +141,9 @@ public final class MarketFreshnessGameTests {
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void placeDescendsIntoContainersAndStampsTheNestedCopies(GameTestHelper helper) {
+        FreshnessConfig.Mode previousMode = FreshnessConfig.MODE.get();
         Fixture fx = Fixture.open(helper);
+        FreshnessConfig.MODE.set(FreshnessConfig.Mode.ON);
         try {
             ServerPlayer seller = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             long now = fx.engine.nowMinute();
@@ -177,6 +183,7 @@ public final class MarketFreshnessGameTests {
             helper.succeed();
         } finally {
             fx.close();
+            FreshnessConfig.MODE.set(previousMode);
         }
     }
 
@@ -190,7 +197,9 @@ public final class MarketFreshnessGameTests {
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void buyRefusesRottenEscrowWithoutTouchingTheListing(GameTestHelper helper) {
+        FreshnessConfig.Mode previousMode = FreshnessConfig.MODE.get();
         Fixture fx = Fixture.open(helper);
+        FreshnessConfig.MODE.set(FreshnessConfig.Mode.ON);
         try {
             ServerPlayer seller = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             ServerPlayer buyer = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
@@ -224,6 +233,7 @@ public final class MarketFreshnessGameTests {
             helper.succeed();
         } finally {
             fx.close();
+            FreshnessConfig.MODE.set(previousMode);
         }
     }
 
@@ -302,7 +312,9 @@ public final class MarketFreshnessGameTests {
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void tradablePreviewAndPlaceAgreeOnFreshness(GameTestHelper helper) {
+        FreshnessConfig.Mode previousMode = FreshnessConfig.MODE.get();
         Fixture fx = Fixture.open(helper);
+        FreshnessConfig.MODE.set(FreshnessConfig.Mode.ON);
         try {
             ServerPlayer seller = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             long now = fx.engine.nowMinute();
@@ -328,6 +340,34 @@ public final class MarketFreshnessGameTests {
             helper.succeed();
         } finally {
             fx.close();
+            FreshnessConfig.MODE.set(previousMode);
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void dryRunAllowsRottenMarketListingAndPurchase(GameTestHelper helper) {
+        FreshnessConfig.Mode previousMode = FreshnessConfig.MODE.get();
+        Fixture fx = Fixture.open(helper);
+        FreshnessConfig.MODE.set(FreshnessConfig.Mode.DRY_RUN);
+        try {
+            ServerPlayer seller = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            ServerPlayer buyer = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            EconomyServices.economyService().grant(seller, Currency.CREDIT, 1_000L);
+            EconomyServices.economyService().grant(buyer, Currency.CREDIT, 1_000L);
+            long now = fx.engine.nowMinute();
+            seller.getInventory().setItem(0, stampedFood(Items.BREAD, 1, now, -60L, helper));
+
+            JsonObject preview = handle(MarketActions.TRADABLE, seller, slotPayload(0));
+            helper.assertTrue(preview.get("tradable").getAsBoolean(),
+                    "DRY_RUN 下预判不得拒绝已腐烂面包, 实得 " + preview);
+            MarketEngine.PlaceResult placed = fx.engine.place(seller, 0, 1, UNIT_PRICE,
+                    MarketConstants.CURRENCY_CREDIT);
+            MarketEngine.BuyResult bought = fx.engine.buy(buyer, placed.listingId(), 1);
+            helper.assertTrue(bought.count() == 1, "DRY_RUN 下真实挂单与购买入口都应放行烂货");
+            helper.succeed();
+        } finally {
+            fx.close();
+            FreshnessConfig.MODE.set(previousMode);
         }
     }
 
@@ -341,7 +381,9 @@ public final class MarketFreshnessGameTests {
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void sweepClosesOnlyWhatHasBeenRottenForThirtyDays(GameTestHelper helper) {
+        FreshnessConfig.Mode previousMode = FreshnessConfig.MODE.get();
         Fixture fx = Fixture.open(helper);
+        FreshnessConfig.MODE.set(FreshnessConfig.Mode.ON);
         try {
             ServerPlayer seller = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             long now = fx.engine.nowMinute();
@@ -373,6 +415,7 @@ public final class MarketFreshnessGameTests {
             helper.succeed();
         } finally {
             fx.close();
+            FreshnessConfig.MODE.set(previousMode);
         }
     }
 

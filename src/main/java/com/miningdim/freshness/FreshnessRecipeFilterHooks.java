@@ -68,7 +68,7 @@ public final class FreshnessRecipeFilterHooks extends SimplePreparableReloadList
         if (!FreshnessConfig.SPEC.isLoaded()) {
             return;
         }
-        if (!FreshnessConfig.RECIPE_FILTER_ENABLED.get()) {
+        if (!FreshnessConfig.replacementEnabled() || !FreshnessConfig.RECIPE_FILTER_ENABLED.get()) {
             return;
         }
         MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
@@ -81,7 +81,7 @@ public final class FreshnessRecipeFilterHooks extends SimplePreparableReloadList
     /** 开服那一次 (初次数据包加载跑在配置就绪之前, 见 {@link #apply})。 */
     @SubscribeEvent
     public static void onServerStarted(net.minecraftforge.event.server.ServerStartedEvent event) {
-        if (!FreshnessConfig.RECIPE_FILTER_ENABLED.get()) {
+        if (!FreshnessConfig.replacementEnabled() || !FreshnessConfig.RECIPE_FILTER_ENABLED.get()) {
             return;
         }
         run(event.getServer().getRecipeManager(), FreshnessConfig.RECIPE_FILTER_WHITELIST.get());

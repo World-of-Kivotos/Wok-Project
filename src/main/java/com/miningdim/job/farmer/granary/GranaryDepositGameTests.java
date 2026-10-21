@@ -4,6 +4,7 @@ import com.miningdim.core.MiningConstants;
 import com.miningdim.freshness.FreshnessCategories;
 import com.miningdim.freshness.FreshnessCategory;
 import com.miningdim.freshness.FreshnessConstants;
+import com.miningdim.freshness.FreshnessConfig;
 import com.miningdim.freshness.FreshnessData;
 import com.miningdim.job.JobId;
 import com.miningdim.job.farmer.granary.block.GranaryBinBlockEntity;
@@ -114,42 +115,49 @@ public final class GranaryDepositGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void exhaustedFreshAndRottenGoodsAreSkipped(GameTestHelper helper) {
-        int slot = 2;
-        Fixture fixture = accept(helper, slot);
-        ServerPlayer player = fixture.owner();
+        FreshnessConfig.Mode previousMode = FreshnessConfig.MODE.get();
+        try {
+            FreshnessConfig.MODE.set(FreshnessConfig.Mode.ON);
+            int slot = 2;
+            Fixture fixture = accept(helper, slot);
+            ServerPlayer player = fixture.owner();
 
-        ItemStack exhausted = new ItemStack(Items.WHEAT, 4);
-        FreshnessData.stampAt(exhausted, fixture.nowMinute(), FreshnessConstants.STOP_CAP_HOURS);
-        ItemStack fresh = new ItemStack(Items.BEEF, 2);                 // 粮棚不收生鲜
-        FreshnessData.stamp(fresh, fixture.nowMinute());
-        ItemStack rotten = new ItemStack(Items.BREAD, 1);              // 早就烂了
-        FreshnessData.stampAt(rotten, fixture.nowMinute() - 40L * 24L * 60L, 0);
-        ItemStack keep = new ItemStack(Items.WHEAT, 6);                // 这一堆是好的
-        FreshnessData.stamp(keep, fixture.nowMinute());
-        // 夹具先自证: 三堆「该被跳过」的确实各自命中了那条规矩 (失败时一眼看出是夹具问题还是收没收对)。
-        helper.assertTrue(FreshnessCategories.spoils(exhausted) && GranarySettle.capExhausted(exhausted),
-                "夹具: 额度用完的那堆要真的用完 " + FreshnessData.stoppedHours(exhausted));
-        helper.assertTrue(FreshnessCategories.categoryOf(fresh).orElse(null) == FreshnessCategory.FRESH,
-                "夹具: 生牛肉要真的算生鲜, 实际 " + FreshnessCategories.categoryOf(fresh));
-        helper.assertTrue(FreshnessCategories.spoils(rotten) && FreshnessData.isRotten(rotten,
-                FreshnessCategories.shelfLifeHours(rotten), fixture.nowMinute()),
-                "夹具: 面包要真的烂了 (保质期 " + FreshnessCategories.shelfLifeHours(rotten)
-                        + " 小时, 批次 " + FreshnessData.batchMinute(rotten) + ", 现在 " + fixture.nowMinute() + ")");
-        player.getInventory().setItem(9, exhausted);
-        player.getInventory().setItem(10, fresh);
-        player.getInventory().setItem(11, rotten);
-        player.getInventory().setItem(12, keep);
+            ItemStack exhausted = new ItemStack(Items.WHEAT, 4);
+            FreshnessData.stampAt(exhausted, fixture.nowMinute(), FreshnessConstants.STOP_CAP_HOURS);
+            ItemStack fresh = new ItemStack(Items.BEEF, 2);                 // 粮棚不收生鲜
+            FreshnessData.stamp(fresh, fixture.nowMinute());
+            ItemStack rotten = new ItemStack(Items.BREAD, 1);              // 早就烂了
+            FreshnessData.stampAt(rotten, fixture.nowMinute() - 40L * 24L * 60L, 0);
+            ItemStack keep = new ItemStack(Items.WHEAT, 6);                // 这一堆是好的
+            FreshnessData.stamp(keep, fixture.nowMinute());
+            // 夹具先自证: 三堆「该被跳过」的确实各自命中了那条规矩 (失败时一眼看出是夹具问题还是收没收对)。
+            helper.assertTrue(FreshnessCategories.spoils(exhausted) && GranarySettle.capExhausted(exhausted),
+                    "夹具: 额度用完的那堆要真的用完 " + FreshnessData.stoppedHours(exhausted));
+            helper.assertTrue(FreshnessCategories.categoryOf(fresh).orElse(null) == FreshnessCategory.FRESH,
+                    "夹具: 生牛肉要真的算生鲜, 实际 " + FreshnessCategories.categoryOf(fresh));
+            helper.assertTrue(FreshnessCategories.spoils(rotten) && FreshnessData.isRotten(rotten,
+                    FreshnessCategories.shelfLifeHours(rotten), fixture.nowMinute()),
+                    "夹具: 面包要真的烂了 (保质期 " + FreshnessCategories.shelfLifeHours(rotten)
+                            + " 小时, 批次 " + FreshnessData.batchMinute(rotten) + ", 现在 " + fixture.nowMinute() + ")");
+            player.getInventory().setItem(9, exhausted);
+            player.getInventory().setItem(10, fresh);
+            player.getInventory().setItem(11, rotten);
+            player.getInventory().setItem(12, keep);
 
-        GranaryDeposit.Result result = fixture.deposit(helper, player);
+            GranaryDeposit.Result result = fixture.deposit(helper, player);
 
-        helper.assertTrue(result.items() == 6, "只有那 6 个好的收下, 实际 " + result.items());
-        helper.assertTrue(result.skips().exhausted() == 1, "额度用完的要点名跳过");
-        helper.assertTrue(result.skips().fresh() == 1, "粮棚不收生鲜, 要点名跳过");
-        helper.assertTrue(result.skips().rotten() == 1, "已经腐烂的要点名跳过");
-        GranaryBinBlockEntity bin = fixture.bin(helper);
-        helper.assertTrue(bin.getItem(0).is(Items.WHEAT) && bin.getItem(0).getCount() == 6, "收下的是那一堆好的");
-        helper.assertTrue(bin.getItem(1).isEmpty(), "被跳过的一件都没进来");
-        helper.succeed();
+            helper.assertTrue(result.items() == 6, "只有那 6 个好的收下, 实际 " + result.items());
+            helper.assertTrue(result.skips().exhausted() == 1, "额度用完的要点名跳过");
+            helper.assertTrue(result.skips().fresh() == 1, "粮棚不收生鲜, 要点名跳过");
+            helper.assertTrue(result.skips().rotten() == 1, "已经腐烂的要点名跳过");
+            GranaryBinBlockEntity bin = fixture.bin(helper);
+            helper.assertTrue(bin.getItem(0).is(Items.WHEAT) && bin.getItem(0).getCount() == 6,
+                    "收下的是那一堆好的");
+            helper.assertTrue(bin.getItem(1).isEmpty(), "被跳过的一件都没进来");
+            helper.succeed();
+        } finally {
+            FreshnessConfig.MODE.set(previousMode);
+        }
     }
 
     // ============================================================
@@ -162,39 +170,46 @@ public final class GranaryDepositGameTests {
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void migratedGoodsAreSkippedAndNeverStored(GameTestHelper helper) {
-        int slot = 4;
-        Fixture fixture = accept(helper, slot);
-        ServerPlayer player = fixture.owner();
+        FreshnessConfig.Mode previousMode = FreshnessConfig.MODE.get();
+        try {
+            FreshnessConfig.MODE.set(FreshnessConfig.Mode.ON);
+            int slot = 4;
+            Fixture fixture = accept(helper, slot);
+            ServerPlayer player = fixture.owner();
 
-        ItemStack migrated = new ItemStack(Items.WHEAT, 5);
-        // 启用时刻取"现在": 迁移货在启用那一刻正好剩宽限小时, 所以它是**能吃但进不了仓**的那一类
-        // (取成 30 天前的话它会先被判成腐烂, 测的就变成腐烂那条路了)。
-        helper.assertTrue(com.miningdim.freshness.FreshnessMigration.stampMigrated(migrated,
-                        fixture.nowMinute(), FreshnessConstants.MIGRATION_GRACE_HOURS,
-                        FreshnessConstants.STOP_CAP_HOURS),
-                "夹具: 这一堆要是迁移货 (带章 + 额度记满 + m 标记)");
-        helper.assertTrue(FreshnessData.isMigrated(migrated) && GranarySettle.capExhausted(migrated),
-                "前提: 迁移货的额度本来就是满的 (所以「额度用完」那条判据也会命中它 —— 顺序写反就会报错原因)");
-        ItemStack keep = new ItemStack(Items.WHEAT, 6);
-        FreshnessData.stamp(keep, fixture.nowMinute());
-        player.getInventory().setItem(9, migrated);
-        player.getInventory().setItem(10, keep);
+            ItemStack migrated = new ItemStack(Items.WHEAT, 5);
+            // 启用时刻取"现在": 迁移货在启用那一刻正好剩宽限小时, 所以它是**能吃但进不了仓**的那一类
+            // (取成 30 天前的话它会先被判成腐烂, 测的就变成腐烂那条路了)。
+            helper.assertTrue(com.miningdim.freshness.FreshnessMigration.stampMigrated(migrated,
+                            fixture.nowMinute(), FreshnessConstants.MIGRATION_GRACE_HOURS,
+                            FreshnessConstants.STOP_CAP_HOURS),
+                    "夹具: 这一堆要是迁移货 (带章 + 额度记满 + m 标记)");
+            helper.assertTrue(FreshnessData.isMigrated(migrated) && GranarySettle.capExhausted(migrated),
+                    "前提: 迁移货的额度本来就是满的 (所以「额度用完」那条判据也会命中它 —— 顺序写反就会报错原因)");
+            ItemStack keep = new ItemStack(Items.WHEAT, 6);
+            FreshnessData.stamp(keep, fixture.nowMinute());
+            ItemStack keepForMenu = keep.copy();
+            player.getInventory().setItem(9, migrated);
+            player.getInventory().setItem(10, keep);
 
-        GranaryDeposit.Result result = fixture.deposit(helper, player);
-        helper.assertTrue(result.items() == 6, "只有那 6 个好的收进来, 实际 " + result.items());
-        helper.assertTrue(result.skips().migrated() == 1,
-                "迁移货要被单独点名 (混进别的计数里就没人知道它为什么没进去), 实得 " + result.skips());
-        GranaryBinBlockEntity bin = fixture.bin(helper);
-        helper.assertTrue(bin.getItem(0).is(Items.WHEAT) && bin.getItem(0).getCount() == 6
-                        && !FreshnessData.isMigrated(bin.getItem(0)),
-                "进仓的必须是那一堆好货");
+            GranaryDeposit.Result result = fixture.deposit(helper, player);
+            helper.assertTrue(result.items() == 6, "只有那 6 个好的收进来, 实际 " + result.items());
+            helper.assertTrue(result.skips().migrated() == 1,
+                    "迁移货要被单独点名 (混进别的计数里就没人知道它为什么没进去), 实得 " + result.skips());
+            GranaryBinBlockEntity bin = fixture.bin(helper);
+            helper.assertTrue(bin.getItem(0).is(Items.WHEAT) && bin.getItem(0).getCount() == 6
+                            && !FreshnessData.isMigrated(bin.getItem(0)),
+                    "进仓的必须是那一堆好货");
 
-        // 界面那条路: 同一堆迁移货在这一格的 mayPlace 必须是 false。
-        GranaryBinMenu menu = new GranaryBinMenu(0, player.getInventory(), bin);
-        helper.assertTrue(!menu.slots.get(0).mayPlace(migrated),
-                "界面也不许把迁移货放进囤 (与一键存入同一个答案)");
-        helper.assertTrue(menu.slots.get(0).mayPlace(keep), "好货照常放得进");
-        helper.succeed();
+            // 界面那条路: 同一堆迁移货在这一格的 mayPlace 必须是 false。
+            GranaryBinMenu menu = new GranaryBinMenu(0, player.getInventory(), bin);
+            helper.assertTrue(!menu.slots.get(1).mayPlace(migrated),
+                    "界面也不许把迁移货放进囤 (与一键存入同一个答案)");
+            helper.assertTrue(menu.slots.get(1).mayPlace(keepForMenu), "好货照常放得进");
+            helper.succeed();
+        } finally {
+            FreshnessConfig.MODE.set(previousMode);
+        }
     }
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void oldSlotsOnlyAcceptThisHoursBatch(GameTestHelper helper) {

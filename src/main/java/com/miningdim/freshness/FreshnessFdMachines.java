@@ -28,7 +28,7 @@ public final class FreshnessFdMachines {
      * 返回的是副本, 光在副本上盖章不会落盘 —— 所以"盖章"与"替换"两条路都写回一次。</p>
      */
     public static int settle(IItemHandler handler, long nowMinute, List<ItemStack> returns) {
-        if (handler == null) {
+        if (!FreshnessConfig.stampingEnabled() || handler == null) {
             return 0;
         }
         // 只有"可写"的物品栏才能落盘: 取不到就退化成"只在拿到的栈上盖章"(仍在的调用方会自己写回)。

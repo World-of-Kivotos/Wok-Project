@@ -1,8 +1,16 @@
 package com.miningdim.job.farmer.granary;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.freshness.FreshnessCategories;
+import com.miningdim.freshness.FreshnessClockData;
+import com.miningdim.freshness.FreshnessConfig;
+import com.miningdim.freshness.FreshnessConstants;
 import com.miningdim.freshness.FreshnessData;
+import com.miningdim.freshness.FreshnessMigration;
+import com.miningdim.freshness.item.FreshnessItems;
 import com.miningdim.job.JobId;
+import com.miningdim.job.chef.ChefQuality;
+import com.miningdim.job.chef.ChefQualityNbt;
 import com.miningdim.job.farmer.granary.block.GranaryBinBlockEntity;
 import com.miningdim.job.farmer.granary.block.GranaryBlocks;
 import com.miningdim.testutil.MockGameTestPlayers;
@@ -14,6 +22,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
@@ -184,11 +193,34 @@ public final class GranaryBinGuiGameTests {
         helper.assertTrue(bin.creditedHours(0) == 99, "100 小时后记 99 小时, 实际 " + bin.creditedHours(0));
         helper.assertTrue(FreshnessData.stoppedHours(bin.getItem(0)) == 99, "停表小时写在物品上");
 
-        // 拿空: 那一格的账跟着清掉 (下一个放进来的人从零开始)。
-        ItemStack taken = menu.slots.get(0).remove(4);
-        helper.assertTrue(taken.getCount() == 4, "四件都拿出来了");
+        // 右键部分取出走 Slot.tryRemove -> onTake, 不走 Slot.set; 每次真实点击只应记一条流水。
+        menu.setCarried(ItemStack.EMPTY);
+        menu.clicked(0, 1, ClickType.PICKUP, fixture.owner());
+        helper.assertTrue(menu.getCarried().getCount() == 2 && bin.getItem(0).getCount() == 2,
+                "右键从四件中取出两件");
+        long gid = GranarySystem.granaryAt(level, fixture.centerPos());
+        List<GranaryJournal.Entry> takeEntries = GranarySavedData.get(level).journalOf(gid).stream()
+                .filter(entry -> entry.actor().equals(fixture.owner().getUUID())
+                        && entry.kind() == GranaryJournal.Kind.TAKE)
+                .toList();
+        helper.assertTrue(takeEntries.size() == 1 && takeEntries.get(0).count() == 2,
+                "部分取出只记一条两件的 TAKE 流水");
+
+        // 清空光标再左键取完剩余两件, 格账归零且完整取出也只记一条。
+        fixture.owner().getInventory().setItem(9, menu.getCarried().copy());
+        menu.setCarried(ItemStack.EMPTY);
+        menu.clicked(0, 0, ClickType.PICKUP, fixture.owner());
+        helper.assertTrue(menu.getCarried().getCount() == 2
+                        && fixture.owner().getInventory().getItem(9).getCount() == 2,
+                "左键取出剩下两件, 前一次取出的两件仍保存在背包");
         helper.assertTrue(bin.getItem(0).isEmpty(), "格子空了");
         helper.assertTrue(bin.entryHour(0) == 0L && bin.creditedHours(0) == 0, "账目清掉");
+        takeEntries = GranarySavedData.get(level).journalOf(gid).stream()
+                .filter(entry -> entry.actor().equals(fixture.owner().getUUID())
+                        && entry.kind() == GranaryJournal.Kind.TAKE)
+                .toList();
+        helper.assertTrue(takeEntries.size() == 2 && takeEntries.get(1).count() == 2,
+                "完整取出只再记一条两件的 TAKE 流水");
 
         // 往**有东西**的格子追加不动账 (老格子的入仓时刻不能被顶掉)。
         menu.slots.get(1).set(new ItemStack(Items.BREAD, 2));
@@ -197,6 +229,223 @@ public final class GranaryBinGuiGameTests {
         appended.setCount(4);
         menu.slots.get(1).set(appended);
         helper.assertTrue(bin.entryHour(1) == firstEntry, "追加不动入仓时刻");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void freshnessModesControlFoodWritesButKeepGranaryAccounts(GameTestHelper helper) {
+        Fixture fixture = accepted(helper, 10);
+        GranaryBinBlockEntity bin = fixture.binEntity();
+        GranaryBinMenu menu = fixture.menu();
+        ServerPlayer owner = fixture.owner();
+        long nowMinute = FreshnessClockData.nowMinute(fixture.level());
+        long nowHour = nowMinute / 60L;
+        FreshnessConfig.Mode previousMode = FreshnessConfig.MODE.get();
+        try {
+            FreshnessConfig.MODE.set(FreshnessConfig.Mode.OFF);
+            menu.slots.get(0).set(new ItemStack(Items.BREAD, 2));
+            helper.assertTrue(!FreshnessData.isStamped(bin.getItem(0))
+                            && FreshnessData.stoppedHours(bin.getItem(0)) == 0,
+                    "OFF 模式经真实界面入仓不写新鲜度 NBT");
+            helper.assertTrue(bin.entryHour(0) == nowHour, "OFF 模式仍记粮仓自己的入仓小时");
+
+            bin.setStopping(true);
+            helper.assertTrue(bin.settleSlot(0, nowHour + 100L) == 99,
+                    "OFF 模式仍按粮仓账目结算 99 小时");
+            helper.assertTrue(bin.creditedHours(0) == 99
+                            && !FreshnessData.isStamped(bin.getItem(0))
+                            && FreshnessData.stoppedHours(bin.getItem(0)) == 0,
+                    "OFF 模式保留 E/C，但停表结算不得写食物 h/f");
+
+            owner.getInventory().setItem(9, new ItemStack(Items.APPLE));
+            ItemStack rottenOff = new ItemStack(Items.BREAD, 1);
+            FreshnessData.stampAt(rottenOff, nowMinute
+                    - ((long) FreshnessCategories.shelfLifeHours(rottenOff) * 60L + 1L), 0);
+            ItemStack rottenOffSnapshot = rottenOff.copy();
+            owner.getInventory().setItem(10, rottenOff);
+            GranaryDeposit.Result offDeposit = GranaryDeposit.depositAt(fixture.level(), bin, owner,
+                    true, nowMinute);
+            helper.assertTrue(offDeposit.items() == 2 && bin.getItem(1).is(Items.APPLE)
+                            && !FreshnessData.isStamped(bin.getItem(1))
+                            && bin.getItem(2).is(Items.BREAD)
+                            && ItemStack.isSameItemSameTags(bin.getItem(2), rottenOffSnapshot),
+                    "OFF 模式的一键存入不拦截腐烂货，且不盖章或改写食物 NBT");
+            helper.assertTrue(bin.entryHour(1) == nowHour, "OFF 模式的一键存入仍记入仓小时");
+            helper.assertTrue(bin.entryHour(2) == nowHour, "OFF 模式收下腐烂货后仍建立粮仓账目");
+
+            FreshnessConfig.MODE.set(FreshnessConfig.Mode.DRY_RUN);
+            ItemStack rottenDryRun = new ItemStack(Items.BREAD, 1);
+            FreshnessData.stampAt(rottenDryRun, nowMinute
+                    - ((long) FreshnessCategories.shelfLifeHours(rottenDryRun) * 60L + 1L), 0);
+            ItemStack rottenDryRunSnapshot = rottenDryRun.copy();
+            owner.getInventory().setItem(10, rottenDryRun);
+            owner.getInventory().setItem(11, new ItemStack(Items.POTATO));
+            GranaryDeposit.Result dryRunDeposit = GranaryDeposit.depositAt(fixture.level(), bin, owner,
+                    true, nowMinute);
+            helper.assertTrue(dryRunDeposit.items() == 2 && bin.getItem(2).is(Items.BREAD)
+                            && bin.getItem(2).getCount() == 2
+                            && ItemStack.isSameItemSameTags(bin.getItem(2), rottenDryRunSnapshot)
+                            && bin.getItem(3).is(Items.POTATO) && FreshnessData.isStamped(bin.getItem(3)),
+                    "DRY_RUN 的真实一键存入不拦截腐烂货，并照常给新货盖章");
+            helper.assertTrue(bin.settleSlot(3, nowHour + 100L) == 99
+                            && FreshnessData.stoppedHours(bin.getItem(3)) == 99,
+                    "DRY_RUN 照常写入粮仓停表的食物额度");
+
+            FreshnessConfig.MODE.set(FreshnessConfig.Mode.ON);
+            menu.slots.get(5).set(new ItemStack(Items.COOKED_BEEF));
+            helper.assertTrue(FreshnessData.isStamped(bin.getItem(5)), "ON 模式经界面入仓照常盖章");
+            helper.assertTrue(bin.settleSlot(5, nowHour + 100L) == 99
+                            && FreshnessData.stoppedHours(bin.getItem(5)) == 99,
+                    "ON 模式照常写入粮仓停表的食物额度");
+            helper.succeed();
+        } finally {
+            FreshnessConfig.MODE.set(previousMode);
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void manualAndOneClickDepositShareFreshAndChefRejection(GameTestHelper helper) {
+        FreshnessConfig.Mode previousMode = FreshnessConfig.MODE.get();
+        try {
+            FreshnessConfig.MODE.set(FreshnessConfig.Mode.ON);
+            Fixture fixture = accepted(helper, 6);
+            ServerPlayer owner = fixture.owner();
+            long nowMinute = FreshnessClockData.nowMinute(fixture.level());
+            ItemStack fresh = new ItemStack(Items.BEEF, 2);
+            FreshnessData.stamp(fresh, nowMinute);
+            ItemStack chefDish = new ItemStack(Items.BREAD, 1);
+            ChefQualityNbt.stamp(chefDish, ChefQuality.HIGH, List.of());
+            ItemStack rotten = new ItemStack(Items.BREAD, 1);
+            FreshnessData.stampAt(rotten, nowMinute
+                    - ((long) FreshnessCategories.shelfLifeHours(rotten) * 60L + 1L), 0);
+            ItemStack migrated = new ItemStack(Items.WHEAT, 1);
+            helper.assertTrue(FreshnessMigration.stampMigrated(migrated, nowMinute,
+                            FreshnessConstants.MIGRATION_GRACE_HOURS, FreshnessConstants.STOP_CAP_HOURS),
+                    "夹具: 迁移货确实带迁移标记");
+            ItemStack exhausted = new ItemStack(Items.WHEAT, 1);
+            FreshnessData.stampAt(exhausted, nowMinute, FreshnessConstants.STOP_CAP_HOURS);
+            ItemStack exempt = new ItemStack(Items.SUGAR, 1);
+            List<ItemStack> rejected = List.of(fresh, chefDish, rotten, migrated, exhausted, exempt);
+            for (int i = 0; i < rejected.size(); i++) {
+                owner.getInventory().setItem(9 + i, rejected.get(i).copy());
+            }
+
+            GranaryDeposit.Result result = GranaryDeposit.depositAt(fixture.level(), fixture.binEntity(), owner,
+                    true, nowMinute);
+            helper.assertTrue(result.items() == 0 && fixture.binEntity().isEmpty(),
+                    "ON 模式一键存入拒绝生鲜、厨师菜、过期、迁移、额度用完和豁免品");
+            GranaryBinMenu menu = fixture.menu();
+            for (ItemStack candidate : rejected) {
+                menu.setCarried(candidate.copy());
+                menu.clicked(0, 0, ClickType.PICKUP, owner);
+                helper.assertTrue(fixture.binEntity().isEmpty()
+                                && menu.getCarried().getCount() == candidate.getCount()
+                                && ItemStack.isSameItemSameTags(menu.getCarried(), candidate),
+                        "真实点击共享准入, 拒绝 " + candidate.getHoverName().getString());
+            }
+            helper.succeed();
+        } finally {
+            FreshnessConfig.MODE.set(previousMode);
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void replacementRestartsLedgerAndOldBatchCannotMerge(GameTestHelper helper) {
+        Fixture fixture = accepted(helper, 7);
+        GranaryBinBlockEntity bin = fixture.binEntity();
+        ServerPlayer owner = fixture.owner();
+        GranaryBinMenu menu = fixture.menu();
+        long nowMinute = FreshnessClockData.nowMinute(fixture.level());
+        long nowHour = nowMinute / 60L;
+
+        ItemStack oldBread = new ItemStack(Items.BREAD, 5);
+        FreshnessData.stampAt(oldBread, nowMinute - 200L * 60L, 0);
+        bin.setItem(0, oldBread);
+        bin.markStored(0, nowHour - 100L);
+        bin.setStopping(true);
+        bin.settleAll(nowHour);
+        helper.assertTrue(bin.creditedHours(0) == 99, "换格前先停表结算到 99 小时");
+
+        ItemStack newWheat = new ItemStack(Items.WHEAT, 1);
+        FreshnessData.stamp(newWheat, nowMinute);
+        menu.setCarried(newWheat);
+        menu.clicked(0, 0, ClickType.PICKUP, owner);
+        helper.assertTrue(bin.getItem(0).is(Items.WHEAT) && bin.entryHour(0) == nowHour
+                        && bin.creditedHours(0) == 0 && FreshnessData.stoppedHours(bin.getItem(0)) == 0,
+                "真实交换覆盖后新栈从当前时刻建账, 不继承旧 C");
+
+        ItemStack sameBatch = new ItemStack(Items.WHEAT, 5);
+        FreshnessData.stamp(sameBatch, nowMinute);
+        bin.setItem(1, sameBatch);
+        bin.markStored(1, nowHour - 1L);
+        menu.setCarried(sameBatch.copyWithCount(2));
+        menu.clicked(1, 0, ClickType.PICKUP, owner);
+        helper.assertTrue(bin.getItem(1).isEmpty() && bin.entryHour(1) == 0L && bin.creditedHours(1) == 0
+                        && menu.getCarried().is(Items.WHEAT) && menu.getCarried().getCount() == 7,
+                "真实点击遵循原版规则取出旧格；新货没有占用旧 E/C，且光标总数守恒");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void openingAndTakingReplaceRottenFoodAndReturnContainers(GameTestHelper helper) {
+        Fixture fixture = accepted(helper, 8);
+        ServerPlayer owner = fixture.owner();
+        GranaryBinBlockEntity bin = fixture.binEntity();
+        long nowMinute = FreshnessClockData.nowMinute(fixture.level());
+        long nowHour = nowMinute / 60L;
+        FreshnessConfig.Mode previous = FreshnessConfig.MODE.get();
+        FreshnessConfig.MODE.set(FreshnessConfig.Mode.ON);
+        try {
+            ItemStack openStew = new ItemStack(Items.MUSHROOM_STEW, 2);
+            FreshnessData.stampAt(openStew, nowMinute - 1_000L * 60L, 0);
+            bin.setItem(0, openStew);
+            bin.setStopping(true);
+            bin.markStored(0, nowHour - 1_000L);
+            helper.assertTrue(use(bin, helper.absolutePos(bin(8, LOW, LOW)), owner)
+                            == InteractionResult.CONSUME,
+                    "囤主打开囤");
+            helper.assertTrue(bin.getItem(0).is(FreshnessItems.ROT.get()) && bin.getItem(0).getCount() == 2,
+                    "开仓先结算停表后替换过期食物");
+            helper.assertTrue(owner.getInventory().countItem(Items.BOWL) == 2,
+                    "开仓替换返还两只碗");
+
+            ItemStack takeStew = new ItemStack(Items.MUSHROOM_STEW, 1);
+            FreshnessData.stampAt(takeStew, nowMinute - 1_000L * 60L, 0);
+            bin.setItem(1, takeStew);
+            bin.markStored(1, nowHour - 1_000L);
+            GranaryBinMenu menu = (GranaryBinMenu) owner.containerMenu;
+            menu.setCarried(ItemStack.EMPTY);
+            menu.clicked(1, 0, ClickType.PICKUP, owner);
+            helper.assertTrue(menu.getCarried().is(FreshnessItems.ROT.get()),
+                    "真实取出点击拿到替换后的腐烂物");
+            helper.assertTrue(owner.getInventory().countItem(Items.BOWL) == 3,
+                    "取出前观察返还碗, 没有丢容器");
+        } finally {
+            FreshnessConfig.MODE.set(previous);
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void operatorsCanActuallyStoreAndTakeWithAccessLogs(GameTestHelper helper) {
+        Fixture fixture = accepted(helper, 9);
+        ServerPlayer operator = player(helper, "guioperator");
+        net.minecraft.server.MinecraftServer server = fixture.level().getServer();
+        server.getPlayerList().getOps().add(new net.minecraft.server.players.ServerOpListEntry(
+                operator.getGameProfile(), 2, false));
+        try {
+            GranaryBinMenu menu = fixture.menuFor(operator);
+            helper.assertTrue(menu.mayStore() && menu.mayTake(), "OP 槽位实际放行存取");
+            menu.setCarried(new ItemStack(Items.BREAD, 1));
+            menu.clicked(0, 0, ClickType.PICKUP, operator);
+            helper.assertTrue(fixture.binEntity().getItem(0).is(Items.BREAD), "OP 真实点击把物品存进囤");
+            menu.setCarried(ItemStack.EMPTY);
+            menu.clicked(0, 0, ClickType.PICKUP, operator);
+            helper.assertTrue(menu.getCarried().is(Items.BREAD) && fixture.binEntity().getItem(0).isEmpty(),
+                    "OP 真实点击把物品取出");
+        } finally {
+            server.getPlayerList().deop(operator.getGameProfile());
+        }
         helper.succeed();
     }
 

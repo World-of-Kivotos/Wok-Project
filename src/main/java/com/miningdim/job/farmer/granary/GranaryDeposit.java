@@ -1,13 +1,13 @@
 package com.miningdim.job.farmer.granary;
 
-import com.miningdim.freshness.FreshnessCategories;
-import com.miningdim.freshness.FreshnessCategory;
 import com.miningdim.freshness.FreshnessClockData;
+import com.miningdim.freshness.FreshnessConfig;
 import com.miningdim.freshness.FreshnessData;
 import com.miningdim.freshness.FreshMerge;
 import com.miningdim.job.farmer.granary.block.GranaryBinBlockEntity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
@@ -35,6 +35,8 @@ import java.util.List;
  * 界面做出来之后, 按钮直接调这里; 现在先用 {@code /granary deposit} 触发。
  */
 public final class GranaryDeposit {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/granary");
 
     /** 一次存入的结果 (提示与用例都读它)。 */
     public record Result(int items, int stacks, Skips skips, Rejection rejection) {
@@ -118,42 +120,27 @@ public final class GranaryDeposit {
     public static Result depositAt(ServerLevel level, GranaryBinBlockEntity bin, Player player,
                                    boolean includeHotbar, long nowMinute) {
         long nowHour = nowMinute / 60L;
-        GranarySavedData data = GranarySavedData.get(level.getServer().overworld());
-        ResourceLocation dimension = level.dimension().location();
-        /*
-         * 谁能往里放: 囤主与名单上的人走自己那条路; **官仓的公开捐粮**是另一条路 (任何走得进房子的人),
-         * 只收未腐烂的易腐食物、按人按天限组 —— 与界面上的判定同一个入口 (GranaryPublicService),
-         * 两条路给出的答案必须一致, 否则会出现"界面能存、命令不能"。
-         */
-        boolean trusted = GranaryAccess.mayStore(bin.owner(), bin.access(), player.getUUID());
-        boolean publicDonor = false;
-        if (!trusted) {
-            if (!(player instanceof net.minecraft.server.level.ServerPlayer serverPlayer)) {
-                return new Result(0, 0, new Skips(0, 0, 0, 0, 0), Rejection.NOT_ALLOWED);
-            }
-            if (!GranaryPublicService.donationOpen(level, bin)) {
-                return new Result(0, 0, new Skips(0, 0, 0, 0, 0), Rejection.NOT_ALLOWED);
-            }
-            if (!GranaryPublicService.mayDonate(level, bin, serverPlayer, nowMinute)) {
-                return new Result(0, 0, new Skips(0, 0, 0, 0, 0), Rejection.DAILY_LIMIT);
-            }
-            publicDonor = true;
+        GranaryAdmission.Context admission = GranaryAdmission.context(level, bin, player, nowMinute);
+        if (!admission.accepted()) {
+            return new Result(0, 0, new Skips(0, 0, 0, 0, 0), switch (admission.rejection()) {
+                case NOT_ALLOWED -> Rejection.NOT_ALLOWED;
+                case NOT_ACTIVE -> Rejection.NOT_ACTIVE;
+                case GRANARY_DOWN -> Rejection.GRANARY_DOWN;
+                case DAILY_LIMIT -> Rejection.DAILY_LIMIT;
+                default -> throw new IllegalStateException("Unexpected granary admission rejection: "
+                        + admission.rejection());
+            });
         }
+        boolean publicDonor = admission.publicDonor();
         long publicDay = GranaryPublic.dayOf(nowMinute);
-        if (!data.binState(dimension, bin.getBlockPos()).acceptsDeposits()) {
-            return new Result(0, 0, new Skips(0, 0, 0, 0, 0), Rejection.NOT_ACTIVE);
-        }
-        GranaryRecord record = data.granary(data.granaryOfBin(dimension, bin.getBlockPos()));
-        if (record == null || !record.acceptsDeposits()) {
-            return new Result(0, 0, new Skips(0, 0, 0, 0, 0), Rejection.GRANARY_DOWN);
-        }
-        GranaryTier tier = record.tier();
 
         // 先结算: 与「菜单开着每到整点先结算」同一条规矩, 免得后面的入仓时刻把老账冲掉。
         bin.settleAll(nowHour);
 
         List<Integer> slots = candidateSlots(player, includeHotbar);
-        mergeFirst(player, slots);
+        if (FreshnessConfig.stampingEnabled()) {
+            mergeFirst(player, slots);
+        }
 
         int items = 0;
         int stacks = 0;
@@ -164,34 +151,19 @@ public final class GranaryDeposit {
         int limited = 0;
         for (int slot : slots) {
             ItemStack stack = player.getInventory().getItem(slot);
-            if (stack.isEmpty() || !FreshnessCategories.spoils(stack) || FreshnessCategories.isExempt(stack)) {
+            GranaryAdmission.Rejection itemRejection = GranaryAdmission.itemRejection(
+                    admission.tier(), stack, nowMinute);
+            if (itemRejection != GranaryAdmission.Rejection.NONE) {
+                switch (itemRejection) {
+                    case ROTTEN -> rotten++;
+                    case MIGRATED -> migrated++;
+                    case EXHAUSTED -> exhausted++;
+                    case FRESH -> fresh++;
+                    default -> { }
+                }
                 continue;
             }
-            int shelfLifeHours = FreshnessCategories.shelfLifeHours(stack);
-            if (FreshnessData.isRotten(stack, shelfLifeHours, nowMinute)) {
-                rotten++;
-                continue;
-            }
-            /*
-             * 开服迁移的老货不能进仓 (规格「开服迁移」/反漏洞 #21): 它们的停表额度**已经记满**, 进仓再停表
-             * 等于白送 21 天; 而且它们带迁移标记, 永不和新货合并 —— 留在背包里按 6 小时宽限处理才是本意。
-             *
-             * 这一条排在"额度用完"**前面**: 迁移货的额度天然是满的, 先判额度的话它们会被记成"额度用完",
-             * 玩家看到的原因是错的那个, 也就不知道这批东西为什么进不去。
-             */
-            if (FreshnessData.isMigrated(stack)) {
-                migrated++;
-                continue;
-            }
-            if (GranarySettle.capExhausted(stack)) {
-                exhausted++;
-                continue;
-            }
-            if (!tier.acceptsFresh() && isFresh(stack)) {
-                fresh++;
-                continue;
-            }
-            if (!FreshnessData.isStamped(stack)) {
+            if (FreshnessConfig.stampingEnabled() && !FreshnessData.isStamped(stack)) {
                 FreshnessData.stamp(stack, nowMinute);
             }
             int before = stack.getCount();
@@ -207,6 +179,11 @@ public final class GranaryDeposit {
                 GranaryJournal.record(level, bin.getBlockPos(), player.getUUID(),
                         publicDonor ? GranaryJournal.Kind.DONATE : GranaryJournal.Kind.STORE,
                         source, moved);
+                if (GranaryAdmission.isOperator(player)) {
+                    LOGGER.info("granary bin at {} in {} operator {} stored {} of {}",
+                            bin.getBlockPos(), level.dimension().location(), player.getGameProfile().getName(),
+                            moved, source.getHoverName().getString());
+                }
             } else {
                 // 一格都放不下 (囤满或被批次规矩挡住)。
                 stack.setCount(before);
@@ -294,7 +271,4 @@ public final class GranaryDeposit {
         }
     }
 
-    private static boolean isFresh(ItemStack stack) {
-        return FreshnessCategories.categoryOf(stack).orElse(null) == FreshnessCategory.FRESH;
-    }
 }

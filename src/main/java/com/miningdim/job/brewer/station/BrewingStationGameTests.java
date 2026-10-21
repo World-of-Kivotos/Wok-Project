@@ -3,7 +3,9 @@ package com.miningdim.job.brewer.station;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.freshness.FreshnessCategories;
 import com.miningdim.freshness.FreshnessCheck;
+import com.miningdim.freshness.FreshnessConfig;
 import com.miningdim.freshness.FreshnessData;
+import com.miningdim.freshness.FreshnessNested;
 import com.miningdim.job.brewer.BrewerItems;
 import com.miningdim.job.brewer.WineType;
 import com.miningdim.job.farmer.item.FarmerItems;
@@ -188,73 +190,122 @@ public final class BrewingStationGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void matchSkipsRottenIngredientsAndStartsAgainOnceTheyAreGone(GameTestHelper helper) {
-        // 规格「消费点改造 · 酿酒台」: 统计投料时跳过已腐烂的 —— 拿烂料凑数凑不出配方。
-        // 同一份投料 (烂8 + 新16 = 24) 只需把烂的那堆换掉就变成 WHISKEY, 这是"跳过"而非"少算"的证据。
-        int shelfLife = FreshnessCategories.shelfLifeHours(new ItemStack(FarmerItems.FARMER_WHEAT.get()));
-        helper.assertTrue(shelfLife > 0, "farmer_wheat must be perishable, shelfLife=" + shelfLife);
+        FreshnessConfig.Mode previousMode = FreshnessConfig.MODE.get();
+        try {
+            FreshnessConfig.MODE.set(FreshnessConfig.Mode.ON);
+            // 规格「消费点改造 · 酿酒台」: 统计投料时跳过已腐烂的 —— 拿烂料凑数凑不出配方。
+            // 同一份投料 (烂8 + 新16 = 24) 只需把烂的那堆换掉就变成 WHISKEY, 这是"跳过"而非"少算"的证据。
+            int shelfLife = FreshnessCategories.shelfLifeHours(new ItemStack(FarmerItems.FARMER_WHEAT.get()));
+            helper.assertTrue(shelfLife > 0, "farmer_wheat must be perishable, shelfLife=" + shelfLife);
 
-        ItemStack rotten = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 8);
-        FreshnessData.stampAt(rotten, NOW - (long) shelfLife * 60L - 60L, 0);
-        helper.assertTrue(FreshnessCheck.isRottenNow(rotten, NOW), "fixture wheat must be rotten at NOW");
+            ItemStack rotten = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 8);
+            FreshnessData.stampAt(rotten, NOW - (long) shelfLife * 60L - 60L, 0);
+            helper.assertTrue(FreshnessCheck.isRottenNow(rotten, NOW), "fixture wheat must be rotten at NOW");
 
-        ItemStackHandler h = handler();
-        h.setStackInSlot(0, rotten);
-        h.setStackInSlot(1, new ItemStack(FarmerItems.FARMER_WHEAT.get(), 16));
-        FreshnessData.stamp(h.getStackInSlot(1), NOW);
-        helper.assertTrue(BrewRecipes.match(h, NOW) == null,
-                "rotten8+fresh16 -> null (烂料不计入, 只剩 16 凑不出任何配方)");
+            ItemStackHandler h = handler();
+            h.setStackInSlot(0, rotten);
+            h.setStackInSlot(1, new ItemStack(FarmerItems.FARMER_WHEAT.get(), 16));
+            FreshnessData.stamp(h.getStackInSlot(1), NOW);
+            helper.assertTrue(BrewRecipes.match(h, NOW) == null,
+                    "rotten8+fresh16 -> null (烂料不计入, 只剩 16 凑不出任何配方)");
 
-        // 换掉烂的那堆: 同样的 24 个小麦, 这次全部有效 -> WHISKEY。
-        ItemStack fresh = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 8);
-        FreshnessData.stamp(fresh, NOW);
-        h.setStackInSlot(0, fresh);
-        helper.assertTrue(BrewRecipes.match(h, NOW) == WineType.WHISKEY,
-                "fresh8+fresh16=24 -> WHISKEY (烂料被跳过, 不是被少算)");
-        helper.succeed();
+            // 换掉烂的那堆: 同样的 24 个小麦, 这次全部有效 -> WHISKEY。
+            ItemStack fresh = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 8);
+            FreshnessData.stamp(fresh, NOW);
+            h.setStackInSlot(0, fresh);
+            helper.assertTrue(BrewRecipes.match(h, NOW) == WineType.WHISKEY,
+                    "fresh8+fresh16=24 -> WHISKEY (烂料被跳过, 不是被少算)");
+            helper.succeed();
+        } finally {
+            FreshnessConfig.MODE.set(previousMode);
+        }
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void consumeTakesTheOldestIngredientsFirstAndLeavesRottenAlone(GameTestHelper helper) {
-        // 规格「消费点改造 · 酿酒台」: 扣料先扣最老的 —— 否则玩家永远先烧新料, 把陈料留到烂掉。
-        int shelfLife = FreshnessCategories.shelfLifeHours(new ItemStack(FarmerItems.FARMER_WHEAT.get()));
-        helper.assertTrue(shelfLife > 0, "farmer_wheat must be perishable, shelfLife=" + shelfLife);
+        FreshnessConfig.Mode previousMode = FreshnessConfig.MODE.get();
+        try {
+            FreshnessConfig.MODE.set(FreshnessConfig.Mode.ON);
+            // 规格「消费点改造 · 酿酒台」: 扣料先扣最老的 —— 否则玩家永远先烧新料, 把陈料留到烂掉。
+            int shelfLife = FreshnessCategories.shelfLifeHours(new ItemStack(FarmerItems.FARMER_WHEAT.get()));
+            helper.assertTrue(shelfLife > 0, "farmer_wheat must be perishable, shelfLife=" + shelfLife);
 
-        ItemStack fresh = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 32);
-        FreshnessData.stamp(fresh, NOW);
-        ItemStack old = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 32);
-        // 还剩 1 小时 (没烂, 但最老): 排在最前。
-        FreshnessData.stampAt(old, NOW - (long) shelfLife * 60L + 60L, 0);
-        ItemStack rotten = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 32);
-        FreshnessData.stampAt(rotten, NOW - (long) shelfLife * 60L - 60L, 0);
-        helper.assertTrue(!FreshnessCheck.isRottenNow(old, NOW), "fixture old wheat must still be edible");
-        helper.assertTrue(FreshnessCheck.isRottenNow(rotten, NOW), "fixture rotten wheat must be rotten");
+            ItemStack fresh = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 32);
+            FreshnessData.stamp(fresh, NOW);
+            ItemStack old = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 32);
+            // 还剩 1 小时 (没烂, 但最老): 排在最前。
+            FreshnessData.stampAt(old, NOW - (long) shelfLife * 60L + 60L, 0);
+            ItemStack rotten = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 32);
+            FreshnessData.stampAt(rotten, NOW - (long) shelfLife * 60L - 60L, 0);
+            helper.assertTrue(!FreshnessCheck.isRottenNow(old, NOW), "fixture old wheat must still be edible");
+            helper.assertTrue(FreshnessCheck.isRottenNow(rotten, NOW), "fixture rotten wheat must be rotten");
 
         // 次序断言 (包内直取): 最老的排最前, 烂的整个不出现在扣料序列里。
-        ItemStackHandler order = handler();
-        order.setStackInSlot(0, fresh);
-        order.setStackInSlot(1, old);
-        order.setStackInSlot(2, rotten);
-        java.util.List<Integer> picked = BrewRecipes.oldestFirst(order, FarmerItems.FARMER_WHEAT.get(), NOW);
-        helper.assertTrue(picked.size() == 2, "rotten slot excluded from draw order, got " + picked);
-        helper.assertTrue(picked.get(0) == 1 && picked.get(1) == 0,
-                "oldest slot drawn first, got " + picked);
+            ItemStackHandler order = handler();
+            order.setStackInSlot(0, fresh);
+            order.setStackInSlot(1, old);
+            order.setStackInSlot(2, rotten);
+            java.util.List<Integer> picked = BrewRecipes.oldestFirst(order, FarmerItems.FARMER_WHEAT.get(), NOW);
+            helper.assertTrue(picked.size() == 2, "rotten slot excluded from draw order, got " + picked);
+            helper.assertTrue(picked.get(0) == 1 && picked.get(1) == 0,
+                    "oldest slot drawn first, got " + picked);
 
         // 行为断言: 白兰地 = 鲜麦16 + 苹果4; 旁边那格烂麦16 扣料后必须原封不动。
-        ItemStackHandler h = handler();
-        ItemStack wheat = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 16);
-        FreshnessData.stamp(wheat, NOW);
-        h.setStackInSlot(0, wheat);
-        h.setStackInSlot(1, new ItemStack(FarmerItems.FARMER_WHEAT.get(), 16));
-        FreshnessData.stampAt(h.getStackInSlot(1), NOW - (long) shelfLife * 60L - 60L, 0);
-        h.setStackInSlot(2, new ItemStack(Items.APPLE, 4));
-        helper.assertTrue(BrewRecipes.match(h, NOW) == WineType.BRANDY, "fresh wheat16+apple4 -> BRANDY (烂麦不计)");
+            ItemStackHandler h = handler();
+            ItemStack wheat = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 16);
+            FreshnessData.stamp(wheat, NOW);
+            h.setStackInSlot(0, wheat);
+            h.setStackInSlot(1, new ItemStack(FarmerItems.FARMER_WHEAT.get(), 16));
+            FreshnessData.stampAt(h.getStackInSlot(1), NOW - (long) shelfLife * 60L - 60L, 0);
+            h.setStackInSlot(2, new ItemStack(Items.APPLE, 4));
+            helper.assertTrue(BrewRecipes.match(h, NOW) == WineType.BRANDY,
+                    "fresh wheat16+apple4 -> BRANDY (烂麦不计)");
 
-        BrewRecipes.consume(h, WineType.BRANDY, NOW);
-        helper.assertTrue(h.getStackInSlot(0).isEmpty(), "fresh wheat consumed");
-        helper.assertTrue(h.getStackInSlot(2).isEmpty(), "apple consumed");
-        helper.assertTrue(h.getStackInSlot(1).getCount() == 16,
-                "rotten wheat must stay untouched, got " + h.getStackInSlot(1).getCount());
-        helper.succeed();
+            BrewRecipes.consume(h, WineType.BRANDY, NOW);
+            helper.assertTrue(h.getStackInSlot(0).isEmpty(), "fresh wheat consumed");
+            helper.assertTrue(h.getStackInSlot(2).isEmpty(), "apple consumed");
+            helper.assertTrue(h.getStackInSlot(1).getCount() == 16,
+                    "rotten wheat must stay untouched, got " + h.getStackInSlot(1).getCount());
+            helper.succeed();
+        } finally {
+            FreshnessConfig.MODE.set(previousMode);
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void dryRunBrewRecipeCountsRottenIngredients(GameTestHelper helper) {
+        FreshnessConfig.Mode previousMode = FreshnessConfig.MODE.get();
+        try {
+            FreshnessConfig.MODE.set(FreshnessConfig.Mode.DRY_RUN);
+            int shelfLife = FreshnessCategories.shelfLifeHours(new ItemStack(FarmerItems.FARMER_WHEAT.get()));
+            ItemStack rotten = new ItemStack(FarmerItems.FARMER_WHEAT.get(), 8);
+            FreshnessData.stampAt(rotten, NOW - (long) shelfLife * 60L - 60L, 0);
+            ItemStackHandler input = handler();
+            input.setStackInSlot(0, rotten);
+            input.setStackInSlot(1, new ItemStack(FarmerItems.FARMER_WHEAT.get(), 16));
+
+            helper.assertTrue(BrewRecipes.match(input, NOW) == WineType.WHISKEY,
+                    "DRY_RUN 的真实配方匹配仍应计入已腐烂的 8 份小麦");
+            helper.succeed();
+        } finally {
+            FreshnessConfig.MODE.set(previousMode);
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void offModeDoesNotStampPerishableItems(GameTestHelper helper) {
+        FreshnessConfig.Mode previousMode = FreshnessConfig.MODE.get();
+        try {
+            FreshnessConfig.MODE.set(FreshnessConfig.Mode.OFF);
+            ItemStack bread = new ItemStack(Items.BREAD);
+            helper.assertTrue(!FreshnessData.isStamped(bread), "fresh bread fixture starts without a stamp");
+            helper.assertTrue(FreshnessNested.stampDeep(bread, 60L) == 0,
+                    "OFF 模式不应把任何一层计作新盖章");
+            helper.assertTrue(!FreshnessData.isStamped(bread), "OFF 模式下 FreshnessNested 不得写入批次标签");
+            helper.succeed();
+        } finally {
+            FreshnessConfig.MODE.set(previousMode);
+        }
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)

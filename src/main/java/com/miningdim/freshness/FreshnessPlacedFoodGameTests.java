@@ -65,7 +65,7 @@ public final class FreshnessPlacedFoodGameTests {
         FreshnessData.stampAt(cake, nowMinute - 3L * 24L * 60L, 7);
         place(helper, pos, Blocks.CAKE, cake);
 
-        FreshnessPlacedFood.Placed placed = FreshnessPlacedFood.at(pos).orElse(null);
+        FreshnessPlacedFood.Placed placed = FreshnessPlacedFood.at(level.dimension(), pos).orElse(null);
         helper.assertTrue(placed != null, "摆下蛋糕要记一笔 (size=" + FreshnessPlacedFood.size() + ")");
         helper.assertTrue(placed.block().equals(net.minecraftforge.registries.ForgeRegistries.BLOCKS
                         .getKey(Blocks.CAKE)), "记的是这个方块的 id, 实际 " + placed.block());
@@ -76,7 +76,7 @@ public final class FreshnessPlacedFoodGameTests {
         // 没盖章的: 摆下去那一刻当场盖章, 记的是现在。
         BlockPos fresh = helper.absolutePos(cake(slot, CAKE_REL.offset(0, 0, 2)));   // 别撞上 STONE_REL
         place(helper, fresh, Blocks.CAKE, new ItemStack(Items.CAKE, 1));
-        FreshnessPlacedFood.Placed stamped = FreshnessPlacedFood.at(fresh).orElse(null);
+        FreshnessPlacedFood.Placed stamped = FreshnessPlacedFood.at(level.dimension(), fresh).orElse(null);
         helper.assertTrue(stamped != null, "没盖章的摆下去也要记");
         helper.assertTrue(stamped.batchMinute() == FreshnessData.wholeHour(nowMinute),
                 "记的是当场盖的整点章, 实际 " + stamped.batchMinute());
@@ -85,7 +85,7 @@ public final class FreshnessPlacedFoodGameTests {
         // 不是易腐品: 不记。
         BlockPos stone = helper.absolutePos(cake(slot, STONE_REL));
         place(helper, stone, Blocks.STONE, new ItemStack(Items.STONE, 1));
-        helper.assertTrue(FreshnessPlacedFood.at(stone).isEmpty(), "石头不记");
+        helper.assertTrue(FreshnessPlacedFood.at(level.dimension(), stone).isEmpty(), "石头不记");
         helper.succeed();
     }
 
@@ -103,7 +103,7 @@ public final class FreshnessPlacedFoodGameTests {
         // 甜浆果丛会掉甜浆果 (易腐品): 先按「摆了一天的浆果丛」记一笔。
         helper.setBlock(cake(slot, BUSH_REL), matureBush());
         FreshnessPlacedFood.record(level, pos, new ItemStack(Items.SWEET_BERRIES, 1), matureBush());
-        FreshnessPlacedFood.Placed recorded = FreshnessPlacedFood.at(pos).orElseThrow();
+        FreshnessPlacedFood.Placed recorded = FreshnessPlacedFood.at(level.dimension(), pos).orElseThrow();
         helper.assertTrue(recorded.batchMinute() == FreshnessData.wholeHour(nowMinute),
                 "夹具: 记录的是当场盖的章");
 
@@ -117,7 +117,7 @@ public final class FreshnessPlacedFoodGameTests {
         helper.assertTrue(FreshnessData.batchMinute(drop.getItem()) == recorded.batchMinute(),
                 "掉落物按记录继承批次时刻: 记录 " + recorded.batchMinute() + " / 实际 "
                         + FreshnessData.batchMinute(drop.getItem()));
-        helper.assertTrue(FreshnessPlacedFood.at(pos).isEmpty(), "继承完就忘掉 (不重复继承)");
+        helper.assertTrue(FreshnessPlacedFood.at(level.dimension(), pos).isEmpty(), "继承完就忘掉 (不重复继承)");
         helper.succeed();
     }
 
@@ -134,7 +134,7 @@ public final class FreshnessPlacedFoodGameTests {
                 new ItemStack(Items.CAKE, 1), Blocks.CAKE.defaultBlockState());
         BlockState bush = matureBush();
         java.util.Optional<FreshnessPlacedFood.Placed> forBush =
-                FreshnessPlacedFood.at(pos).filter(placed -> placed.block().equals(
+                FreshnessPlacedFood.at(level.dimension(), pos).filter(placed -> placed.block().equals(
                         net.minecraftforge.registries.ForgeRegistries.BLOCKS.getKey(bush.getBlock())));
         helper.assertTrue(forBush.isEmpty(), "方块对不上的记录不算 (判定按方块 id)");
 
@@ -146,7 +146,7 @@ public final class FreshnessPlacedFoodGameTests {
         helper.assertTrue(drop != null, "浆果丛要掉出浆果");
         helper.assertTrue(FreshnessData.batchMinute(drop.getItem()) == FreshnessData.wholeHour(nowMinute),
                 "拿到的应当是「现在」这一章而不是旧账: 实际 " + FreshnessData.batchMinute(drop.getItem()));
-        helper.assertTrue(FreshnessPlacedFood.at(pos).isPresent(), "对不上的旧账没被消费掉 (留着, 但也不会被用)");
+        helper.assertTrue(FreshnessPlacedFood.at(level.dimension(), pos).isEmpty(), "对不上的旧账应被清理");
         FreshnessPlacedFood.resetForTest();
         helper.succeed();
     }
@@ -166,27 +166,27 @@ public final class FreshnessPlacedFoodGameTests {
         ItemStack cake = new ItemStack(Items.CAKE, 1);
         FreshnessData.stampAt(cake, nowMinute - 600L, 3);
         FreshnessPlacedFood.record(level, pos, cake, Blocks.CAKE.defaultBlockState());
-        helper.assertTrue(FreshnessPlacedFood.at(pos).isPresent(), "先记上");
+        helper.assertTrue(FreshnessPlacedFood.at(level.dimension(), pos).isPresent(), "先记上");
 
         // 写进区块附加数据 → 清空内存 → 读回来 (区块卸载再开就是这个过程)。
         CompoundTag data = new CompoundTag();
-        FreshnessPlacedFood.saveTo(chunkPos, data);
+        FreshnessPlacedFood.saveTo(level.dimension(), chunkPos, data);
         helper.assertTrue(data.contains(FreshnessPlacedFood.KEY_PLACED), "写进了区块附加数据");
         FreshnessPlacedFood.resetForTest();
-        helper.assertTrue(FreshnessPlacedFood.at(pos).isEmpty(), "内存清空了");
-        FreshnessPlacedFood.loadFrom(chunkPos, data);
-        FreshnessPlacedFood.Placed back = FreshnessPlacedFood.at(pos).orElse(null);
+        helper.assertTrue(FreshnessPlacedFood.at(level.dimension(), pos).isEmpty(), "内存清空了");
+        FreshnessPlacedFood.loadFrom(level.dimension(), chunkPos, data);
+        FreshnessPlacedFood.Placed back = FreshnessPlacedFood.at(level.dimension(), pos).orElse(null);
         helper.assertTrue(back != null, "读回来了");
         helper.assertTrue(back.batchMinute() == nowMinute - 600L && back.stoppedHours() == 3,
                 "批次时刻与停表小时原样: " + back);
 
         // 区块卸载: 内存那份丢掉 (存盘已经做过)。
-        FreshnessPlacedFood.unload(chunkPos);
-        helper.assertTrue(FreshnessPlacedFood.at(pos).isEmpty(), "卸载之后内存里不再留着");
+        FreshnessPlacedFood.unload(level.dimension(), chunkPos);
+        helper.assertTrue(FreshnessPlacedFood.at(level.dimension(), pos).isEmpty(), "卸载之后内存里不再留着");
 
         // 空记录不该写键。
         CompoundTag empty = new CompoundTag();
-        FreshnessPlacedFood.saveTo(chunkPos, empty);
+        FreshnessPlacedFood.saveTo(level.dimension(), chunkPos, empty);
         helper.assertTrue(!empty.contains(FreshnessPlacedFood.KEY_PLACED), "没有记录就不写这个键");
         helper.succeed();
     }

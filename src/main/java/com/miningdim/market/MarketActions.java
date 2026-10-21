@@ -537,7 +537,8 @@ public final class MarketActions {
          * 代价是"预览显示的剩余"与"真上架时的剩余"可能差一小时以内 (整点章), 这个误差对 6 小时门槛无影响。
          */
         MarketFreshness.Verdict fresh = MarketFreshness.judgeForListing(stack, MarketServices.marketEngine().nowMinute());
-        boolean tradable = verdict.tradable() && fresh.listable();
+        boolean tradable = verdict.tradable()
+                && (!com.miningdim.freshness.FreshnessConfig.replacementEnabled() || fresh.listable());
         JsonObject result = new JsonObject();
         // 回显 slot: 玩家快速换格时, 前端靠它把异步回执对回当前选中格 (防串行)。
         result.addProperty("slot", slot);

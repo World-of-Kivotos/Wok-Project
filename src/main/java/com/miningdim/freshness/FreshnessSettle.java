@@ -47,6 +47,9 @@ public final class FreshnessSettle {
         if (stack.isEmpty()) {
             return ItemStack.EMPTY;
         }
+        if (!FreshnessConfig.stampingEnabled()) {
+            return ItemStack.EMPTY;
+        }
         Optional<FreshnessCategory> category = FreshnessCategories.categoryOf(stack);
         if (category.isEmpty()) {
             return ItemStack.EMPTY;
@@ -56,13 +59,13 @@ public final class FreshnessSettle {
         FreshnessData.clamp(stack, nowMinute);
         if (!FreshnessData.isStamped(stack)) {
             FreshnessData.stamp(stack, nowMinute);
-            FreshnessStats.recordStamped();
+            FreshnessStats.recordStamped(stack.getCount());
             return ItemStack.EMPTY;
         }
         if (!replaceRotten) {
             // 试运行: 只统计「本该腐烂多少件」, 不动东西 (安全阀)。
             if (FreshnessData.isRotten(stack, FreshnessConfig.shelfLifeHours(category.get()), nowMinute)) {
-                FreshnessStats.recordWouldRot();
+                FreshnessStats.recordWouldRot(stack);
             }
             return ItemStack.EMPTY;
         }
@@ -70,7 +73,7 @@ public final class FreshnessSettle {
         if (!FreshnessData.isRotten(stack, shelfLifeHours, nowMinute)) {
             return ItemStack.EMPTY;
         }
-        FreshnessStats.recordRotted();
+        FreshnessStats.recordRotted(stack.getCount());
         if (returns != null) {
             returns.addAll(containerReturns(stack));
         }

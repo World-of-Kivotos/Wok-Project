@@ -318,7 +318,8 @@ public final class QuestService {
             if (stack.isEmpty() || stack.getItem() != item) {
                 continue;
             }
-            if (com.miningdim.freshness.FreshnessCheck.isRottenNow(stack, nowMinute)) {
+            if (com.miningdim.freshness.FreshnessConfig.replacementEnabled()
+                    && com.miningdim.freshness.FreshnessCheck.isRottenNow(stack, nowMinute)) {
                 continue;
             }
             int take = Math.min(stack.getCount(), wanted - taken);

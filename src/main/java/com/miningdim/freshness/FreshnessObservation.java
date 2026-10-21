@@ -50,6 +50,7 @@ public final class FreshnessObservation {
 
     private static void settleStackInEntity(ItemEntity itemEntity, long nowMinute) {
         ItemStack stack = itemEntity.getItem();
+        FreshnessSourceContext.inheritInto(stack, nowMinute);
         List<ItemStack> returns = new ArrayList<>();
         ItemStack replacement = FreshnessSettle.settleSlot(stack, nowMinute,
                 FreshnessConfig.replacementEnabled(), returns);

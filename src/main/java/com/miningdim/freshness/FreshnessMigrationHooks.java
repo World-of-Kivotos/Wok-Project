@@ -11,11 +11,16 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.vehicle.AbstractMinecartContainer;
 import net.minecraft.world.entity.vehicle.ChestBoat;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.level.ChunkDataEvent;
+import net.minecraftforge.event.level.ChunkEvent;
+import net.minecraftforge.event.level.LevelEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
+import net.minecraftforge.event.server.ServerStoppedEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.items.IItemHandler;
@@ -27,14 +32,16 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
 /**
  * 开服迁移的接线 (规格「开服迁移」): 启用时刻与老玩家名单、区块存档、实体内容、老玩家第一次登录。
  *
- * 四个入口的**优先级都是 HIGHEST**, 因为默认优先级那一批观察点会把"没章的东西"当场盖成**现在**——
+ * 迁移入口的**优先级都是 HIGHEST**, 因为默认优先级那一批观察点会把"没章的东西"当场盖成**现在**——
  * 迁移必须在它们之前把老货改成"启用时刻剩 6 小时", 否则时间胶囊里的东西一到手就变成刚出炉的新货,
  * 迁移就等于没做 (顺序错的反面同样是灾难: 迁移盖完章之后观察点不会再动它, 因为章已经在)。
  *
@@ -47,11 +54,13 @@ public final class FreshnessMigrationHooks {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/freshness");
 
-    /** 本次启动已经走过的区块 (每区块每启动周期最多走一遍, 免得每次加载都把整棵 NBT 树读一遍)。 */
-    private static final Set<Long> WALKED_CHUNKS = new LinkedHashSet<>();
+    /** ChunkDataEvent.Save 收到的是新 NBT 根, 因此在 ChunkAccess 上无法暂存的标记需保留到服务停止。 */
+    private static final Map<ChunkIdentity, Long> PENDING_MARKERS = new ConcurrentHashMap<>();
+    private static final String CHUNK_MIGRATION_MARKER = "miningdim_fresh_mig";
+    private static final int CHUNK_MIGRATION_MARKER_VERSION = 1;
 
-    /** 上面那个集合的上限: 超过之后不再记账 (大服长时间跑不该为了省几次遍历把内存吃满)。 */
-    private static final int MAX_WALKED_CHUNKS = 200_000;
+    private record ChunkIdentity(ResourceKey<Level> dimension, long chunkPos) {
+    }
 
     /** 迁移是否启用 (总开关关掉, 或整个模块处于关闭档, 都不迁移)。 */
     private static boolean enabled() {
@@ -76,14 +85,47 @@ public final class FreshnessMigrationHooks {
             LOGGER.info("[miningdim] freshness migration: 未启用 (配置里关掉了或模块不在盖章档), 不做开服迁移");
             return;
         }
-        MinecraftServer server = event.getServer();
+        FreshnessMigrationData data = ensureMigrationStartedSynchronized(event.getServer().overworld());
+        logMigrationStarted(data);
+    }
+
+    /** LevelEvent.Load 在主线程、启动区块加载之前发布; 在这里先初始化启动补偿与迁移名单。 */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onLevelLoad(LevelEvent.Load event) {
+        if (enabled() && event.getLevel() instanceof ServerLevel level
+                && level.dimension() == Level.OVERWORLD) {
+            FreshnessMigrationData data = ensureMigrationStartedSynchronized(level);
+            logMigrationStarted(data);
+        }
+    }
+
+    /** ChunkDataEvent.Load 可能早于 ServerStarted; LevelEvent.Load 已先处理启动区块, 此处仍作幂等兜底。 */
+    private static FreshnessMigrationData ensureMigrationStarted(ServerLevel level) {
+        MinecraftServer server = level.getServer();
         ServerLevel overworld = server.overworld();
+        FreshnessClockData clock = FreshnessClockData.get(overworld);
+        long startupCompensation = clock.onServerStarted(
+                FreshnessClock.currentWallHour(), FreshnessClock.currentWallMinute());
+        if (startupCompensation > 0L) {
+            LOGGER.info("[miningdim] freshness clock: 停服补偿 {} 小时 (迁移启动时提前完成)", startupCompensation);
+        }
         FreshnessMigrationData data = FreshnessMigrationData.get(overworld);
-        long enabledAt = data.resolveEnabledAt(FreshnessClockData.nowMinute(overworld),
+        data.resolveEnabledAt(clock.nowMinute(),
                 FreshnessConfig.MIGRATION_ENABLED_AT_MINUTE.get());
-        boolean captured = data.captureRosterIfNeeded(scanExistingPlayers(server));
-        LOGGER.info("[miningdim] freshness migration: 启用时刻=第 {} 分钟 (宽限 {} 小时), 老玩家名单 {}{}",
-                enabledAt, graceHours(), data.rosterSize(), captured ? " (本次记下)" : " (沿用存档里的)");
+        if (!data.rosterCaptured()) {
+            data.captureRosterIfNeeded(scanExistingPlayers(server));
+        }
+        return data;
+    }
+
+    /** 迁移元数据通常从区块 IO 线程加载; 同步这一小段避免同时扫描并反复定时。 */
+    private static synchronized FreshnessMigrationData ensureMigrationStartedSynchronized(ServerLevel level) {
+        return ensureMigrationStarted(level);
+    }
+
+    private static void logMigrationStarted(FreshnessMigrationData data) {
+        LOGGER.info("[miningdim] freshness migration: 启用时刻=第 {} 分钟 (宽限 {} 小时), 老玩家名单 {} (已确保)",
+                data.enabledAtMinute(), graceHours(), data.rosterSize());
     }
 
     /**
@@ -123,24 +165,79 @@ public final class FreshnessMigrationHooks {
         if (!enabled() || !(event.getLevel() instanceof ServerLevel level)) {
             return;
         }
-        long chunkKey = event.getChunk().getPos().toLong();
-        if (WALKED_CHUNKS.contains(chunkKey)) {
-            return;
-        }
-        if (WALKED_CHUNKS.size() < MAX_WALKED_CHUNKS) {
-            WALKED_CHUNKS.add(chunkKey);
-        }
-        FreshnessMigrationData data = FreshnessMigrationData.get(level);
+        FreshnessMigrationData data = ensureMigrationStartedSynchronized(level);
         long enabledAt = data.enabledAtMinute();
         if (enabledAt == FreshnessMigrationData.UNSET_MINUTE) {
-            return; // 还没定启用时刻 (理论上 onServerStarted 已定); 不定就不迁移, 免得算出个荒唐的章
+            return;
         }
         CompoundTag chunkData = event.getData();
+        ChunkIdentity identity = identity(level, event.getChunk().getPos().toLong());
+        if (hasCurrentMigrationMarker(chunkData, enabledAt)) {
+            PENDING_MARKERS.put(identity, enabledAt);
+            return;
+        }
         int migrated = FreshnessMigration.migrateTag(chunkData, enabledAt, graceHours(), stopCapHours());
+        PENDING_MARKERS.put(identity, enabledAt);
         if (migrated > 0) {
             LOGGER.info("[miningdim] freshness migration: 区块 {} 里迁移了 {} 件老货 (启用时刻剩 {} 小时)",
                     event.getChunk().getPos(), migrated, graceHours());
         }
+    }
+
+    /** 新生成区块不含启用前遗留货物, 只记录代号供下一次 ChunkDataEvent.Save 持久化。 */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onNewChunk(ChunkEvent.Load event) {
+        if (!event.isNewChunk() || !enabled() || !(event.getLevel() instanceof ServerLevel level)) {
+            return;
+        }
+        FreshnessMigrationData data = ensureMigrationStartedSynchronized(level);
+        long enabledAt = data.enabledAtMinute();
+        if (enabledAt != FreshnessMigrationData.UNSET_MINUTE) {
+            PENDING_MARKERS.put(identity(level, event.getChunk().getPos().toLong()), enabledAt);
+        }
+    }
+
+    /** 保存时把启用代号写回区块根; marker 是跨重启判断是否迁移过的唯一来源。 */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onChunkSave(ChunkDataEvent.Save event) {
+        if (!(event.getLevel() instanceof ServerLevel level)) {
+            return;
+        }
+        Long generation = PENDING_MARKERS.get(identity(level, event.getChunk().getPos().toLong()));
+        if (generation != null) {
+            writeMigrationMarker(event.getData(), generation);
+        }
+    }
+
+    /** 服务停止时清掉当前进程的写回队列; 持久状态仍只以区块 NBT marker 为准。 */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onServerStopped(ServerStoppedEvent event) {
+        PENDING_MARKERS.clear();
+    }
+
+    private static ChunkIdentity identity(ServerLevel level, long chunkPos) {
+        return new ChunkIdentity(level.dimension(), chunkPos);
+    }
+
+    static boolean hasCurrentMigrationMarker(CompoundTag chunkData, long generation) {
+        if (!chunkData.contains(CHUNK_MIGRATION_MARKER, net.minecraft.nbt.Tag.TAG_COMPOUND)) {
+            return false;
+        }
+        CompoundTag marker = chunkData.getCompound(CHUNK_MIGRATION_MARKER);
+        return marker.getInt("Version") == CHUNK_MIGRATION_MARKER_VERSION
+                && marker.contains("Generation", net.minecraft.nbt.Tag.TAG_LONG)
+                && marker.getLong("Generation") == generation;
+    }
+
+    static void writeMigrationMarker(CompoundTag chunkData, long generation) {
+        CompoundTag marker = new CompoundTag();
+        marker.putInt("Version", CHUNK_MIGRATION_MARKER_VERSION);
+        marker.putLong("Generation", generation);
+        chunkData.put(CHUNK_MIGRATION_MARKER, marker);
+    }
+
+    static Object identityForTest(ResourceKey<Level> dimension, long chunkPos) {
+        return new ChunkIdentity(dimension, chunkPos);
     }
 
     // ============================================================
@@ -246,6 +343,6 @@ public final class FreshnessMigrationHooks {
 
     /** 仅供用例: 清掉本次启动的区块记账。 */
     static void resetWalkedChunksForTest() {
-        WALKED_CHUNKS.clear();
+        PENDING_MARKERS.clear();
     }
 }

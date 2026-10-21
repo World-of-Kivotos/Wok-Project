@@ -98,7 +98,7 @@ public final class MarketRottenSweep {
      * @return 这一趟关掉了几单
      */
     public static int tick(MarketDao dao, MinecraftServer server, long gameTime, long nowMinute) {
-        if (dao == null) {
+        if (!com.miningdim.freshness.FreshnessConfig.replacementEnabled() || dao == null) {
             return 0;
         }
         if (lastSweepTick != Long.MIN_VALUE && gameTime - lastSweepTick < INTERVAL_TICKS) {

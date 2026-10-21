@@ -140,9 +140,11 @@ public final class MarketEngine {
          * 而且判的是**整堆** (含嵌套层), 潜伏在潜影盒里的烂货混不过去。
          */
         long nowMinute = nowMinute();
-        FreshnessNested.stampDeep(stack, nowMinute);
+        if (com.miningdim.freshness.FreshnessConfig.stampingEnabled()) {
+            FreshnessNested.stampDeep(stack, nowMinute);
+        }
         MarketFreshness.Verdict fresh = MarketFreshness.judgeForListing(stack, nowMinute);
-        if (!fresh.listable()) {
+        if (com.miningdim.freshness.FreshnessConfig.replacementEnabled() && !fresh.listable()) {
             throw new WebUiBusinessException(
                     fresh.rotten() ? WebUiErrorCodes.FRESHNESS_ROTTEN : WebUiErrorCodes.FRESHNESS_TOO_SHORT,
                     fresh.rotten()
@@ -244,7 +246,7 @@ public final class MarketEngine {
          * 不做"自动退回卖家": cancel 要求卖家本人在线且背包放得下, 市场也没有物品待领机制。
          */
         long nowMinute = nowMinute();
-        if (MarketFreshness.rotten(escrow, nowMinute)) {
+        if (com.miningdim.freshness.FreshnessConfig.replacementEnabled() && MarketFreshness.rotten(escrow, nowMinute)) {
             throw new WebUiBusinessException(WebUiErrorCodes.FRESHNESS_ROTTEN,
                     "这一单里有已经腐烂的东西, 不能购买 (挂单仍在, 卖家可自行撤单)", false,
                     Map.of("listingId", Long.toString(listingId), "itemId", row.itemId(),

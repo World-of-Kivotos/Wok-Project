@@ -27,10 +27,13 @@ public final class FreshnessClientSetup {
     private FreshnessClientSetup() {
     }
 
-    /** 客户端入口 (FMLClientSetupEvent 里调): 注册配置 + 挂事件。 */
-    public static void register() {
+    /** 配置必须在构造阶段登记，生命周期 setup 到来时配置加载已完成。 */
+    public static void registerConfig() {
         ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT,
                 FreshnessClientConfig.SPEC, "miningdim-freshness-client.toml");
+    }
+
+    public static void register() {
         MinecraftForge.EVENT_BUS.register(FreshnessClientEvents.class);
     }
 

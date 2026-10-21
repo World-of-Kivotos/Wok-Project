@@ -11,6 +11,7 @@ import com.miningdim.economy.EconomyServices;
 import com.miningdim.economy.IEconomyService;
 import com.miningdim.economy.PlayerAbuseState;
 import com.miningdim.economy.SqliteEconomyLedger;
+import com.miningdim.freshness.FreshnessConfig;
 import com.miningdim.quest.objective.AmmoSpentObjective;
 import com.miningdim.quest.objective.GunKillObjective;
 import com.miningdim.quest.objective.KillEntityObjective;
@@ -902,9 +903,11 @@ public final class QuestGameTests {
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void turnInRefusesRottenFoodButAcceptsExemptItems(GameTestHelper helper) {
+        FreshnessConfig.Mode previousMode = FreshnessConfig.MODE.get();
         IEconomyService previous = currentEconomy();
-        registerFreshEconomy();
         try {
+            FreshnessConfig.MODE.set(FreshnessConfig.Mode.ON);
+            registerFreshEconomy();
             ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             QuestPool pool = QuestPool.builtin();
             QuestService service = new QuestService(pool);
@@ -955,8 +958,42 @@ public final class QuestGameTests {
                     "新鲜面包照常能交, 实得 " + freshResult.outcome() + " x" + freshResult.count());
         } finally {
             restoreEconomy(previous);
+            FreshnessConfig.MODE.set(previousMode);
         }
         helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void dryRunQuestTurnInAcceptsRottenFood(GameTestHelper helper) {
+        FreshnessConfig.Mode previousMode = FreshnessConfig.MODE.get();
+        try {
+            FreshnessConfig.MODE.set(FreshnessConfig.Mode.DRY_RUN);
+            ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+            player.getInventory().clearContent();
+            QuestPool pool = QuestPool.builtin();
+            QuestService service = new QuestService(pool);
+            QuestDefinition bread = new QuestDefinition("test.turnin.bread.dry_run",
+                    QuestSource.DAILY, "交面包",
+                    new com.miningdim.quest.objective.TurnInItemObjective(Items.BREAD, 4), 1);
+            service.boardOf(player).restorePeriodic(QuestClock.currentUtcDayStamp(),
+                    List.of(new QuestProgress(bread)), QuestClock.currentUtcWeekStamp(), List.of());
+
+            ItemStack rotten = new ItemStack(Items.BREAD, 4);
+            long nowMinute = com.miningdim.freshness.FreshnessClockData.nowMinute(player.serverLevel());
+            int shelfLife = com.miningdim.freshness.FreshnessCategories.shelfLifeHours(rotten);
+            helper.assertTrue(shelfLife > 0, "夹具: 面包必须具有保质期");
+            com.miningdim.freshness.FreshnessData.stampAt(rotten,
+                    nowMinute - (long) shelfLife * 60L - 60L, 0);
+            player.getInventory().add(rotten);
+
+            QuestService.TurnInResult result = service.turnIn(player, bread.id());
+            helper.assertTrue(result.outcome() == QuestService.TurnInOutcome.TURNED_IN && result.count() == 4,
+                    "DRY_RUN 下真实任务上交入口应收下 4 个已腐烂面包, 实得 "
+                            + result.outcome() + " x" + result.count());
+            helper.succeed();
+        } finally {
+            FreshnessConfig.MODE.set(previousMode);
+        }
     }
 
     /**

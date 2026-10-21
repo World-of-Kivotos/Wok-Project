@@ -43,17 +43,55 @@ public final class FreshnessPlacedFoodHooks {
 
     @SubscribeEvent
     public static void onChunkLoad(ChunkDataEvent.Load event) {
-        FreshnessPlacedFood.loadFrom(event.getChunk().getPos(), event.getData());
+        if (!(event.getLevel() instanceof ServerLevel level)) {
+            return;
+        }
+        FreshnessPlacedFood.loadFrom(level.dimension(), event.getChunk().getPos(), event.getData());
     }
 
     @SubscribeEvent
     public static void onChunkSave(ChunkDataEvent.Save event) {
-        FreshnessPlacedFood.saveTo(event.getChunk().getPos(), event.getData());
+        if (!(event.getLevel() instanceof ServerLevel level)) {
+            return;
+        }
+        FreshnessPlacedFood.saveTo(level.dimension(), event.getChunk().getPos(), event.getData());
     }
 
     @SubscribeEvent
     public static void onChunkUnload(ChunkEvent.Unload event) {
-        FreshnessPlacedFood.unload(event.getChunk().getPos());
+        if (!(event.getLevel() instanceof ServerLevel level)) {
+            return;
+        }
+        FreshnessPlacedFood.unload(level.dimension(), event.getChunk().getPos());
+    }
+
+    /** 只包住目标食物方块的 use，来源在异常路径也不会泄漏到下一次交互。 */
+    public static net.minecraft.world.InteractionResult usePlacedFood(
+            net.minecraft.world.level.block.state.BlockState state, net.minecraft.world.level.Level level,
+            Player player, InteractionHand hand, net.minecraft.world.phys.BlockHitResult hit) {
+        if (!(level instanceof ServerLevel serverLevel) || !FreshnessConfig.stampingEnabled()) {
+            return state.use(level, player, hand, hit);
+        }
+        ItemStack source = FreshnessPlacedFood.sourceAt(serverLevel, hit.getBlockPos());
+        if (source.isEmpty()) {
+            return state.use(level, player, hand, hit);
+        }
+        long now = FreshnessClockData.nowMinute(serverLevel);
+        if (FreshnessConfig.replacementEnabled() && FreshnessCheck.isRottenNow(source, now)) {
+            FreshnessPlacedFood.forget(serverLevel.dimension(), hit.getBlockPos());
+            serverLevel.removeBlock(hit.getBlockPos(), false);
+            net.minecraft.world.level.block.Block.popResource(serverLevel, hit.getBlockPos(), FreshnessSettle.rotStack(1));
+            return net.minecraft.world.InteractionResult.CONSUME;
+        }
+        FreshnessSourceContext.begin(source, FreshnessProcessing.NO_BONUS);
+        try {
+            return state.use(level, player, hand, hit);
+        } finally {
+            FreshnessSourceContext.end();
+            if (serverLevel.getBlockState(hit.getBlockPos()).isAir()) {
+                FreshnessPlacedFood.forget(serverLevel.dimension(), hit.getBlockPos());
+            }
+        }
     }
 
     /**

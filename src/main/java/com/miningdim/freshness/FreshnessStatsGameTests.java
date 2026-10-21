@@ -150,19 +150,45 @@ public final class FreshnessStatsGameTests {
     public static void settleFeedsTheStatsCounters(GameTestHelper helper) {
         FreshnessStats.resetForTest();
 
-        FreshnessSettle.settleSlot(new ItemStack(Items.BEEF), NOW, false, null);
+        FreshnessSettle.settleSlot(new ItemStack(Items.BEEF, 64), NOW, false, null);
         FreshnessStats.Snapshot afterStamp = FreshnessStats.peek();
-        helper.assertTrue(afterStamp.stamped() == 1L, "盖章计入 stamped");
+        helper.assertTrue(afterStamp.stamped() == 64L, "盖章按实际件数计入 stamped");
 
         FreshnessSettle.settleSlot(ancientBeef(), NOW, false, null);
         FreshnessStats.Snapshot afterDryRun = FreshnessStats.peek();
         helper.assertTrue(afterDryRun.wouldRot() == 1L,
                 "试运行只统计「本该腐烂多少件」, 不动东西");
 
-        ItemStack live = ancientBeef();
+        ItemStack live = new ItemStack(Items.BEEF, 7);
+        FreshnessData.stampAt(live, NOW - 2L * 365L * 24L * 60L, 0);
         ItemStack replacement = FreshnessSettle.settleSlot(live, NOW, true, null);
         helper.assertTrue(!replacement.isEmpty(), "开启档真的换掉");
-        helper.assertTrue(FreshnessStats.peek().rotted() == 1L, "真换掉计入 rotted");
+        helper.assertTrue(FreshnessStats.peek().rotted() == 7L, "实际替换按腐烂件数计入 rotted");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void dryRunCountsStackItemsOnceAcrossRepeatedScans(GameTestHelper helper) {
+        FreshnessStats.resetForTest();
+        ItemStack expired = new ItemStack(Items.BEEF, 64);
+        FreshnessData.stampAt(expired, NOW - 2L * 365L * 24L * 60L, 0);
+
+        for (int scan = 0; scan < 1_800; scan++) {
+            FreshnessSettle.settleSlot(expired, NOW, false, null);
+        }
+        helper.assertTrue(FreshnessStats.peek().wouldRot() == 64L,
+                "同一过期 64 件栈重复扫描只记一次件数");
+
+        expired.setCount(70);
+        FreshnessSettle.settleSlot(expired, NOW, false, null);
+        helper.assertTrue(FreshnessStats.peek().wouldRot() == 70L,
+                "同一栈后续增加的件数只记增量");
+
+        ItemStack separate = new ItemStack(Items.BEEF, 3);
+        FreshnessData.stampAt(separate, NOW - 2L * 365L * 24L * 60L, 0);
+        FreshnessSettle.settleSlot(separate, NOW, false, null);
+        helper.assertTrue(FreshnessStats.peek().wouldRot() == 73L,
+                "另一独立 ItemStack 单独计件");
         helper.succeed();
     }
 

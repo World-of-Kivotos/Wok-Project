@@ -83,6 +83,94 @@ public final class FreshnessGameTests {
         helper.succeed();
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void clockRestartAcrossHourAddsOnlyCompletedDowntimeHours(GameTestHelper helper) {
+        FreshnessClockData running = new FreshnessClockData();
+        running.onServerStarted(WALL_HOUR, 55L);
+        FreshnessClockData restored = FreshnessClockData.load(running.save(new net.minecraft.nbt.CompoundTag()));
+
+        helper.assertTrue(restored.onServerStarted(WALL_HOUR + 1L, 5L) == 0L,
+                "10:55 停服到 11:05 只过 10 分钟, 不补一小时");
+        helper.assertTrue(restored.clock().nowMinute(WALL_HOUR + 1L, 5L) == (WALL_HOUR + 1L) * 60L + 5L,
+                "跨整点短停服后逻辑时间按实际前进 10 分钟");
+        helper.assertTrue(restored.isStarted(), "首次启动处理后同一对象进入已启动状态");
+        helper.assertTrue(restored.onServerStarted(WALL_HOUR + 4L, 10L) == 0L
+                        && restored.heartbeatMinute() == (WALL_HOUR + 1L) * 60L + 5L,
+                "同一 SavedData 重复启动调用不重复补偿或覆盖启动心跳");
+
+        FreshnessClockData savedBetweenHeartbeats = new FreshnessClockData();
+        savedBetweenHeartbeats.onServerStarted(WALL_HOUR, 55L);
+        savedBetweenHeartbeats.touchHeartbeat(WALL_HOUR, 58L);
+        FreshnessClockData checkpoint = FreshnessClockData.load(
+                savedBetweenHeartbeats.save(new net.minecraft.nbt.CompoundTag()));
+        helper.assertTrue(checkpoint.heartbeatMinute() == WALL_HOUR * 60L + 55L
+                        && checkpoint.clock().lastSeenMinute() == WALL_HOUR * 60L + 58L
+                        && checkpoint.clock().lastNowMinute() == WALL_HOUR * 60L + 58L,
+                "普通保存可记录 10:58 逻辑时钟而分钟心跳仍停在 10:55");
+        helper.assertTrue(checkpoint.onServerStarted(WALL_HOUR + 1L, 5L) == 0L
+                        && checkpoint.clock().nowMinute(WALL_HOUR + 1L, 5L)
+                        == (WALL_HOUR + 1L) * 60L + 5L,
+                "重启只从逻辑时钟锚点 10:58 推进 7 分钟, 不重复计算心跳后的 3 分钟");
+
+        FreshnessClockData longStop = new FreshnessClockData();
+        longStop.onServerStarted(WALL_HOUR, 55L);
+        FreshnessClockData longStopAfterRestart = FreshnessClockData.load(
+                longStop.save(new net.minecraft.nbt.CompoundTag()));
+        helper.assertTrue(longStopAfterRestart.onServerStarted(WALL_HOUR + 2L, 54L) == 1L,
+                "停服 1 小时 59 分只补满的一小时");
+
+        FreshnessClockData rolledBack = new FreshnessClockData();
+        rolledBack.onServerStarted(WALL_HOUR, 40L);
+        FreshnessClockData afterRollback = FreshnessClockData.load(
+                rolledBack.save(new net.minecraft.nbt.CompoundTag()));
+        afterRollback.onServerStarted(WALL_HOUR, 10L);
+        helper.assertTrue(afterRollback.heartbeatMinute() == WALL_HOUR * 60L + 40L,
+                "回拨后重启保留较新的已保存心跳基线");
+        long rollbackNow = afterRollback.clock().nowMinute(WALL_HOUR, 10L);
+        helper.assertTrue(afterRollback.clock().lastSeenMinute() == WALL_HOUR * 60L + 10L,
+                "回拨启动应把挂钟观察基线更新到当前分钟");
+        helper.assertTrue(afterRollback.clock().nowMinute(WALL_HOUR, 11L) == rollbackNow + 1L,
+                "回拨启动后下一分钟逻辑时间继续推进");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void clockMigratesVersionOneHourlyHeartbeat(GameTestHelper helper) {
+        net.minecraft.nbt.CompoundTag legacy = new net.minecraft.nbt.CompoundTag();
+        legacy.putInt("Version", 1);
+        legacy.putLong("LastSeenHour", WALL_HOUR + 2L);
+        legacy.putLong("OffsetHours", 3L);
+        legacy.putLong("HeartbeatHour", WALL_HOUR);
+        FreshnessClockData restored = FreshnessClockData.load(legacy);
+
+        helper.assertTrue(restored.heartbeatMinute() == WALL_HOUR * 60L,
+                "Version 1 小时心跳迁移到对应整点分钟");
+        helper.assertTrue(restored.clock().offsetHours() == 3L,
+                "Version 1 累计偏移保留");
+        helper.assertTrue(restored.onServerStarted(WALL_HOUR + 4L, 0L) == 2L,
+                "Version 1 的停服时长从 LastSeenHour 的逻辑锚点计算");
+        helper.assertTrue(restored.clock().nowMinute(WALL_HOUR + 4L, 0L)
+                        == (WALL_HOUR - 1L) * 60L,
+                "Version 1 的 lastNow 合成值在启动补偿后保持连续");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void clockNeverMovesBackwardWithinAnHour(GameTestHelper helper) {
+        FreshnessClock clock = new FreshnessClock();
+        long first = clock.nowMinute(WALL_HOUR, 40L);
+        long rolledBack = clock.nowMinute(WALL_HOUR, 10L);
+        helper.assertTrue(rolledBack == first, "同小时回拨时保持最近逻辑分钟");
+        helper.assertTrue(clock.lastSeenMinute() == WALL_HOUR * 60L + 10L,
+                "同小时回拨更新挂钟观察基线");
+        helper.assertTrue(clock.nowMinute(WALL_HOUR, 11L) == first + 1L,
+                "回拨后下一分钟必须推进, 不冻结到原挂钟时刻");
+        helper.assertTrue(clock.nowMinute(WALL_HOUR, 41L) == first + 31L,
+                "回拨后到达原挂钟时刻前仍应按经过分钟前进");
+        helper.assertTrue(clock.offsetHours() == 0L, "同小时回拨不制造停服偏移");
+        helper.succeed();
+    }
+
     // ============================================================
     // 物品保鲜章: 唯一 writer + 剩余现算 + 钳制
     // ============================================================

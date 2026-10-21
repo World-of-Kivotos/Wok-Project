@@ -21,7 +21,9 @@ public final class FreshnessTooltipHandler {
     }
 
     public static void onItemTooltip(ItemTooltipEvent event) {
-        if (!FreshnessClientState.synced() || event.getItemStack().isEmpty()) {
+        if (!FreshnessClientState.synced()
+                || FreshnessClientState.mode() == com.miningdim.freshness.FreshnessConfig.Mode.OFF
+                || event.getItemStack().isEmpty()) {
             return;
         }
         ItemStack stack = event.getItemStack();

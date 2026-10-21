@@ -154,18 +154,34 @@ public final class FreshnessRecipeFilterGameTests {
     // 3. 端到端: 服务端的配方表里真的没有它
     // ============================================================
 
-    /**
-     * 端到端: 开服加载完之后, 服务端的配方表里**真的**没有那条原版拆回配方了 (客户端与 JEI 拿到的就是
-     * 这一份表)。这条同时是"反射取私有表"那一步的守卫 —— 取不到字段时上面所有纯判据都还是绿的, 只有这条会挂。
-     */
+    /** 开服回调必须遵守总模式；测试结束后恢复共享配方表。 */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void vanillaHayBlockRecipeIsGoneFromTheLiveRecipeManager(GameTestHelper helper) {
-        var manager = helper.getLevel().getServer().getRecipeManager();
-        helper.assertTrue(manager.byKey(UNPACK_HAY).isEmpty(),
-                "开服之后 minecraft:wheat (干草块 -> 9 小麦) 必须已经不在配方表里 (客户端与 JEI 看到的是同一份表)");
-        // 反证: 别的配方还在 (说明删的是命中的那些, 不是把整张表清了)。
-        helper.assertTrue(manager.byKey(new ResourceLocation("minecraft:bread")).isPresent(),
-                "没命中的配方必须还在");
+    public static void liveRecipeFilterOnlyEnforcesOnMode(GameTestHelper helper) {
+        var server = helper.getLevel().getServer();
+        var manager = server.getRecipeManager();
+        List<Recipe<?>> original = List.copyOf(manager.getRecipes());
+        List<Recipe<?>> fixture = new java.util.ArrayList<>(original);
+        fixture.removeIf(recipe -> recipe.getId().equals(UNPACK_HAY));
+        fixture.add(shapeless(UNPACK_HAY.toString(), Items.HAY_BLOCK, new ItemStack(Items.WHEAT, 9)));
+        FreshnessConfig.Mode previous = FreshnessConfig.MODE.get();
+        boolean previousFilter = FreshnessConfig.RECIPE_FILTER_ENABLED.get();
+        try {
+            FreshnessConfig.RECIPE_FILTER_ENABLED.set(true);
+            for (FreshnessConfig.Mode mode : FreshnessConfig.Mode.values()) {
+                manager.replaceRecipes(fixture);
+                FreshnessConfig.MODE.set(mode);
+                FreshnessRecipeFilterHooks.onServerStarted(
+                        new net.minecraftforge.event.server.ServerStartedEvent(server));
+                helper.assertTrue(manager.byKey(UNPACK_HAY).isEmpty() == (mode == FreshnessConfig.Mode.ON),
+                        "live recipe removal must follow mode " + mode);
+                helper.assertTrue(manager.byKey(new ResourceLocation("minecraft:bread")).isPresent(),
+                        "unmatched recipes remain available in " + mode);
+            }
+        } finally {
+            manager.replaceRecipes(original);
+            FreshnessConfig.RECIPE_FILTER_ENABLED.set(previousFilter);
+            FreshnessConfig.MODE.set(previous);
+        }
         helper.succeed();
     }
 

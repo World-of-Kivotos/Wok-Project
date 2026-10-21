@@ -31,7 +31,7 @@ public final class FreshnessSourceContext {
 
     /** 工序开始: 记下这一趟的原料与加成 (空手就清掉, 免得沿用上一层)。 */
     public static void begin(List<ItemStack> ingredients, double bonus) {
-        if (ingredients == null || ingredients.isEmpty()) {
+        if (!FreshnessConfig.stampingEnabled() || ingredients == null || ingredients.isEmpty()) {
             CURRENT.remove();
             return;
         }
@@ -82,7 +82,7 @@ public final class FreshnessSourceContext {
      */
     public static boolean inheritInto(ItemStack product, long nowMinute) {
         Frame frame = CURRENT.get();
-        if (frame == null || product == null || product.isEmpty()) {
+        if (!FreshnessConfig.stampingEnabled() || frame == null || product == null || product.isEmpty()) {
             return false;
         }
         if (!FreshnessCategories.spoils(product)) {

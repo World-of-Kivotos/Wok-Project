@@ -29,7 +29,7 @@ public final class FreshnessClientState {
 
     private static volatile boolean synced;
     private static volatile long syncedNowMinute;
-    private static volatile long syncedAtMillis;
+    private static volatile long syncedAtNanos;
     private static volatile long offsetHours;
     private static volatile FreshnessConfig.Mode mode = FreshnessConfig.Mode.DRY_RUN;
 
@@ -39,7 +39,7 @@ public final class FreshnessClientState {
             return;
         }
         syncedNowMinute = msg.nowMinute();
-        syncedAtMillis = System.currentTimeMillis();
+        syncedAtNanos = System.nanoTime();
         offsetHours = msg.offsetHours();
         mode = msg.modeOrDefault();
         FreshnessShelfLives.applySynced(msg.shelfLives());
@@ -71,7 +71,7 @@ public final class FreshnessClientState {
         if (!synced) {
             return Long.MIN_VALUE;
         }
-        long elapsedMinutes = (System.currentTimeMillis() - syncedAtMillis) / 60_000L;
+        long elapsedMinutes = (System.nanoTime() - syncedAtNanos) / 60_000_000_000L;
         return syncedNowMinute + Math.max(0L, elapsedMinutes);
     }
 
@@ -102,7 +102,7 @@ public final class FreshnessClientState {
     /** 算一格的显示数据; 不腐烂 / 还没同步 / 客户端关掉了都返回 {@code drawable=false}。 */
     public static SlotDisplay displayOf(ItemStack stack) {
         long now = nowMinute();
-        if (now == Long.MIN_VALUE || !FreshnessClientConfig.slotBarEnabled()) {
+        if (now == Long.MIN_VALUE || mode == FreshnessConfig.Mode.OFF || !FreshnessClientConfig.slotBarEnabled()) {
             return new SlotDisplay(0L, 0, 0.0D, "", FreshnessDisplay.Level.UNTIMED, false);
         }
         long remaining = FreshnessCheck.remainingMinutes(stack, now);
@@ -124,7 +124,7 @@ public final class FreshnessClientState {
     public static List<ItemStack> expiringSoon(ItemStack[] slots) {
         List<ItemStack> found = new ArrayList<>();
         long now = nowMinute();
-        if (now == Long.MIN_VALUE || slots == null) {
+        if (now == Long.MIN_VALUE || mode == FreshnessConfig.Mode.OFF || slots == null) {
             return found;
         }
         for (ItemStack stack : slots) {

@@ -46,6 +46,8 @@ public final class FreshnessFdTargets {
     /** 煎锅物品做好一道菜: {@code ItemStack finishUsingItem(ItemStack, Level, LivingEntity)}。 */
     public static final String SKILLET_ITEM_FINISH = "finishUsingItem";
 
+    public static final String SKILLET_ITEM_FINISH_SRG = "m_5922_";
+
     /** 煎锅物品里存原料的 NBT 子 compound (FD 1.2.9)。 */
     public static final String SKILLET_ITEM_COOKING = "Cooking";
 

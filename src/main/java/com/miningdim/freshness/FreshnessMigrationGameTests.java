@@ -1,13 +1,17 @@
 package com.miningdim.freshness;
 
 import com.miningdim.core.MiningConstants;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.Level;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -254,6 +258,56 @@ public final class FreshnessMigrationGameTests {
         FreshnessMigrationData data = FreshnessMigrationData.load(tag);
         helper.assertTrue(data.rosterSize() == 1,
                 "非 UUID 的脏数据跳过, 剩下那一条照读, 实得 " + data.rosterSize());
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void chunkMigrationMarkerSurvivesReloadAndOnlyMatchesItsGeneration(GameTestHelper helper) {
+        CompoundTag savedChunk = new CompoundTag();
+        helper.assertTrue(!FreshnessMigrationHooks.hasCurrentMigrationMarker(savedChunk, ENABLED_AT),
+                "尚未写回的区块没有迁移代号");
+        FreshnessMigrationHooks.writeMigrationMarker(savedChunk, ENABLED_AT);
+
+        // 模拟重启后的区块 NBT 反序列化: 磁盘标记相同则跳过, 代号改变才重新迁移。
+        CompoundTag reloadedChunk = savedChunk.copy();
+        helper.assertTrue(FreshnessMigrationHooks.hasCurrentMigrationMarker(reloadedChunk, ENABLED_AT),
+                "保存并重载后同代区块应跳过迁移");
+        helper.assertTrue(!FreshnessMigrationHooks.hasCurrentMigrationMarker(reloadedChunk, ENABLED_AT + 1),
+                "迁移代号变化时旧 marker 不得阻止新迁移");
+        helper.assertTrue(reloadedChunk.contains("miningdim_fresh_mig", net.minecraft.nbt.Tag.TAG_COMPOUND),
+                "marker 应落在约定根键下");
+        helper.assertTrue(reloadedChunk.getCompound("miningdim_fresh_mig").getInt("Version") == 1,
+                "marker 应持久保存迁移格式版本");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void chunkMarkerIdentityIncludesDimension(GameTestHelper helper) {
+        ResourceKey<Level> overworld = ResourceKey.create(Registries.DIMENSION,
+                new ResourceLocation("minecraft", "overworld"));
+        ResourceKey<Level> mining = ResourceKey.create(Registries.DIMENSION,
+                new ResourceLocation(MiningConstants.MODID, "mining"));
+        long sameCoordinates = 19L;
+        Object overworldKey = FreshnessMigrationHooks.identityForTest(overworld, sameCoordinates);
+        Object miningKey = FreshnessMigrationHooks.identityForTest(mining, sameCoordinates);
+        helper.assertTrue(!overworldKey.equals(miningKey),
+                "不同维度的相同区块坐标必须使用不同 marker 写回缓存项");
+        helper.assertTrue(overworldKey.equals(FreshnessMigrationHooks.identityForTest(overworld, sameCoordinates)),
+                "同维度同坐标应能命中 marker 写回缓存项");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void earlyStartupBootstrapCanBeRepeatedWithoutReplacingHeartbeat(GameTestHelper helper) {
+        FreshnessClockData clock = new FreshnessClockData();
+        helper.assertTrue(clock.onServerStarted(1_000L, 10L) == 0L,
+                "首次启动基线的停服时长不足一小时");
+        long initialHeartbeat = clock.heartbeatMinute();
+        helper.assertTrue(clock.isStarted(), "LevelEvent.Load 预启动后时钟应已标记 started");
+        helper.assertTrue(clock.onServerStarted(1_000L, 50L) == 0L,
+                "ServerStarted 再调用同一时钟不得重复补偿");
+        helper.assertTrue(clock.heartbeatMinute() == initialHeartbeat,
+                "重复启动钩子不能用更晚时刻覆盖先前分钟心跳");
         helper.succeed();
     }
 

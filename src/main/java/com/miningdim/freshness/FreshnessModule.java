@@ -34,6 +34,9 @@ public final class FreshnessModule implements Subsystem {
     public void register(IEventBus modBus, IEventBus forgeBus) {
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER,
                 FreshnessConfig.SPEC, "miningdim-freshness.toml");
+        net.minecraftforge.fml.DistExecutor.unsafeRunWhenOn(
+                net.minecraftforge.api.distmarker.Dist.CLIENT,
+                () -> () -> com.miningdim.freshness.client.FreshnessClientSetup.registerConfig());
         FreshnessItems.register(modBus);
         FreshnessLootModifiers.register(modBus);
         modBus.addListener(this::onBuildTabContents);
@@ -61,10 +64,10 @@ public final class FreshnessModule implements Subsystem {
         forgeBus.addListener(FreshnessVillagerGoods::onEntityJoinLevel);
         // 开服迁移: 定启用时刻与老玩家名单、区块存档里的老货、实体内容、老玩家第一次登录 (规格「开服迁移」)。
         // 四个入口都是 HIGHEST 优先级: 默认优先级那一批观察点会把没章的东西当场盖成"现在", 迁移必须抢在它们之前。
-        forgeBus.addListener(FreshnessMigrationHooks::onServerStarted);
-        forgeBus.addListener(FreshnessMigrationHooks::onChunkLoad);
-        forgeBus.addListener(FreshnessMigrationHooks::onEntityJoinLevel);
-        forgeBus.addListener(FreshnessMigrationHooks::onPlayerLoggedIn);
+        forgeBus.addListener(net.minecraftforge.eventbus.api.EventPriority.HIGHEST, FreshnessMigrationHooks::onServerStarted);
+        forgeBus.addListener(net.minecraftforge.eventbus.api.EventPriority.HIGHEST, FreshnessMigrationHooks::onChunkLoad);
+        forgeBus.addListener(net.minecraftforge.eventbus.api.EventPriority.HIGHEST, FreshnessMigrationHooks::onEntityJoinLevel);
+        forgeBus.addListener(net.minecraftforge.eventbus.api.EventPriority.HIGHEST, FreshnessMigrationHooks::onPlayerLoggedIn);
 
         // 配方过滤: 压缩块拆回 (规则 1) 在每次数据包 reload 的 apply 阶段扫一遍合成配方。
         // Shift 快移合并: 把合并函数挂到核心的接缝上 (主 MOD 那两处重写过的 moveItemStackTo 从那里回调)。
@@ -75,12 +78,12 @@ public final class FreshnessModule implements Subsystem {
         // 客户端显示: channel 在公共装配窗口注册; 客户端那一半只在客户端调 (DistExecutor 隔离)。
         modBus.addListener(this::onCommonSetup);
         modBus.addListener(this::onRegisterItemDecorations);
-        forgeBus.addListener(this::onClientSetup);
+        modBus.addListener(this::onClientSetup);
         forgeBus.addListener(this::onPlayerLoggedIn);
-        // Shift 快移合并: 把合并函数挂到核心的接缝上 (主 MOD 那两处重写过的 moveItemStackTo 从那里回调)。
-        com.miningdim.menu.ShiftMergeHooks.register(FreshnessMergeHooks::mergeShiftMove);
-        forgeBus.addListener(FreshnessRecipeFilterHooks::onAddReloadListener);
-        forgeBus.addListener(FreshnessRecipeFilterHooks::onServerStarted);
+        forgeBus.addListener(this::onServerStopped);
+        forgeBus.addListener(FreshnessMigrationHooks::onChunkSave);
+        forgeBus.addListener(FreshnessMigrationHooks::onNewChunk);
+        forgeBus.addListener(net.minecraftforge.eventbus.api.EventPriority.HIGHEST, FreshnessMigrationHooks::onLevelLoad);
         LOGGER.info("[miningdim] {} registered (clock + item data + categories + rot item + 观察点; mixin 那批与粮仓在后续切片)",
                 MODULE_ID);
     }
@@ -134,7 +137,7 @@ public final class FreshnessModule implements Subsystem {
         server = event.getServer();
         FreshnessClockData data = FreshnessClockData.get(server.overworld());
         long wallHour = FreshnessClock.currentWallHour();
-        long compensated = data.onServerStarted(wallHour);
+        long compensated = data.onServerStarted(wallHour, FreshnessClock.currentWallMinute());
         lastObservedHour = wallHour;
         if (compensated > 0L) {
             LOGGER.info("[miningdim] freshness clock: 停服/停机 {} 小时按整小时补回 (累计偏移 {} 小时)",
@@ -144,6 +147,13 @@ public final class FreshnessModule implements Subsystem {
                 FreshnessConfig.MODE.get(), data.nowMinute(), data.clock().offsetHours());
         // 标签自检 (安全阀): 有一条不对就自动退回试运行, 见 FreshnessSelfCheck。
         FreshnessSelfCheck.runOnServerStart(server);
+    }
+
+    private void onServerStopped(net.minecraftforge.event.server.ServerStoppedEvent event) {
+        FreshnessPlacedFood.resetForTest();
+        FreshnessMigrationHooks.onServerStopped(event);
+        server = null;
+        lastObservedHour = FreshnessClock.UNSET_HOUR;
     }
 
     private void onServerTick(TickEvent.ServerTickEvent event) {
@@ -158,13 +168,11 @@ public final class FreshnessModule implements Subsystem {
             FreshnessSync.broadcast(server);
         }
         data.touchHeartbeat(wallHour, wallMinute);
-        if (wallHour == lastObservedHour) {
-            return;
+        long compensated = data.drainRuntimeCompensationHours();
+        if (wallHour != lastObservedHour) {
+            lastObservedHour = wallHour;
+            data.flushHourStats(wallHour);
         }
-        long compensated = data.observeHour(wallHour);
-        lastObservedHour = wallHour;
-        // 跨整点: 把这一小时攒下的盖章/本该腐烂/真换掉的计数写进统计环 (保留 30 天)。
-        data.flushHourStats(wallHour);
         if (compensated > 0L) {
             // 进程挂起或挂钟跳变: 按停服补偿计入偏移, 不冻结, 通知 OP (规格「时钟」)。
             LOGGER.warn("[miningdim] freshness clock: 挂钟一次推进 {} 小时, 其中 {} 小时按停服补偿计入偏移"

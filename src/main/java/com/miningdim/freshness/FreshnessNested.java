@@ -139,7 +139,7 @@ public final class FreshnessNested {
      * 一件没章的货在托管期间「永不腐烂」, 等于把市场当冰箱用。
      */
     public static int stampDeep(ItemStack stack, long nowMinute) {
-        return stampInto(stack, MAX_DEPTH, nowMinute);
+        return FreshnessConfig.stampingEnabled() ? stampInto(stack, MAX_DEPTH, nowMinute) : 0;
     }
 
     /**

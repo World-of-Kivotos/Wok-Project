@@ -1,10 +1,12 @@
 package com.miningdim.freshness.mixin.compat;
 
 import com.miningdim.freshness.FreshMerge;
+import com.miningdim.freshness.FreshnessCategories;
 import com.miningdim.freshness.FreshnessClockData;
+import com.miningdim.freshness.FreshnessConfig;
+import com.miningdim.freshness.FreshnessData;
 import com.miningdim.freshness.FreshnessFdTargets;
 import com.miningdim.freshness.FreshnessProcessing;
-import com.miningdim.freshness.FreshnessSourceContext;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
@@ -13,91 +15,120 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.ModifyVariable;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * FD 厨锅 (Spoilage_Granary_DesignSpec「可选配置」#15): 做好的菜在挪进输出格之前按原料继承 (加热 +25%);
- * 原料里任何一格烂了就不开这一锅。
- *
- * <p>厨锅的产物**不经过** {@code ItemUtils} (菜留在输出格里等玩家取), 所以这一处要自己盖章:
- * 在 {@code moveMealToOutput()} 的 HEAD 拿到成品展示格里的菜, 继承完再写回去, 之后它才被挪到输出格。</p>
- *
- * <p>两个注入点都写成**无参**处理器: 目标方法的参数里带着 FD 自己的类型
- * ({@code CookingPotRecipe}), 处理器签名里出现它会让"没装 FD"的环境连类都加载不了。Mixin 允许处理器
- * 省略目标参数 (只保留 {@code CallbackInfo*}), 所以这里正好绕开。</p>
- */
 @Pseudo
 @Mixin(targets = FreshnessFdTargets.POT, remap = false)
 public abstract class CookingPotMixin {
 
-    @Shadow
-    @Final
-    private ItemStackHandler inventory;
+    @Shadow @Final private ItemStackHandler inventory;
+    @Shadow(remap = false) public abstract boolean isContainerValid(ItemStack stack);
+    @Unique private ItemStack miningdim$producedMeal = ItemStack.EMPTY;
 
-
-    /** 菜要挪进输出格了: 先把展示格里那份盖成"按原料继承"的章。 */
-    @Inject(method = FreshnessFdTargets.POT_MOVE_MEAL, at = @At("HEAD"), remap = false)
-    private void miningdim$stampMeal(CallbackInfo callback) {
-        if (!(levelOf() instanceof ServerLevel serverLevel)) {
-            return;
-        }
-        ItemStack meal = inventory.getStackInSlot(FreshnessFdTargets.POT_MEAL_SLOT);
-        if (meal.isEmpty()) {
-            return;
-        }
-        long nowMinute = FreshnessClockData.nowMinute(serverLevel);
-        FreshnessSourceContext.begin(inputs(), FreshnessProcessing.HEAT_BONUS);
-        try {
-            FreshnessSourceContext.inheritInto(meal, nowMinute);
-        } finally {
-            FreshnessSourceContext.end();
-        }
-        // 输出格已经有"同一种、只差新鲜度"的一份菜: 先按机器的合并规则并进去 —— 否则同一种菜会在
-        // 输出格里占两格 (FD 只在输出格空时才搬, 多出来的那份会一直卡在展示格里)。
-        ItemStack existing = inventory.getStackInSlot(FreshnessFdTargets.POT_OUTPUT_SLOT);
-        if (!existing.isEmpty()) {
-            FreshMerge.mergeInto(existing, meal);
-            inventory.setStackInSlot(FreshnessFdTargets.POT_OUTPUT_SLOT, existing);
-        }
-        inventory.setStackInSlot(FreshnessFdTargets.POT_MEAL_SLOT, meal);
-    }
-
-    /** 开锅前先看原料: 有一格烂了就不做 (返回 false = 这一锅没熟)。 */
     @Inject(method = FreshnessFdTargets.POT_PROCESS, at = @At("HEAD"), cancellable = true, remap = false)
     private void miningdim$refuseRottenInputs(CallbackInfoReturnable<Boolean> callback) {
-        if (!(levelOf() instanceof ServerLevel serverLevel)) {
-            return;
-        }
-        if (FreshnessProcessing.anyRotten(inputs(), FreshnessClockData.nowMinute(serverLevel))) {
+        if (FreshnessConfig.replacementEnabled() && levelOf() instanceof ServerLevel serverLevel
+                && FreshnessProcessing.anyRotten(inputs(), FreshnessClockData.nowMinute(serverLevel))) {
             callback.setReturnValue(false);
         }
     }
 
-    private List<ItemStack> inputs() {
+    // FD 1.2.9 的首个 ItemStack 局部变量是实际生成的配方结果; 此时六格原料尚未消耗。
+    // 复制结果避免改到配方模板, 只在烹饪真正完成时继承一次, 与后续是否用碗装无关。
+    @ModifyVariable(method = FreshnessFdTargets.POT_PROCESS, at = @At("STORE"), ordinal = 0, remap = false)
+    private ItemStack miningdim$inheritProducedMeal(ItemStack result) {
+        ItemStack product = result.copy();
+        if (FreshnessConfig.stampingEnabled() && levelOf() instanceof ServerLevel serverLevel) {
+            FreshnessProcessing.inherit(product, inputs(), FreshnessProcessing.HEAT_BONUS,
+                    FreshnessClockData.nowMinute(serverLevel));
+        }
+        miningdim$producedMeal = product;
+        return product;
+    }
+
+    @Redirect(method = {"canCook", FreshnessFdTargets.POT_PROCESS}, at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/world/item/ItemStack;isSameItem(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/ItemStack;)Z",
+            remap = true), remap = false)
+    private boolean miningdim$compareMealData(ItemStack existing, ItemStack incoming) {
+        return FreshnessConfig.replacementEnabled() && FreshnessCategories.spoils(incoming)
+                ? FreshnessData.sameExceptFreshness(existing, incoming) : ItemStack.isSameItem(existing, incoming);
+    }
+
+    @Redirect(method = FreshnessFdTargets.POT_PROCESS, at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/world/item/ItemStack;grow(I)V", remap = true), remap = false)
+    private void miningdim$appendProducedMeal(ItemStack existing, int count) {
+        if (FreshnessConfig.stampingEnabled()) {
+            FreshMerge.preferOlderBatch(existing, miningdim$producedMeal);
+        }
+        existing.grow(count);
+    }
+
+    @Inject(method = FreshnessFdTargets.POT_MOVE_MEAL, at = @At("HEAD"), cancellable = true, remap = false)
+    private void miningdim$moveMealWithData(CallbackInfo callback) {
+        moveMeal(false, callback);
+    }
+
+    @Inject(method = "useStoredContainersOnMeal", at = @At("HEAD"), cancellable = true, remap = false)
+    private void miningdim$fillContainersWithData(CallbackInfo callback) {
+        moveMeal(true, callback);
+    }
+
+    @Unique private void moveMeal(boolean withContainers, CallbackInfo callback) {
+        ItemStack meal = inventory.getStackInSlot(FreshnessFdTargets.POT_MEAL_SLOT);
+        if (!FreshnessConfig.replacementEnabled() || !(levelOf() instanceof ServerLevel)
+                || !FreshnessCategories.spoils(meal)) {
+            return;
+        }
+        // ON 接管整个移动, NBT 不兼容时也必须停止, 不能再落回 FD 的 item-only 合并。
+        callback.cancel();
+        ItemStack output = inventory.getStackInSlot(FreshnessFdTargets.POT_OUTPUT_SLOT);
+        ItemStack containers = inventory.getStackInSlot(7);
+        if (withContainers && !isContainerValid(containers)) {
+            return;
+        }
+        if (!output.isEmpty() && !FreshnessData.sameExceptFreshness(output, meal)) {
+            return;
+        }
+        int moved = Math.min(meal.getCount(), meal.getMaxStackSize() - output.getCount());
+        if (withContainers) {
+            moved = Math.min(moved, containers.getCount());
+        }
+        if (moved == 0) {
+            return;
+        }
+        if (output.isEmpty()) {
+            inventory.setStackInSlot(FreshnessFdTargets.POT_OUTPUT_SLOT, meal.split(moved));
+        } else {
+            FreshMerge.preferOlderBatch(output, meal);
+            output.grow(moved);
+            meal.shrink(moved);
+            inventory.setStackInSlot(FreshnessFdTargets.POT_OUTPUT_SLOT, output);
+        }
+        if (withContainers) {
+            containers.shrink(moved);
+            inventory.setStackInSlot(7, containers);
+        }
+        inventory.setStackInSlot(FreshnessFdTargets.POT_MEAL_SLOT, meal);
+    }
+
+    @Unique private List<ItemStack> inputs() {
         List<ItemStack> ingredients = new ArrayList<>(FreshnessFdTargets.POT_INPUT_SLOTS);
         for (int slot = 0; slot < FreshnessFdTargets.POT_INPUT_SLOTS; slot++) {
-            ItemStack stack = inventory.getStackInSlot(slot);
-            if (!stack.isEmpty()) {
-                ingredients.add(stack);
-            }
+            ingredients.add(inventory.getStackInSlot(slot).copy());
         }
         return ingredients;
     }
 
-    /**
-     * 这个方块实体的世界。
-     *
-     * 不 {@code @Shadow} {@code level} 字段: 它是 {@code BlockEntity} 的字段、**没有**声明在目标类里,
-     * Mixin 找不到就会整份 mixin 应用失败 (实测 WARN + 静默不织, 可选配置 defaultRequire = 0 连崩都不会)。
-     * 转成 {@code BlockEntity} 走它自己的访问器即可。
-     */
-    private Level levelOf() {
+    @Unique private Level levelOf() {
         return ((net.minecraft.world.level.block.entity.BlockEntity) (Object) this).getLevel();
     }
 }

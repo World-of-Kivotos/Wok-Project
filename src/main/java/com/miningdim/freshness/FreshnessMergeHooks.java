@@ -103,6 +103,10 @@ public final class FreshnessMergeHooks {
         }
         ItemStack target = event.getStackedOnItem();
         ItemStack carried = event.getCarriedItem();
+        // Forge 在 vanilla 的槽准入检查之前发事件，提前合并也必须遵守同一限制。
+        if (!event.getSlot().mayPlace(carried)) {
+            return;
+        }
         if (FreshMerge.mergeInto(target, carried) <= 0) {
             return;
         }

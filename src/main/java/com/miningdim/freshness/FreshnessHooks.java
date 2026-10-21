@@ -71,7 +71,7 @@ public final class FreshnessHooks {
         if (input == null) {
             return product;
         }
-        if (FreshnessCheck.isRottenNow(input, nowMinute)) {
+        if (FreshnessConfig.replacementEnabled() && FreshnessCheck.isRottenNow(input, nowMinute)) {
             // 原料在火上放烂了: 不出品, 掉一个腐烂物 (与熔炉"原料过期就停工并换腐烂物"同一口径)。
             return FreshnessSettle.rotStack(1);
         }
@@ -185,7 +185,7 @@ public final class FreshnessHooks {
 
     /** @return true 表示已清空结果格并取消本次结算 */
     public static boolean clearCraftingResultIfRotten(CraftingContainer craftSlots, ResultContainer resultSlots,
-                                                      Level level) {
+                                                      Level level, net.minecraft.world.entity.player.Player player) {
         ServerLevel serverLevel = serverLevel(level);
         if (serverLevel == null || !FreshnessConfig.stampingEnabled()) {
             return false;
@@ -205,7 +205,14 @@ public final class FreshnessHooks {
             if (!FreshnessConfig.replacementEnabled() || !FreshnessData.isRotten(ingredient, shelfLifeHours, nowMinute)) {
                 continue;
             }
-            craftSlots.setItem(slot, FreshnessSettle.rotStack(ingredient.getCount()));
+            List<ItemStack> returns = new ArrayList<>();
+            ItemStack replacement = FreshnessSettle.settleSlot(ingredient, nowMinute, true, returns);
+            craftSlots.setItem(slot, replacement);
+            for (ItemStack returned : returns) {
+                if (!player.getInventory().add(returned)) {
+                    player.drop(returned, false);
+                }
+            }
             resultSlots.setItem(0, ItemStack.EMPTY);
             return true;
         }
@@ -224,6 +231,46 @@ public final class FreshnessHooks {
         FreshnessProcessing.inherit(product, craftSlots.getItems(), FreshnessProcessing.NO_BONUS,
                 FreshnessClockData.nowMinute(serverLevel));
         resultSlots.setItem(0, product);
+    }
+
+    /** 结果格是缓存；跨过期时刻后取成品前必须重验原料。 */
+    public static boolean revalidateCrafting(net.minecraft.world.inventory.AbstractContainerMenu menu,
+                                             net.minecraft.world.entity.player.Player player) {
+        if (!FreshnessConfig.replacementEnabled() || !(player instanceof net.minecraft.server.level.ServerPlayer serverPlayer)) {
+            return false;
+        }
+        int ingredientSlots;
+        if (menu instanceof net.minecraft.world.inventory.CraftingMenu) {
+            ingredientSlots = 9;
+        } else if (menu instanceof net.minecraft.world.inventory.InventoryMenu) {
+            ingredientSlots = 4;
+        } else {
+            return false;
+        }
+        long now = FreshnessClockData.nowMinute(serverPlayer.serverLevel());
+        List<ItemStack> ingredients = new ArrayList<>();
+        for (int index = 1; index <= ingredientSlots; index++) {
+            ingredients.add(menu.getSlot(index).getItem());
+        }
+        if (!FreshnessProcessing.anyRotten(ingredients, now)) {
+            return false;
+        }
+        List<ItemStack> returns = new ArrayList<>();
+        for (int index = 1; index <= ingredientSlots; index++) {
+            net.minecraft.world.inventory.Slot slot = menu.getSlot(index);
+            ItemStack replacement = FreshnessSettle.settleSlot(slot.getItem(), now, true, returns);
+            if (!replacement.isEmpty()) {
+                slot.set(replacement);
+            }
+        }
+        menu.getSlot(0).set(ItemStack.EMPTY);
+        for (ItemStack returned : returns) {
+            if (!serverPlayer.getInventory().add(returned)) {
+                serverPlayer.drop(returned, false);
+            }
+        }
+        menu.broadcastChanges();
+        return true;
     }
 
     private static ServerLevel serverLevel(Level level) {

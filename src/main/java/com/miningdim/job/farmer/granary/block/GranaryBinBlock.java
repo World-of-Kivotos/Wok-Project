@@ -35,6 +35,8 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
+
 import java.util.UUID;
 
 /**
@@ -116,7 +118,9 @@ public final class GranaryBinBlock extends BaseEntityBlock {
             LOGGER.info("granary bin at {} in {} opened by operator {} (owner {})",
                     pos, level.dimension().location(), serverPlayer.getGameProfile().getName(), owner);
         }
-        bin.settleAll(GranaryClock.nowHour(level.getServer().overworld()));
+        long nowMinute = com.miningdim.freshness.FreshnessClockData.nowMinute((ServerLevel) level);
+        bin.settleAll(nowMinute / 60L);
+        returnContainers(serverPlayer, bin.settleFreshness(nowMinute));
         NetworkHooks.openScreen(serverPlayer, bin, buffer -> buffer.writeBlockPos(pos));
         // 开界面就把当前开放名单与公开模式的状态推下去: 面板一展开看到的是真的那一份, 而不是"等囤主改一次才出现"。
         if (serverPlayer.containerMenu instanceof GranaryBinMenu menu) {
@@ -125,6 +129,14 @@ public final class GranaryBinBlock extends BaseEntityBlock {
                     GranaryPublicService.isStateGranary((ServerLevel) level, bin));
         }
         return InteractionResult.CONSUME;
+    }
+
+    private static void returnContainers(ServerPlayer player, List<ItemStack> returns) {
+        for (ItemStack stack : returns) {
+            if (!stack.isEmpty() && !player.getInventory().add(stack)) {
+                player.drop(stack, false);
+            }
+        }
     }
 
     /** 拆囤的三条前置: 囤主或 OP; 房主可以拆本房间里**未入册**的空囤; 必须先把东西取空。

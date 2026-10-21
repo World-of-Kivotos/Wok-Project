@@ -219,8 +219,12 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
         if (!stopping || stack.isEmpty() || entryHours[slot] == 0L) {
             return 0;
         }
-        GranarySettle.Result result = GranarySettle.settle(
-                stack, entryHours[slot], creditedHours[slot], deadlineHour);
+        GranarySettle.Result result = GranarySettle.settle(entryHours[slot], creditedHours[slot], deadlineHour,
+                com.miningdim.freshness.FreshnessData.stoppedHours(stack));
+        if (result.grantedHours() > 0 && com.miningdim.freshness.FreshnessConfig.stampingEnabled()) {
+            com.miningdim.freshness.FreshnessData.setStoppedHours(stack,
+                    com.miningdim.freshness.FreshnessData.stoppedHours(stack) + result.grantedHours());
+        }
         creditedHours[slot] = result.creditedHours();
         if (result.grantedHours() > 0) {
             setChanged();
@@ -307,26 +311,41 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
      * 「一键存入」放进去的完全一样 —— 否则界面放的东西 entryHour 是 0, 一整天都不会停表。
      *
      * 往**已有东西**的格子追加 (合并) 不动账: 老格子的入仓时刻不能被顶掉, 那等于给老货续命
-     * (规格「防新货蹭老格子」)。
+     * (规格「防新货蹭老格子」)。不同物品或标签的整格替换则建立新账, 不继承旧格子的入仓时刻与已计停表。
      */
     @Override
     public void setItem(int slot, ItemStack stack) {
         ItemStack previous = items.get(slot);
         boolean wasEmpty = previous.isEmpty();
+        boolean replacedBatch = !wasEmpty && !stack.isEmpty()
+                && !ItemStack.isSameItemSameTags(previous, stack);
         items.set(slot, stack);
         if (wasEmpty && !stack.isEmpty()) {
             stampAndStartClock(slot, stack);
         } else if (!wasEmpty && stack.isEmpty()) {
             markTaken(slot);
+        } else if (replacedBatch) {
+            // A different stack must start a new stop-clock account; the former stack's E/C belong only to it.
+            stampAndStartClock(slot, stack);
         }
         setChanged();
+    }
+
+    /** Apply the global freshness observation policy to every stored slot. */
+    public List<ItemStack> settleFreshness(long nowMinute) {
+        List<ItemStack> returns = new ArrayList<>();
+        com.miningdim.freshness.FreshnessSettle.settleContainer(this, nowMinute,
+                com.miningdim.freshness.FreshnessConfig.replacementEnabled(), returns);
+        return returns;
     }
 
     /** 空格子进新东西: 盖章 + 记入仓时刻 (挂钟从方块实体自己取, 与粮仓其余账目同一把钟)。 */
     private void stampAndStartClock(int slot, ItemStack stack) {
         if (level instanceof net.minecraft.server.level.ServerLevel serverLevel) {
             long nowMinute = com.miningdim.freshness.FreshnessClockData.nowMinute(serverLevel);
-            com.miningdim.freshness.FreshnessData.stamp(stack, nowMinute);
+            if (com.miningdim.freshness.FreshnessConfig.stampingEnabled()) {
+                com.miningdim.freshness.FreshnessData.stamp(stack, nowMinute);
+            }
             markStored(slot, nowMinute / 60L);
         }
     }

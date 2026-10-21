@@ -3,6 +3,9 @@ package com.miningdim.freshness;
 import net.minecraftforge.fml.loading.FMLLoader;
 import net.minecraftforge.fml.loading.LoadingModList;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.AnnotationNode;
+import org.objectweb.asm.tree.MethodInsnNode;
+import org.objectweb.asm.tree.MethodNode;
 import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
 import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
 
@@ -17,8 +20,7 @@ import java.util.Set;
  *   <li>{@link #shouldApplyMixin}: 只在 LoadingModList 里有 {@code farmersdelight} 时应用 FD 那批 mixin。
  *       没装 FD 的正式服连"目标类找不到"这条 WARN 都不会出现 —— 整批跳过, 与 district 的机械动力/Flan
  *       两批同一个做法。</li>
- *   <li>{@link #postApply}: 数一下目标类里到底有没有织进我们的处理方法 (方法名**含** {@code miningdim$} ——
- *       Mixin 0.8 会把注入方法改写成 {@code handler$<id>$miningdim$...}, 用开头匹配永远数不到),
+ *   <li>{@link #postApply}: 核对本次 mixin 每个注入处理器是否真的被目标方法调用 (只拷入方法不算织入),
  *       把结论写进系统属性 {@code miningdim.freshness.compat.<mixin 简名>}。可选配置是
  *       {@code injectors.defaultRequire = 0}, 注入点对不上时 Mixin 不抛错、只是什么都没织 —— 不看这一眼,
  *       换了 FD 版本之后"继承悄悄失效"会被当成正常。开服核对与用例读它
@@ -76,10 +78,33 @@ public final class FreshnessCompatMixinPlugin implements IMixinConfigPlugin {
     @Override
     public void postApply(String targetClassName, ClassNode targetClass, String mixinClassName,
                          IMixinInfo mixinInfo) {
-        boolean woven = targetClass.methods.stream()
-                .anyMatch(method -> method.name.contains(HANDLER_PREFIX));
+        List<MethodNode> handlers = mixinInfo.getClassNode(0).methods.stream()
+                .filter(method -> method.name.contains(HANDLER_PREFIX))
+                .filter(FreshnessCompatMixinPlugin::isInjector).toList();
+        // Mixin 会拷贝 handler, 即使可选注入匹配数为零; 必须核对本次 mixin 每个 handler 的调用点。
+        boolean woven = !handlers.isEmpty() && handlers.stream().allMatch(handler ->
+                targetClass.methods.stream().anyMatch(method -> {
+                    for (var instruction : method.instructions) {
+                        if (instruction instanceof MethodInsnNode call && call.owner.equals(targetClass.name)
+                                && (call.name.equals(handler.name) || call.name.endsWith("$" + handler.name))
+                                && call.desc.equals(handler.desc)) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }));
         System.setProperty(PROPERTY_PREFIX + simpleName(mixinInfo.getName()),
                 woven ? APPLIED : MISSING);
+    }
+
+    private static boolean isInjector(MethodNode method) {
+        return hasInjector(method.visibleAnnotations) || hasInjector(method.invisibleAnnotations);
+    }
+
+    private static boolean hasInjector(List<AnnotationNode> annotations) {
+        return annotations != null && annotations.stream().anyMatch(annotation ->
+                annotation.desc.startsWith("Lorg/spongepowered/asm/mixin/injection/")
+                        && !annotation.desc.endsWith("/At;"));
     }
 
     private static String simpleName(String className) {

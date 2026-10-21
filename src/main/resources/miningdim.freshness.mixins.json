@@ -11,7 +11,8 @@
     "InventoryMixin",
     "ServerPlaceRecipeMixin",
     "AbstractContainerMenuMixin",
-    "CampfireBlockEntityMixin"
+    "CampfireBlockEntityMixin",
+    "PlacedFoodInteractionMixin"
   ],
   "client": [],
   "server": [],

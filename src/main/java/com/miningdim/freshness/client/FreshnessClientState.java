@@ -94,32 +94,6 @@ public final class FreshnessClientState {
         return FreshnessDisplay.level(remaining, remaining == Long.MAX_VALUE);
     }
 
-    /** 这一格的显示数据 (画的时候一次算完, 免得两次调用之间跨过整点算出两个不同的数)。 */
-    public record SlotDisplay(long remainingMinutes, int shelfLifeHours, double fraction,
-                              String label, FreshnessDisplay.Level level, boolean drawable) {
-    }
-
-    /** 算一格的显示数据; 不腐烂 / 还没同步 / 客户端关掉了都返回 {@code drawable=false}。 */
-    public static SlotDisplay displayOf(ItemStack stack) {
-        long now = nowMinute();
-        if (now == Long.MIN_VALUE || mode == FreshnessConfig.Mode.OFF || !FreshnessClientConfig.slotBarEnabled()) {
-            return new SlotDisplay(0L, 0, 0.0D, "", FreshnessDisplay.Level.UNTIMED, false);
-        }
-        long remaining = FreshnessCheck.remainingMinutes(stack, now);
-        boolean untimed = remaining == Long.MAX_VALUE;
-        int shelfLife = FreshnessCategories.categoryOf(stack)
-                .map(FreshnessShelfLives::hours)
-                .orElse(0);
-        FreshnessDisplay.Level level = FreshnessDisplay.level(remaining, untimed);
-        boolean drawable = FreshnessDisplay.shouldDraw(level)
-                && (level == FreshnessDisplay.Level.ROTTEN
-                    || FreshnessClientConfig.slotNumbersVisible(remaining));
-        return new SlotDisplay(untimed ? 0L : remaining, shelfLife,
-                FreshnessDisplay.barFraction(remaining, shelfLife),
-                FreshnessDisplay.label(remaining), level,
-                FreshnessClientConfig.slotBarEnabled() && level != FreshnessDisplay.Level.UNTIMED);
-    }
-
     /** 身上在 {@link FreshnessDisplay#REMIND_WITHIN_HOURS} 小时内会烂的东西 (快捷栏提醒用)。 */
     public static List<ItemStack> expiringSoon(ItemStack[] slots) {
         List<ItemStack> found = new ArrayList<>();

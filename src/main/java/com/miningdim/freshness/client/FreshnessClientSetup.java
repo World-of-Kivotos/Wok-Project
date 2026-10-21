@@ -1,9 +1,6 @@
 package com.miningdim.freshness.client;
 
 import com.miningdim.freshness.FreshnessModule;
-import net.minecraft.world.item.Item;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.RegisterItemDecorationsEvent;
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.TickEvent;
@@ -11,10 +8,9 @@ import net.minecraftforge.event.entity.player.ItemTooltipEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.config.ModConfig;
-import net.minecraftforge.registries.ForgeRegistries;
 
 /**
- * 客户端装配 (规格「客户端显示」): 装饰器注册、tooltip、快捷栏提醒、客户端配置与断开清理。
+ * 客户端装配 (规格「客户端显示」): tooltip、快捷栏提醒、客户端配置与断开清理。
  *
  * 单列一个类、并且**只由 {@link FreshnessModule} 里的 DistExecutor 调用**, 是为了保证专用服务器永远不碰
  * 这些类 (整包 client 类引用全集中在此, 与厨师那套同一纪律)。
@@ -35,14 +31,6 @@ public final class FreshnessClientSetup {
 
     public static void register() {
         MinecraftForge.EVENT_BUS.register(FreshnessClientEvents.class);
-    }
-
-    /** 装饰器注册 (mod 总线)。给注册表里的每个物品注册同一个装饰器, 于是所有界面自动生效。 */
-    public static void registerDecorations(RegisterItemDecorationsEvent event) {
-        FreshnessItemDecorator decorator = new FreshnessItemDecorator();
-        for (Item item : ForgeRegistries.ITEMS) {
-            event.register(item, decorator);
-        }
     }
 
     /** 客户端事件 (静态内部类, 免得客户端类被拆成十几个文件)。 */

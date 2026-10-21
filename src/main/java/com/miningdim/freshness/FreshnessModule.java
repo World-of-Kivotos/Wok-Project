@@ -77,7 +77,6 @@ public final class FreshnessModule implements Subsystem {
         forgeBus.addListener(FreshnessCommands::register);
         // 客户端显示: channel 在公共装配窗口注册; 客户端那一半只在客户端调 (DistExecutor 隔离)。
         modBus.addListener(this::onCommonSetup);
-        modBus.addListener(this::onRegisterItemDecorations);
         modBus.addListener(this::onClientSetup);
         forgeBus.addListener(this::onPlayerLoggedIn);
         forgeBus.addListener(this::onServerStopped);
@@ -101,17 +100,6 @@ public final class FreshnessModule implements Subsystem {
     /** 公共装配: 注册 network channel (线程安全窗口, 与厨师那个 channel 同一范式)。 */
     private void onCommonSetup(net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent event) {
         event.enqueueWork(FreshnessNetwork::register);
-    }
-
-    /**
-     * 格子装饰器注册 (mod 总线; 这个事件只在客户端发, 服务端这一支永远不会被调到)。
-     * 注册对象是**每个物品**: 装饰器因此自动出现在快捷栏、背包、各种容器与主 MOD 自绘界面里。
-     */
-    private void onRegisterItemDecorations(
-            net.minecraftforge.client.event.RegisterItemDecorationsEvent event) {
-        net.minecraftforge.fml.DistExecutor.unsafeRunWhenOn(
-                net.minecraftforge.api.distmarker.Dist.CLIENT,
-                () -> () -> com.miningdim.freshness.client.FreshnessClientSetup.registerDecorations(event));
     }
 
     /** 客户端装配 (只在客户端跑; 整包 client 类引用集中在 FreshnessClientSetup 里)。 */

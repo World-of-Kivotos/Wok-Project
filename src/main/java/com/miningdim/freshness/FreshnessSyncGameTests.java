@@ -163,6 +163,48 @@ public final class FreshnessSyncGameTests {
         helper.succeed();
     }
 
+    /** 创造物品栏和 JEI 的悬停信息只为易腐食物添加新鲜度。 */
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void tooltipShowsFreshnessOnlyForPerishableFood(GameTestHelper helper) {
+        var player = com.miningdim.testutil.MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        com.miningdim.freshness.client.FreshnessClientState.apply(
+                FreshnessSync.payloadFor(helper.getLevel()));
+        try {
+            for (ItemStack stack : java.util.List.of(new ItemStack(Items.STONE),
+                    new ItemStack(Items.OAK_PLANKS), new ItemStack(Items.IRON_SWORD),
+                    new ItemStack(Items.GOLDEN_APPLE), ItemStack.EMPTY)) {
+                var lines = tooltipFor(stack, player);
+                helper.assertTrue(lines.isEmpty(), "nonperishable item must have no freshness tooltip: " + stack);
+            }
+            ItemStack beef = new ItemStack(Items.BEEF);
+            long now = FreshnessClockData.nowMinute(helper.getLevel());
+            FreshnessData.stampAt(beef, now - 60L, 0);
+            var freshLines = tooltipFor(beef, player);
+            helper.assertTrue(freshLines.size() == 2
+                            && freshLines.get(1).getContents() instanceof net.minecraft.network.chat.contents.TranslatableContents remaining
+                            && remaining.getKey().equals("tooltip.miningdim.freshness.remaining"),
+                    "hovering food shows its category and remaining shelf life");
+            FreshnessData.stampAt(beef, now - FreshnessCategories.shelfLifeHours(beef) * 60L, 0);
+            var rottenLines = tooltipFor(beef, player);
+            helper.assertTrue(rottenLines.size() == 2
+                            && rottenLines.get(1).getContents() instanceof net.minecraft.network.chat.contents.TranslatableContents rotten
+                            && rotten.getKey().equals("tooltip.miningdim.freshness.rotten"),
+                    "hovering expired food shows its rotten state");
+        } finally {
+            com.miningdim.freshness.client.FreshnessClientState.clear();
+        }
+        helper.succeed();
+    }
+
+    private static java.util.List<net.minecraft.network.chat.Component> tooltipFor(
+            ItemStack stack, net.minecraft.server.level.ServerPlayer player) {
+        java.util.List<net.minecraft.network.chat.Component> lines = new java.util.ArrayList<>();
+        com.miningdim.freshness.client.FreshnessTooltipHandler.onItemTooltip(
+                new net.minecraftforge.event.entity.player.ItemTooltipEvent(
+                        stack, player, lines, net.minecraft.world.item.TooltipFlag.NORMAL));
+        return lines;
+    }
+
     /** 提醒频率: 每小时最多一次, 且只提醒"还没烂、但一小时内会烂"的东西。 */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void reminderCadenceIsAtMostOncePerHour(GameTestHelper helper) {

@@ -51,6 +51,8 @@ public final class ZhangshaoPracticeScreen extends Screen {
     private int predictedInput = -1, predictedTick = -1;
     private boolean spaceDown, mouseDown, actionKeyDown, actionMouseDown, holdLatch, actionLatch;
     private boolean escapeDown;
+    private boolean helpOpen;
+    private int helpPage;
     private boolean ignoreSpaceUntilRelease, ignoreActionUntilRelease;
     private long lastClock, accumulator, escapeUntil;
     private String notice = "", verification = "";
@@ -135,7 +137,7 @@ public final class ZhangshaoPracticeScreen extends Screen {
             escapeDown = false;
             ignoreSpaceUntilRelease = ignoreActionUntilRelease = false;
         }
-        if (!activeRound()) return;
+        if (!activeRound() || helpOpen) return;
         try {
             if (elapsed > STALL_NS) {
                 abort("停顿超过5秒，本局已中止；按 R 重开");
@@ -236,6 +238,17 @@ public final class ZhangshaoPracticeScreen extends Screen {
     @Override
     public boolean keyPressed(int key, int scanCode, int modifiers) {
         advanceClock();
+        if (helpOpen) {
+            if (key == GLFW.GLFW_KEY_ESCAPE && !escapeDown) {
+                escapeDown = true;
+                closeHelp();
+            } else if (key == GLFW.GLFW_KEY_LEFT && helpPage > 0) {
+                helpPage--;
+            } else if (key == GLFW.GLFW_KEY_RIGHT && helpPage + 1 < ZhangshaoPracticeHelp.PAGES.size()) {
+                helpPage++;
+            }
+            return true;
+        }
         if (key == GLFW.GLFW_KEY_ESCAPE) {
             if (escapeDown) return true;
             escapeDown = true;
@@ -287,12 +300,14 @@ public final class ZhangshaoPracticeScreen extends Screen {
                     return true;
                 }
             }
+            if (helpOpen) return true;
             if (activeRound()) {
                 mouseDown = true;
                 if (phase == Phase.RUNNING) holdLatch = true;
                 return true;
             }
         }
+        if (helpOpen) return true;
         if (button == 1 && activeRound()) {
             if (!actionMouseDown && phase == Phase.RUNNING) actionLatch = true;
             actionMouseDown = true;
@@ -318,8 +333,14 @@ public final class ZhangshaoPracticeScreen extends Screen {
         g.pose().scale(scale, scale, 1);
         panel(g, 0, 0, W, H, 0xFFC6C6C6);
         hits.clear();
+        if (helpOpen) {
+            drawHelp(g, mouseX, mouseY);
+            g.pose().popPose();
+            return;
+        }
         text(g, "掌勺练习", 9, 8, 0xFF303030);
-        text(g, "纯练习：不扣料 / 不出菜 / 无经验", 90, 8, 0xFF505050);
+        text(g, "练习：不扣料 / 不出菜 / 无经验", 78, 8, 0xFF505050);
+        button(g, 287, 5, 44, 16, "帮助", true, false, this::openHelp, mouseX, mouseY);
         boolean editable = !activeRound();
         for (int i = 0; i < 4; i++) {
             final int next = i;
@@ -356,6 +377,43 @@ public final class ZhangshaoPracticeScreen extends Screen {
         String footer = notice.isEmpty() ? "空格/左键 火候    F/右键 动作    双Esc退出" : notice;
         text(g, fit(footer, 219), 110, 220, verificationFailed ? 0xFFA02020 : 0xFF404040);
         g.pose().popPose();
+    }
+
+    private void openHelp() {
+        helpOpen = true;
+        helpPage = 0;
+        ignoreSpaceUntilRelease |= spaceDown;
+        ignoreActionUntilRelease |= actionKeyDown;
+        releaseInputs();
+        hits.clear();
+        escapeUntil = 0;
+    }
+
+    private void closeHelp() {
+        helpOpen = false;
+        releaseInputs();
+        hits.clear();
+        lastClock = System.nanoTime();
+    }
+
+    private void drawHelp(GuiGraphics g, int mouseX, int mouseY) {
+        ZhangshaoPracticeHelp.Page page = ZhangshaoPracticeHelp.PAGES.get(helpPage);
+        text(g, "帮助：" + page.title(), 10, 10, 0xFF303030);
+        text(g, (helpPage + 1) + " / " + ZhangshaoPracticeHelp.PAGES.size(), 292, 10, 0xFF505050);
+        inset(g, 9, 29, 322, 169);
+        int y = 37;
+        for (String paragraph : page.paragraphs()) {
+            for (var line : font.split(Component.literal(paragraph), 304)) {
+                g.drawString(font, line, 18, y, 0xFFEEEEEE, false);
+                y += 11;
+            }
+            y += 4;
+        }
+        text(g, "方向键翻页 / Esc 返回；游戏世界继续运行", 10, 203, 0xFF404040);
+        button(g, 9, 215, 77, 18, "上一页", helpPage > 0, false, () -> helpPage--, mouseX, mouseY);
+        button(g, 91, 215, 77, 18, "下一页", helpPage + 1 < ZhangshaoPracticeHelp.PAGES.size(), false,
+                () -> helpPage++, mouseX, mouseY);
+        button(g, 173, 215, 158, 18, "返回练习", true, false, this::closeHelp, mouseX, mouseY);
     }
 
     private void drawTrack(GuiGraphics g) {

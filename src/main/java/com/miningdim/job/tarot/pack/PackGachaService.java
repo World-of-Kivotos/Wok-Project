@@ -186,6 +186,9 @@ public final class PackGachaService {
     }
 
     private static ItemStack makeCard(ServerPlayer owner, int cardId, TarotQuality quality, boolean upright) {
-        return TarotCardItem.create(TarotRegistry.TAROT_CARD.get(), cardId, quality, upright, owner.getUUID());
+        ItemStack card = TarotCardItem.create(TarotRegistry.TAROT_CARD.get(), cardId, quality, upright,
+                owner.getUUID());
+        com.miningdim.job.tarot.codex.TarotCodex.record(owner, card);
+        return card;
     }
 }

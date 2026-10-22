@@ -46,6 +46,7 @@ public final class TarotShardExchange {
         consumeShards(player, cost);
         ItemStack card = TarotCardItem.create(
                 TarotRegistry.TAROT_CARD.get(), cardId, TarotQuality.SSR, upright, player.getUUID());
+        com.miningdim.job.tarot.codex.TarotCodex.record(player, card);
         net.minecraftforge.items.ItemHandlerHelper.giveItemToPlayer(player, card);
         com.miningdim.job.tarot.pack.TarotPackSavedData.get(player.getServer().overworld())
                 .markCollected(player.getUUID(), cardId, TarotQuality.SSR);

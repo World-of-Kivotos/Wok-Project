@@ -78,7 +78,7 @@ GameTest 位于主源码集是本仓库既有约定，因此 Java 文件数包�
 
 - 根工程只登记 WOK 本体模块。
 - `WOK-本体护甲` 由 `wok-job-armorer` 管理，但不改变现有仓库身份、modId、注册 ID 或存档数据。
-- `standalone/kivotos-armorer` 是本仓库内唯一的独立子工程，已跟踪入库，modId 为 `kivotos_armorer`、包根为 `com.kivotos.armorer`；按其自带 README，它是从本项目独立出去的纯护甲 MOD（六档插板护甲与电浆护盾），不属于任何 WOK 本体模块。它与 `WOK-本体护甲` 的产品线归属尚未由仓库所有者裁定，登记前不要据此改动本体资源。仓库所有者 2026-10-15 已指示该模块的插板护甲美术以本体重做管线 `3d0c4b72` 为准逐字节同步，本次随该模块 1.1.0 完成，模块身份与 modId 不变，方向仍只是本体到该模块的只读同步。
+- `standalone/kivotos-armorer` 是本仓库内唯一的独立子工程，已跟踪入库，modId 为 `kivotos_armorer`、包根为 `com.kivotos.armorer`；按其自带 README，它是从本项目独立出去的纯护甲 MOD（六档插板护甲与电浆护盾），不属于任何 WOK 本体模块。它与 `WOK-本体护甲` 的产品线归属尚未由仓库所有者裁定，登记前不要据此改动本体资源。该工程的 54 个插板护甲网格与 54 张穿戴贴图逐字节同步自 WOK-本体 `feat/plate-armor-remodel` 分支提交 `3d0c4b72`；该提交不在 `origin/main` 历史中，资源同步方向仅为本体到该独立工程。
 - `WOK步战附属-独立护甲` 与 `WOK-卡牌游戏独立MOD`（modId `wok_cardgame`）在本仓库内没有源码目录，只在 `module-registry.json` 的 `excludedProducts` 中声明排除，不进入本体模块登记。
 - `WOK步战核心`、部位血量和创伤治疗均不进入本库存。
 

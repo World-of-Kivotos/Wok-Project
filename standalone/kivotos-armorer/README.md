@@ -4,7 +4,7 @@
 
 ## 内容
 
-- 54 件六档插板护甲，保留独立模型、贴图、防弹/穿甲/物理防护、承压、机动与耐久逻辑。穿戴模型是离线烘焙的 2× 精度网格（`assets/kivotos_armorer/armor_meshes/plate_armor_<id>.json`，逐面 UV 图集贴图），逐字节取自 WOK 本体 2026-10-04 的插板护甲重做（`3d0c4b72`）；旧的 49 个手写 `*ArmorModel` 与图层注册已删除。
+- 54 件六档插板护甲，保留独立模型、贴图、防弹/穿甲/物理防护、承压、机动与耐久逻辑。穿戴模型是离线烘焙的 2× 精度网格（`assets/kivotos_armorer/armor_meshes/plate_armor_<id>.json`，逐面 UV 图集贴图），逐字节取自 WOK-本体 `feat/plate-armor-remodel` 分支提交 `3d0c4b72`（该提交不在 `origin/main` 历史中，且只从本体同步到本 MOD）；旧的 49 个手写 `*ArmorModel` 与图层注册已删除。
 - 18 件六档电浆护盾，保留能量、过热、散热、充能、HUD、受击反馈和音效。
 - 3 个旧电浆护盾 ID 兼容物品，仅用于旧存档/命令兼容，不显示在创造栏。
 - 可选 TaCZ 弹种识别与统一损甲兼容。
@@ -46,15 +46,15 @@
   `PlateArmorBakedModel`，`PlateArmorClient` 改为按网格绘制；网格缺失或损坏时退回原版胸甲模型并打一次警告。
 - 删除 49 个手写 `*ArmorModel`、`PlateArmorModelDefinition` 与 `PlateArmorClientRegistration`
   （旧的 `RegisterLayerDefinitions` 注册随管线一并移除，新管线在模型内部自建空骨架）。
-- 美术同步 WOK 本体 `3d0c4b72`：新增 54 个 `armor_meshes/plate_armor_<id>.json`，替换 54 张
+- 美术同步 WOK-本体 `feat/plate-armor-remodel` 分支提交 `3d0c4b72`（不在 `origin/main` 历史中，单向同步到本 MOD）：新增 54 个 `armor_meshes/plate_armor_<id>.json`，替换 54 张
   `textures/models/armor/plate_armor_<id>_layer_1.png` 为逐面图集，并更新 3 个物品图标
   （`plate_armor_kirasa_n_green`、`plate_armor_tv115`、`plate_armor_6b5_15_flora`）与名称条目。
 - 观感变化：`6b45_general`、`6b45_medic`、`jaypc_olive`、`jaypc_black`、`mbss`、`paca`、`tv115` 这 7 件的旧模型
   把肩带或护肩挂在手臂部位上，会随摆臂；新网格两臂为空，肩部结构改由躯干承载（6B45 两件、MBSS、TV115 伸出到躯干
   两侧，JPC 两件与 PACA 收在躯干宽度内），走路摆臂时不再跟随手臂。这是本体重做的设计结果，不是同步遗漏。
-- 新增构建期任务 `verifyPlateArmorMeshes`（校验代码在 `src/verify`，不进 JAR），校验项与阈值取自本体
-  `3d0c4b72` 的网格契约用例。
-- 物品 ID、数值、配置、电浆护盾与 TaCZ 集成都未改动。
+- 新增构建期任务 `verifyPlateArmorMeshes`（校验代码在 `src/verify`，不进 JAR），校验项与阈值取自 WOK-本体
+  `feat/plate-armor-remodel` 分支提交 `3d0c4b72` 的网格契约用例。
+- 物品 ID、配置、电浆护盾与 TaCZ 集成都未改动；`GLADIATOR_S_VIKING` 重量按用户确认由中型调整为轻型，其余插板护甲数值未改动。
 
 ### 1.0.0
 

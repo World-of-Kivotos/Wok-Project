@@ -56,7 +56,7 @@ public final class FreshnessCuttingBoardGameTests {
         // 板上放一块"剩一半"的生牛肉: 批次 = 现在 − 半条保质期。
         ItemStack beef = new ItemStack(Items.BEEF, 1);
         FreshnessData.stampAt(beef, nowMinute - (long) beefShelfHours * 30L, 0);
-        helper.assertTrue(board.addItem(beef), "生牛肉要放得上砧板");
+        helper.assertTrue(board.addItem(beef).isEmpty(), "生牛肉要放得上砧板");
 
         helper.assertTrue(board.processStoredItemUsingTool(new ItemStack(ModItems.IRON_KNIFE.get()), player),
                 "砧板应当认得这个切分配方 (铁刀切生牛肉)");

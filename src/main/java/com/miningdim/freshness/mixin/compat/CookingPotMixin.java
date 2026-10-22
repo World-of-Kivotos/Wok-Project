@@ -55,12 +55,12 @@ public abstract class CookingPotMixin {
         return product;
     }
 
-    @Redirect(method = {"canCook", FreshnessFdTargets.POT_PROCESS}, at = @At(value = "INVOKE",
-            target = "Lnet/minecraft/world/item/ItemStack;isSameItem(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/ItemStack;)Z",
+    @Redirect(method = {"canCook", FreshnessFdTargets.POT_PROCESS, FreshnessFdTargets.POT_MOVE_MEAL, "useStoredContainersOnMeal"}, at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/world/item/ItemStack;isSameItemSameTags(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/ItemStack;)Z",
             remap = true), remap = false)
     private boolean miningdim$compareMealData(ItemStack existing, ItemStack incoming) {
         return FreshnessConfig.replacementEnabled() && FreshnessCategories.spoils(incoming)
-                ? FreshnessData.sameExceptFreshness(existing, incoming) : ItemStack.isSameItem(existing, incoming);
+                ? FreshnessData.sameExceptFreshness(existing, incoming) : ItemStack.isSameItemSameTags(existing, incoming);
     }
 
     @Redirect(method = FreshnessFdTargets.POT_PROCESS, at = @At(value = "INVOKE",

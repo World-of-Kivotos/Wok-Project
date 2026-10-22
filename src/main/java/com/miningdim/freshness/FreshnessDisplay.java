@@ -1,10 +1,9 @@
 package com.miningdim.freshness;
 
 /**
- * 客户端显示用的纯算术与文案 (规格「客户端显示」): 保鲜条长度、角落那行数字、颜色阈值、快捷栏提醒的门槛。
+ * 客户端显示用的纯算术与文案: 剩余时间标签、颜色阈值和快捷栏提醒门槛。
  *
- * 全在这里是因为它们必须**两端一致、且可直接断言**: 条的长度是"剩余 ÷ 保质期", 颜色阈值 24 / 6 小时与
- * tooltip 共用一份常量; 画的部分 (像素、字体) 留给客户端那两个类, 这里只出数。
+ * tooltip 与快捷栏提醒共用时间和颜色判定，规则集中在此处并可直接断言。
  */
 public final class FreshnessDisplay {
 
@@ -17,15 +16,6 @@ public final class FreshnessDisplay {
 
     /** 快捷栏提醒的门槛 (小时): 有东西在这么多小时内会烂就提醒一次。 */
     public static final int REMIND_WITHIN_HOURS = 1;
-
-    /** 保鲜条长度 (0..1); 已腐烂或没有保质期时是 0。 */
-    public static double barFraction(long remainingMinutes, int shelfLifeHours) {
-        if (shelfLifeHours <= 0 || remainingMinutes <= 0L) {
-            return 0.0D;
-        }
-        long full = (long) shelfLifeHours * 60L;
-        return Math.min(1.0D, (double) remainingMinutes / (double) full);
-    }
 
     /**
      * 角落那行数字 (半尺寸字体): {@code 5h} / {@code 2d} / {@code <1h} / {@code 已腐烂}。
@@ -78,8 +68,4 @@ public final class FreshnessDisplay {
         return Level.FRESH;
     }
 
-    /** 该不该在格子上画东西: 不腐烂的东西不画 (免得满背包全是没意义的条)。 */
-    public static boolean shouldDraw(Level level) {
-        return level != Level.UNTIMED;
-    }
 }

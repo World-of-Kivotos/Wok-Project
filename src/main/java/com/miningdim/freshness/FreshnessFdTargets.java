@@ -7,8 +7,7 @@ package com.miningdim.freshness;
  * 它。配合 {@code @Pseudo} 与 {@link FreshnessCompatMixinPlugin} 的"没装就整体跳过", 这些类在任何环境下
  * 都加载得起来。</p>
  *
- * <p>签名对准整合包里的 <b>1.2.9</b> (docs/Spoilage_Granary_DesignSpec.md 附录)。换 FD 版本必须先在
- * 测试服过一遍: 目标方法找不到时注入点不会织入, 由 {@code FreshnessCuttingBoardGameTests} 当场发现。</p>
+ * <p>当前开发与验证基线为 Farmer's Delight <b>1.20.1-1.3.2</b>。历史 1.2.9 验证记录只适用于旧签名；更换依赖版本时须重新核对并运行对应 GameTest。</p>
  */
 public final class FreshnessFdTargets {
 
@@ -35,7 +34,7 @@ public final class FreshnessFdTargets {
     public static final String SKILLET_COOK = "cookAndOutputItems";
 
     /** 炉灶的方块实体 (#14)。 */
-    public static final String STOVE = "vectorwing.farmersdelight.common.block.entity.StoveBlockEntity";
+    public static final String STOVE = "vectorwing.farmersdelight.common.block.entity.AbstractStoveBlockEntity";
 
     /** 炉灶出菜: {@code void cookAndOutputItems()} (逐格, 无参)。 */
     public static final String STOVE_COOK = "cookAndOutputItems";

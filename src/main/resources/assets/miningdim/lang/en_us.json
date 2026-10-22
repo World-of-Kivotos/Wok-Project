@@ -487,6 +487,7 @@
   "tooltip.miningdim.freshness.category.grain": "Grain",
   "tooltip.miningdim.freshness.category.preserved": "Preserved",
   "tooltip.miningdim.freshness.remaining": "Keeps for %s",
+  "tooltip.miningdim.freshness.less_than_one_hour": "less than 1 hour",
   "tooltip.miningdim.freshness.hours": "%s hour(s)",
   "tooltip.miningdim.freshness.days": "%s day(s)",
   "tooltip.miningdim.freshness.rotten": "Rotten - no longer edible",

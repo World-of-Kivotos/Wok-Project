@@ -487,6 +487,7 @@
   "tooltip.miningdim.freshness.category.grain": "谷物",
   "tooltip.miningdim.freshness.category.preserved": "腌制",
   "tooltip.miningdim.freshness.remaining": "还能放 %s",
+  "tooltip.miningdim.freshness.less_than_one_hour": "不足1小时",
   "tooltip.miningdim.freshness.hours": "%s 小时",
   "tooltip.miningdim.freshness.days": "%s 天",
   "tooltip.miningdim.freshness.rotten": "已腐烂 —— 不能再吃",

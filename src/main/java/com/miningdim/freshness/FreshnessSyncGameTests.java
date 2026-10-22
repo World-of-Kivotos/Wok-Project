@@ -135,13 +135,6 @@ public final class FreshnessSyncGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void displayArithmeticMatchesTheSpec(GameTestHelper helper) {
-        // 条长 = 剩余 ÷ 保质期, 上限 1; 烂了或没有保质期是 0。
-        helper.assertTrue(FreshnessDisplay.barFraction(24L * 60L, 48) == 0.5D, "半程的条要正好一半");
-        helper.assertTrue(FreshnessDisplay.barFraction(48L * 60L, 48) == 1.0D, "满程的条要满");
-        helper.assertTrue(FreshnessDisplay.barFraction(96L * 60L, 48) == 1.0D, "超过保质期也不许超过 1");
-        helper.assertTrue(FreshnessDisplay.barFraction(0L, 48) == 0.0D, "烂了就是 0");
-        helper.assertTrue(FreshnessDisplay.barFraction(100L, 0) == 0.0D, "没有保质期就不画");
-
         // 角落那行数字: <1h / 5h / 2d (一小时以内不给 0h —— 0h 会被读成"已经没了")。
         helper.assertTrue("rot".equals(FreshnessDisplay.label(0L)), "烂了报 rot");
         helper.assertTrue("<1h".equals(FreshnessDisplay.label(59L)), "一小时以内报 <1h");
@@ -151,15 +144,13 @@ public final class FreshnessSyncGameTests {
                 "差一分钟到两天报 1d (按小时截断, 不四舍五入成 2d)");
         helper.assertTrue("5h".equals(FreshnessDisplay.label(5L * 60L + 30L)), "小时取整");
 
-        // 档位: 阈值 24 / 6 小时; 不腐烂的东西是 UNTIMED 且不画。
+        // 档位: 阈值 24 / 6 小时; 不腐烂的东西是 UNTIMED。
         helper.assertTrue(FreshnessDisplay.level(25L * 60L, false) == FreshnessDisplay.Level.FRESH, ">24h 是新鲜");
         helper.assertTrue(FreshnessDisplay.level(24L * 60L, false) == FreshnessDisplay.Level.WARN, "=24h 转黄");
         helper.assertTrue(FreshnessDisplay.level(6L * 60L, false) == FreshnessDisplay.Level.DANGER, "=6h 转红");
         helper.assertTrue(FreshnessDisplay.level(-1L, false) == FreshnessDisplay.Level.ROTTEN, "烂了是 ROTTEN");
         helper.assertTrue(FreshnessDisplay.level(Long.MAX_VALUE, true) == FreshnessDisplay.Level.UNTIMED,
                 "不腐烂的东西是 UNTIMED");
-        helper.assertTrue(!FreshnessDisplay.shouldDraw(FreshnessDisplay.Level.UNTIMED),
-                "不腐烂的不画条 (否则满背包全是没意义的条)");
         helper.succeed();
     }
 
@@ -184,6 +175,20 @@ public final class FreshnessSyncGameTests {
                             && freshLines.get(1).getContents() instanceof net.minecraft.network.chat.contents.TranslatableContents remaining
                             && remaining.getKey().equals("tooltip.miningdim.freshness.remaining"),
                     "hovering food shows its category and remaining shelf life");
+            FreshnessData.stampAt(beef,
+                    now - FreshnessCategories.shelfLifeHours(beef) * 60L + 59L, 0);
+            var subHourLines = tooltipFor(beef, player);
+            helper.assertTrue(subHourLines.size() == 2
+                            && subHourLines.get(1).getContents()
+                                    instanceof net.minecraft.network.chat.contents.TranslatableContents remainingSubHour
+                            && remainingSubHour.getKey().equals("tooltip.miningdim.freshness.remaining")
+                            && remainingSubHour.getArgs().length == 1
+                            && remainingSubHour.getArgs()[0] instanceof net.minecraft.network.chat.Component amount
+                            && amount.getContents()
+                                    instanceof net.minecraft.network.chat.contents.TranslatableContents subHour
+                            && subHour.getKey().equals(
+                                    "tooltip.miningdim.freshness.less_than_one_hour"),
+                    "food with less than one hour remaining shows the localized sub-hour label");
             FreshnessData.stampAt(beef, now - FreshnessCategories.shelfLifeHours(beef) * 60L, 0);
             var rottenLines = tooltipFor(beef, player);
             helper.assertTrue(rottenLines.size() == 2

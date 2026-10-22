@@ -4,10 +4,8 @@ import com.miningdim.freshness.FreshnessClockData;
 import com.miningdim.freshness.FreshnessConfig;
 import com.miningdim.freshness.FreshnessFdTargets;
 import com.miningdim.freshness.FreshnessProcessing;
-import net.minecraft.core.RegistryAccess;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.crafting.CampfireCookingRecipe;
 import net.minecraft.world.level.Level;
 import net.minecraftforge.items.ItemStackHandler;
 import org.spongepowered.asm.mixin.Final;
@@ -27,15 +25,15 @@ import java.util.List;
 @Mixin(targets = FreshnessFdTargets.STOVE, remap = false)
 public abstract class StoveMixin {
 
-    @Shadow @Final private ItemStackHandler inventory;
+    @Shadow @Final private ItemStackHandler items;
     @Unique private ItemStack miningdim$currentStoveIngredient = ItemStack.EMPTY;
 
     @Inject(method = FreshnessFdTargets.STOVE_COOK, at = @At("HEAD"), cancellable = true, remap = false)
     private void miningdim$guardStove(CallbackInfo callback) {
         if (FreshnessConfig.replacementEnabled() && levelOf() instanceof ServerLevel serverLevel) {
             List<ItemStack> ingredients = new ArrayList<>();
-            for (int slot = 0; slot < inventory.getSlots(); slot++) {
-                ingredients.add(inventory.getStackInSlot(slot));
+            for (int slot = 0; slot < items.getSlots(); slot++) {
+                ingredients.add(items.getStackInSlot(slot));
             }
             if (FreshnessProcessing.anyRotten(ingredients, FreshnessClockData.nowMinute(serverLevel))) {
                 callback.cancel();
@@ -54,15 +52,17 @@ public abstract class StoveMixin {
     }
 
     @Redirect(method = FreshnessFdTargets.STOVE_COOK, at = @At(value = "INVOKE",
-            target = "Lnet/minecraft/world/item/crafting/CampfireCookingRecipe;getResultItem(Lnet/minecraft/core/RegistryAccess;)Lnet/minecraft/world/item/ItemStack;",
-            remap = true), remap = false)
-    private ItemStack miningdim$inheritStoveProduct(CampfireCookingRecipe recipe, RegistryAccess registries) {
-        ItemStack product = recipe.getResultItem(registries).copy();
-        if (FreshnessConfig.stampingEnabled() && levelOf() instanceof ServerLevel serverLevel) {
+            target = "Lvectorwing/farmersdelight/common/utility/ItemUtils;spawnItemEntity(Lnet/minecraft/world/level/Level;Lnet/minecraft/world/item/ItemStack;DDDDDD)V",
+            remap = false), remap = false)
+    private void miningdim$inheritStoveProduct(Level level, ItemStack product,
+                                                double x, double y, double z,
+                                                double xSpeed, double ySpeed, double zSpeed) {
+        if (FreshnessConfig.stampingEnabled() && level instanceof ServerLevel serverLevel) {
             FreshnessProcessing.inherit(product, List.of(miningdim$currentStoveIngredient),
                     FreshnessProcessing.HEAT_BONUS, FreshnessClockData.nowMinute(serverLevel));
         }
-        return product;
+        vectorwing.farmersdelight.common.utility.ItemUtils.spawnItemEntity(
+                level, product, x, y, z, xSpeed, ySpeed, zSpeed);
     }
 
     @Unique private Level levelOf() {

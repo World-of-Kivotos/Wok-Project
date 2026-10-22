@@ -12,7 +12,7 @@ GameTest 已覆盖「判定与算术」；这份清单只列**必须在真服/�
 
 | # | 项目 | 判据 | 取证 |
 | --- | --- | --- | --- |
-| 0.1 | Farmer's Delight 版本 | 整合包与开发环境一致（**1.20.1-1.2.9**） | `mods/` 里 jar 名 + 启动日志 mod 列表 |
+| 0.1 | Farmer's Delight 版本 | 整合包与开发环境一致（当前基线 **1.20.1-1.3.2**） | `mods/` 里 jar 名 + 启动日志 mod 列表 |
 | 0.2 | 总开关先试运行 | `miningdim-freshness.toml` 的 `mode = DRY_RUN` | 日志里读到配置、`/freshness` 回显 |
 | 0.3 | 粮仓配置 | `miningdim-farmer.toml` 的 `[granary]` 段按开服参数 | `/granary status` 与配置一致 |
 | 0.4 | Flan 的 `interactBlockBlacklist` | 账台与储粮囤已加入（否则验收人/成员/名单内的人会被领地拦住） | Flan 配置 + 实地点一次 |

@@ -10,10 +10,9 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.event.entity.player.ItemTooltipEvent;
 
 /**
- * 物品 tooltip 的新鲜度两行 (规格「客户端显示」: 类别与剩余; 阈值 24 / 6 小时与保鲜条共用一份常量)。
+ * 物品 tooltip 的新鲜度两行: 类别与剩余时间，颜色阈值与快捷栏提醒共用。
  *
- * 只读物品上的章 + 同步下来的钟: 客户端**不做任何判定**, 因此 tooltip 与条、与市场页显示的是同一份算术。
- * 未同步 (刚进服那零点几秒) 时只显示类别, 不显示剩余 —— 编一个数是更坏的选择。
+ * 只读物品上的章与同步下来的钟。未同步时只显示类别，不显示剩余时间。
  */
 public final class FreshnessTooltipHandler {
 
@@ -49,9 +48,11 @@ public final class FreshnessTooltipHandler {
             return Component.translatable(FreshnessTooltipKeys.ROTTEN).withStyle(ChatFormatting.RED);
         }
         long hours = remainingMinutes / 60L;
-        Component amount = hours >= 24L
-                ? Component.translatable(FreshnessTooltipKeys.DAYS, hours / 24L)
-                : Component.translatable(FreshnessTooltipKeys.HOURS, hours);
+        Component amount = remainingMinutes < 60L
+                ? Component.translatable(FreshnessTooltipKeys.LESS_THAN_ONE_HOUR)
+                : hours >= 24L
+                        ? Component.translatable(FreshnessTooltipKeys.DAYS, hours / 24L)
+                        : Component.translatable(FreshnessTooltipKeys.HOURS, hours);
         return Component.translatable(FreshnessTooltipKeys.REMAINING, amount)
                 .withStyle(switch (level) {
                     case FRESH -> ChatFormatting.GREEN;
@@ -65,6 +66,7 @@ public final class FreshnessTooltipHandler {
 
         static final String REMAINING = "tooltip.miningdim.freshness.remaining";
         static final String HOURS = "tooltip.miningdim.freshness.hours";
+        static final String LESS_THAN_ONE_HOUR = "tooltip.miningdim.freshness.less_than_one_hour";
         static final String DAYS = "tooltip.miningdim.freshness.days";
         static final String ROTTEN = "tooltip.miningdim.freshness.rotten";
 

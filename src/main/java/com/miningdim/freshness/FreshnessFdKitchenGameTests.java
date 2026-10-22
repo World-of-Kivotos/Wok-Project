@@ -18,7 +18,7 @@ import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 import vectorwing.farmersdelight.common.block.entity.CookingPotBlockEntity;
 import vectorwing.farmersdelight.common.block.entity.SkilletBlockEntity;
-import vectorwing.farmersdelight.common.block.entity.StoveBlockEntity;
+import vectorwing.farmersdelight.common.block.entity.AbstractStoveBlockEntity;
 import vectorwing.farmersdelight.common.block.StoveBlock;
 import vectorwing.farmersdelight.common.registry.ModBlocks;
 import vectorwing.farmersdelight.common.registry.ModItems;
@@ -278,17 +278,26 @@ public final class FreshnessFdKitchenGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void stoveInheritsEachSlotSeparately(GameTestHelper helper) throws Exception {
         BlockPos rel = new BlockPos(1, 2, 9);
+        helper.setBlock(rel.above(), Blocks.AIR);
         helper.setBlock(rel, ModBlocks.STOVE.get().defaultBlockState().setValue(StoveBlock.LIT, true));
-        StoveBlockEntity stove = (StoveBlockEntity) helper.getBlockEntity(rel);
+        AbstractStoveBlockEntity stove = (AbstractStoveBlockEntity) helper.getBlockEntity(rel);
         long now = FreshnessClockData.nowMinute(helper.getLevel());
-        stove.getInventory().setStackInSlot(0, halfFreshBeef(now));
+        ItemStack beef = halfFreshBeef(now);
         ItemStack pork = new ItemStack(Items.PORKCHOP);
         FreshnessData.stamp(pork, now);
-        stove.getInventory().setStackInSlot(1, pork);
-        java.lang.reflect.Field times = StoveBlockEntity.class.getDeclaredField("cookingTimes");
+        var beefRecipe = stove.getCookingRecipe(beef);
+        var porkRecipe = stove.getCookingRecipe(pork);
+        helper.assertTrue(beefRecipe.isPresent() && porkRecipe.isPresent(),
+                "夹具: 炉灶须为牛肉和猪肉找到 FD1.3.2 CAMPFIRE_COOKING 配方");
+        helper.assertTrue(!stove.shouldDropItems(), "夹具: 炉灶上方 grill 区域必须无遮挡");
+        helper.assertTrue(stove.placeFood(null, beef, beefRecipe.orElseThrow().getCookingTime()),
+                "夹具: 牛肉按真实配方时长放入炉灶");
+        helper.assertTrue(stove.placeFood(null, pork, porkRecipe.orElseThrow().getCookingTime()),
+                "夹具: 猪肉按真实配方时长放入炉灶");
+        java.lang.reflect.Field times = AbstractStoveBlockEntity.class.getDeclaredField("cookingProgress");
         times.setAccessible(true);
         java.util.Arrays.fill((int[]) times.get(stove), 10_000);
-        StoveBlockEntity.cookingTick(helper.getLevel(), helper.absolutePos(rel), helper.getBlockState(rel), stove);
+        AbstractStoveBlockEntity.serverTick(helper.getLevel(), helper.absolutePos(rel), helper.getBlockState(rel), stove);
         ItemStack beefProduct = findDrop(helper.getLevel(), helper.absolutePos(rel), Items.COOKED_BEEF);
         ItemStack porkProduct = findDrop(helper.getLevel(), helper.absolutePos(rel), Items.COOKED_PORKCHOP);
         helper.assertTrue(beefProduct != null && porkProduct != null, "炉灶真实 tick 应逐格出两种菜");
@@ -330,8 +339,8 @@ public final class FreshnessFdKitchenGameTests {
             pot.getInventory().setStackInSlot(6, new ItemStack(Items.COOKED_BEEF));
             CookingPotBlockEntity.cookingTick(level, helper.absolutePos(new BlockPos(5, 2, 13)),
                     helper.getBlockState(new BlockPos(5, 2, 13)), pot);
-            helper.assertTrue(old.getCount() == 2 && pot.getMeal().isEmpty(),
-                    "DRY_RUN 不得因 NBT 不兼容拦截原版出菜");
+            helper.assertTrue(old.getCount() == 1 && pot.getMeal().getCount() == 1,
+                    "DRY_RUN 保持 FD1.3.2 的 NBT 敏感输出行为, 不合并不同 ChefQuality");
         } finally {
             FreshnessConfig.MODE.set(previous);
         }

@@ -14,12 +14,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 腐烂底座 (wok-freshness) 的装配入口, 排在 {@code JobFrameworkSystem} 之后 (规格「模块落位」)。
+ * 腐烂底座 (wok-freshness) 的装配入口。
  *
- * 本切片只落**时钟与配置**: 每小时裁决挂钟推进、每 5 分钟写心跳、开服按心跳补停服时长。
- * 观察点 (掉落修改器、玩家扫描、白名单容器、漏斗、加工出品、进食)、终态「腐烂物」、类别标签自检、
- * 同种合并与粮仓在后续切片落地 —— 那些都挂在本模块自己的 mixin 配置上 (miningdim.freshness.mixins.json),
- * 不碰 miningdim.mixins.json, 也不新增 D036 债务。
+ * 本模块装配腐烂时钟、物品数据与类别、观察点、迁移、合并、命令和客户端同步；原版目标由本模块的 mixin
+ * 配置处理，可选的 FD 兼容则由独立兼容配置处理。
  */
 public final class FreshnessModule implements Subsystem {
 
@@ -106,7 +104,7 @@ public final class FreshnessModule implements Subsystem {
     private void onClientSetup(net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent event) {
         event.enqueueWork(() -> net.minecraftforge.fml.DistExecutor.unsafeRunWhenOn(
                 net.minecraftforge.api.distmarker.Dist.CLIENT,
-                () -> com.miningdim.freshness.client.FreshnessClientSetup::register));
+                () -> () -> com.miningdim.freshness.client.FreshnessClientSetup.register()));
     }
 
     /** 玩家登录: 立刻推一次钟与保质期 (客户端一进来就有正确的数)。 */

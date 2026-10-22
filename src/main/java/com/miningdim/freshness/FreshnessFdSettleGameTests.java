@@ -14,7 +14,7 @@ import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 import vectorwing.farmersdelight.common.block.entity.CookingPotBlockEntity;
 import vectorwing.farmersdelight.common.block.entity.SkilletBlockEntity;
-import vectorwing.farmersdelight.common.block.entity.StoveBlockEntity;
+import vectorwing.farmersdelight.common.block.entity.AbstractStoveBlockEntity;
 import vectorwing.farmersdelight.common.registry.ModBlocks;
 
 /**
@@ -72,15 +72,15 @@ public final class FreshnessFdSettleGameTests {
 
             BlockPos stoveRel = new BlockPos(SLOT + 1, 2, 1);
             helper.setBlock(stoveRel, ModBlocks.STOVE.get());
-            StoveBlockEntity stove = (StoveBlockEntity) helper.getBlockEntity(stoveRel);
+            AbstractStoveBlockEntity stove = (AbstractStoveBlockEntity) helper.getBlockEntity(stoveRel);
             helper.assertTrue(stove != null, "炉灶方块实体要放得出来");
             ItemStack onStove = new ItemStack(Items.BEEF, 1);
             FreshnessData.stampAt(onStove, nowMinute - 40L * 24L * 60L, 0);
-            stove.getInventory().setStackInSlot(0, onStove);
-            StoveBlockEntity.cookingTick(level, helper.absolutePos(stoveRel),
+            stove.getItems().setStackInSlot(0, onStove);
+            AbstractStoveBlockEntity.serverTick(level, helper.absolutePos(stoveRel),
                     helper.getBlockState(stoveRel), stove);
-            helper.assertTrue(stove.getInventory().getStackInSlot(0).is(FreshnessItems.ROT.get()),
-                    "炉灶上的烂肉也要变成腐烂物, 实得 " + stove.getInventory().getStackInSlot(0));
+            helper.assertTrue(stove.getItems().getStackInSlot(0).is(FreshnessItems.ROT.get()),
+                    "炉灶上的烂肉也要变成腐烂物, 实得 " + stove.getItems().getStackInSlot(0));
 
             BlockPos potRel = new BlockPos(SLOT * 2 + 1, 2, 1);
             helper.setBlock(potRel, ModBlocks.COOKING_POT.get());

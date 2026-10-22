@@ -926,7 +926,9 @@
         "client/social"
       ],
       "resourcePaths": [
-        "assets/miningdim/web/social.html"
+        "assets/miningdim/web/social.html",
+        "assets/miningdim/sounds/tablet",
+        "assets/miningdim/textures/gui/halolink"
       ],
       "resourceNamePrefixes": [],
       "dependencies": [

@@ -1,6 +1,956 @@
 {
-  "parent": "minecraft:block/cube_all",
+  "parent": "minecraft:block/block",
   "textures": {
-    "all": "miningdim:block/granary_vent"
-  }
+    "particle": "miningdim:block/granary/materials",
+    "atlas": "miningdim:block/granary/materials"
+  },
+  "elements": [
+    {
+      "name": "vertical_frame",
+      "from": [
+        0,
+        0,
+        6.15
+      ],
+      "to": [
+        2,
+        16,
+        10
+      ],
+      "faces": {
+        "down": {
+          "uv": [
+            8.0,
+            1.5,
+            8.5,
+            2.4625
+          ],
+          "texture": "#atlas"
+        },
+        "up": {
+          "uv": [
+            8.0,
+            1.5375,
+            8.5,
+            2.5
+          ],
+          "texture": "#atlas"
+        },
+        "north": {
+          "uv": [
+            11.5,
+            0.0,
+            12.0,
+            4.0
+          ],
+          "texture": "#atlas"
+        },
+        "south": {
+          "uv": [
+            8.0,
+            0.0,
+            8.5,
+            4.0
+          ],
+          "texture": "#atlas"
+        },
+        "west": {
+          "uv": [
+            9.5375,
+            0.0,
+            10.5,
+            4.0
+          ],
+          "texture": "#atlas"
+        },
+        "east": {
+          "uv": [
+            9.5,
+            0.0,
+            10.4625,
+            4.0
+          ],
+          "texture": "#atlas"
+        }
+      }
+    },
+    {
+      "name": "vertical_frame",
+      "from": [
+        14,
+        0,
+        6.15
+      ],
+      "to": [
+        16,
+        16,
+        10
+      ],
+      "faces": {
+        "down": {
+          "uv": [
+            11.5,
+            1.5,
+            12.0,
+            2.4625
+          ],
+          "texture": "#atlas"
+        },
+        "up": {
+          "uv": [
+            11.5,
+            1.5375,
+            12.0,
+            2.5
+          ],
+          "texture": "#atlas"
+        },
+        "north": {
+          "uv": [
+            8.0,
+            0.0,
+            8.5,
+            4.0
+          ],
+          "texture": "#atlas"
+        },
+        "south": {
+          "uv": [
+            11.5,
+            0.0,
+            12.0,
+            4.0
+          ],
+          "texture": "#atlas"
+        },
+        "west": {
+          "uv": [
+            9.5375,
+            0.0,
+            10.5,
+            4.0
+          ],
+          "texture": "#atlas"
+        },
+        "east": {
+          "uv": [
+            9.5,
+            0.0,
+            10.4625,
+            4.0
+          ],
+          "texture": "#atlas"
+        }
+      }
+    },
+    {
+      "name": "horizontal_frame",
+      "from": [
+        2,
+        0,
+        6.15
+      ],
+      "to": [
+        14,
+        2,
+        10
+      ],
+      "faces": {
+        "down": {
+          "uv": [
+            4.5,
+            1.5,
+            7.5,
+            2.4625
+          ],
+          "texture": "#atlas"
+        },
+        "up": {
+          "uv": [
+            4.5,
+            1.5375,
+            7.5,
+            2.5
+          ],
+          "texture": "#atlas"
+        },
+        "north": {
+          "uv": [
+            4.5,
+            3.5,
+            7.5,
+            4.0
+          ],
+          "texture": "#atlas"
+        },
+        "south": {
+          "uv": [
+            4.5,
+            3.5,
+            7.5,
+            4.0
+          ],
+          "texture": "#atlas"
+        },
+        "west": {
+          "uv": [
+            5.5375,
+            3.5,
+            6.5,
+            4.0
+          ],
+          "texture": "#atlas"
+        },
+        "east": {
+          "uv": [
+            5.5,
+            3.5,
+            6.4625,
+            4.0
+          ],
+          "texture": "#atlas"
+        }
+      }
+    },
+    {
+      "name": "horizontal_frame",
+      "from": [
+        2,
+        14,
+        6.15
+      ],
+      "to": [
+        14,
+        16,
+        10
+      ],
+      "faces": {
+        "down": {
+          "uv": [
+            4.5,
+            1.5,
+            7.5,
+            2.4625
+          ],
+          "texture": "#atlas"
+        },
+        "up": {
+          "uv": [
+            4.5,
+            1.5375,
+            7.5,
+            2.5
+          ],
+          "texture": "#atlas"
+        },
+        "north": {
+          "uv": [
+            4.5,
+            0.0,
+            7.5,
+            0.5
+          ],
+          "texture": "#atlas"
+        },
+        "south": {
+          "uv": [
+            4.5,
+            0.0,
+            7.5,
+            0.5
+          ],
+          "texture": "#atlas"
+        },
+        "west": {
+          "uv": [
+            5.5375,
+            0.0,
+            6.5,
+            0.5
+          ],
+          "texture": "#atlas"
+        },
+        "east": {
+          "uv": [
+            5.5,
+            0.0,
+            6.4625,
+            0.5
+          ],
+          "texture": "#atlas"
+        }
+      }
+    },
+    {
+      "name": "sloping_louvre",
+      "from": [
+        2,
+        2.6,
+        6.7
+      ],
+      "to": [
+        14,
+        3.4,
+        9.3
+      ],
+      "faces": {
+        "down": {
+          "uv": [
+            0.5,
+            1.675,
+            3.5,
+            2.325
+          ],
+          "texture": "#atlas"
+        },
+        "up": {
+          "uv": [
+            0.5,
+            1.675,
+            3.5,
+            2.325
+          ],
+          "texture": "#atlas"
+        },
+        "north": {
+          "uv": [
+            0.5,
+            3.15,
+            3.5,
+            3.35
+          ],
+          "texture": "#atlas"
+        },
+        "south": {
+          "uv": [
+            0.5,
+            3.15,
+            3.5,
+            3.35
+          ],
+          "texture": "#atlas"
+        },
+        "west": {
+          "uv": [
+            1.675,
+            3.15,
+            2.325,
+            3.35
+          ],
+          "texture": "#atlas"
+        },
+        "east": {
+          "uv": [
+            1.675,
+            3.15,
+            2.325,
+            3.35
+          ],
+          "texture": "#atlas"
+        }
+      },
+      "rotation": {
+        "origin": [
+          8,
+          3,
+          8
+        ],
+        "axis": "x",
+        "angle": 22.5,
+        "rescale": false
+      }
+    },
+    {
+      "name": "sloping_louvre",
+      "from": [
+        2,
+        5.1,
+        6.7
+      ],
+      "to": [
+        14,
+        5.9,
+        9.3
+      ],
+      "faces": {
+        "down": {
+          "uv": [
+            0.5,
+            1.675,
+            3.5,
+            2.325
+          ],
+          "texture": "#atlas"
+        },
+        "up": {
+          "uv": [
+            0.5,
+            1.675,
+            3.5,
+            2.325
+          ],
+          "texture": "#atlas"
+        },
+        "north": {
+          "uv": [
+            0.5,
+            2.525,
+            3.5,
+            2.725
+          ],
+          "texture": "#atlas"
+        },
+        "south": {
+          "uv": [
+            0.5,
+            2.525,
+            3.5,
+            2.725
+          ],
+          "texture": "#atlas"
+        },
+        "west": {
+          "uv": [
+            1.675,
+            2.525,
+            2.325,
+            2.725
+          ],
+          "texture": "#atlas"
+        },
+        "east": {
+          "uv": [
+            1.675,
+            2.525,
+            2.325,
+            2.725
+          ],
+          "texture": "#atlas"
+        }
+      },
+      "rotation": {
+        "origin": [
+          8,
+          5.5,
+          8
+        ],
+        "axis": "x",
+        "angle": 22.5,
+        "rescale": false
+      }
+    },
+    {
+      "name": "sloping_louvre",
+      "from": [
+        2,
+        7.6,
+        6.7
+      ],
+      "to": [
+        14,
+        8.4,
+        9.3
+      ],
+      "faces": {
+        "down": {
+          "uv": [
+            0.5,
+            1.675,
+            3.5,
+            2.325
+          ],
+          "texture": "#atlas"
+        },
+        "up": {
+          "uv": [
+            0.5,
+            1.675,
+            3.5,
+            2.325
+          ],
+          "texture": "#atlas"
+        },
+        "north": {
+          "uv": [
+            0.5,
+            1.9,
+            3.5,
+            2.1
+          ],
+          "texture": "#atlas"
+        },
+        "south": {
+          "uv": [
+            0.5,
+            1.9,
+            3.5,
+            2.1
+          ],
+          "texture": "#atlas"
+        },
+        "west": {
+          "uv": [
+            1.675,
+            1.9,
+            2.325,
+            2.1
+          ],
+          "texture": "#atlas"
+        },
+        "east": {
+          "uv": [
+            1.675,
+            1.9,
+            2.325,
+            2.1
+          ],
+          "texture": "#atlas"
+        }
+      },
+      "rotation": {
+        "origin": [
+          8,
+          8,
+          8
+        ],
+        "axis": "x",
+        "angle": 22.5,
+        "rescale": false
+      }
+    },
+    {
+      "name": "sloping_louvre",
+      "from": [
+        2,
+        10.1,
+        6.7
+      ],
+      "to": [
+        14,
+        10.9,
+        9.3
+      ],
+      "faces": {
+        "down": {
+          "uv": [
+            0.5,
+            1.675,
+            3.5,
+            2.325
+          ],
+          "texture": "#atlas"
+        },
+        "up": {
+          "uv": [
+            0.5,
+            1.675,
+            3.5,
+            2.325
+          ],
+          "texture": "#atlas"
+        },
+        "north": {
+          "uv": [
+            0.5,
+            1.275,
+            3.5,
+            1.475
+          ],
+          "texture": "#atlas"
+        },
+        "south": {
+          "uv": [
+            0.5,
+            1.275,
+            3.5,
+            1.475
+          ],
+          "texture": "#atlas"
+        },
+        "west": {
+          "uv": [
+            1.675,
+            1.275,
+            2.325,
+            1.475
+          ],
+          "texture": "#atlas"
+        },
+        "east": {
+          "uv": [
+            1.675,
+            1.275,
+            2.325,
+            1.475
+          ],
+          "texture": "#atlas"
+        }
+      },
+      "rotation": {
+        "origin": [
+          8,
+          10.5,
+          8
+        ],
+        "axis": "x",
+        "angle": 22.5,
+        "rescale": false
+      }
+    },
+    {
+      "name": "sloping_louvre",
+      "from": [
+        2,
+        12.6,
+        6.7
+      ],
+      "to": [
+        14,
+        13.4,
+        9.3
+      ],
+      "faces": {
+        "down": {
+          "uv": [
+            0.5,
+            1.675,
+            3.5,
+            2.325
+          ],
+          "texture": "#atlas"
+        },
+        "up": {
+          "uv": [
+            0.5,
+            1.675,
+            3.5,
+            2.325
+          ],
+          "texture": "#atlas"
+        },
+        "north": {
+          "uv": [
+            0.5,
+            0.65,
+            3.5,
+            0.85
+          ],
+          "texture": "#atlas"
+        },
+        "south": {
+          "uv": [
+            0.5,
+            0.65,
+            3.5,
+            0.85
+          ],
+          "texture": "#atlas"
+        },
+        "west": {
+          "uv": [
+            1.675,
+            0.65,
+            2.325,
+            0.85
+          ],
+          "texture": "#atlas"
+        },
+        "east": {
+          "uv": [
+            1.675,
+            0.65,
+            2.325,
+            0.85
+          ],
+          "texture": "#atlas"
+        }
+      },
+      "rotation": {
+        "origin": [
+          8,
+          13,
+          8
+        ],
+        "axis": "x",
+        "angle": 22.5,
+        "rescale": false
+      }
+    },
+    {
+      "name": "frame_fastener",
+      "from": [
+        0.6,
+        1,
+        6
+      ],
+      "to": [
+        1.4,
+        1.8,
+        6.15
+      ],
+      "faces": {
+        "down": {
+          "uv": [
+            12.15,
+            2.4625,
+            12.35,
+            2.5
+          ],
+          "texture": "#atlas"
+        },
+        "up": {
+          "uv": [
+            12.15,
+            1.5,
+            12.35,
+            1.5375
+          ],
+          "texture": "#atlas"
+        },
+        "north": {
+          "uv": [
+            15.65,
+            3.55,
+            15.85,
+            3.75
+          ],
+          "texture": "#atlas"
+        },
+        "south": {
+          "uv": [
+            12.15,
+            3.55,
+            12.35,
+            3.75
+          ],
+          "texture": "#atlas"
+        },
+        "west": {
+          "uv": [
+            13.5,
+            3.55,
+            13.5375,
+            3.75
+          ],
+          "texture": "#atlas"
+        },
+        "east": {
+          "uv": [
+            14.4625,
+            3.55,
+            14.5,
+            3.75
+          ],
+          "texture": "#atlas"
+        }
+      }
+    },
+    {
+      "name": "frame_fastener",
+      "from": [
+        0.6,
+        14,
+        6
+      ],
+      "to": [
+        1.4,
+        14.8,
+        6.15
+      ],
+      "faces": {
+        "down": {
+          "uv": [
+            12.15,
+            2.4625,
+            12.35,
+            2.5
+          ],
+          "texture": "#atlas"
+        },
+        "up": {
+          "uv": [
+            12.15,
+            1.5,
+            12.35,
+            1.5375
+          ],
+          "texture": "#atlas"
+        },
+        "north": {
+          "uv": [
+            15.65,
+            0.3,
+            15.85,
+            0.5
+          ],
+          "texture": "#atlas"
+        },
+        "south": {
+          "uv": [
+            12.15,
+            0.3,
+            12.35,
+            0.5
+          ],
+          "texture": "#atlas"
+        },
+        "west": {
+          "uv": [
+            13.5,
+            0.3,
+            13.5375,
+            0.5
+          ],
+          "texture": "#atlas"
+        },
+        "east": {
+          "uv": [
+            14.4625,
+            0.3,
+            14.5,
+            0.5
+          ],
+          "texture": "#atlas"
+        }
+      }
+    },
+    {
+      "name": "frame_fastener",
+      "from": [
+        14.6,
+        1,
+        6
+      ],
+      "to": [
+        15.4,
+        1.8,
+        6.15
+      ],
+      "faces": {
+        "down": {
+          "uv": [
+            15.65,
+            2.4625,
+            15.85,
+            2.5
+          ],
+          "texture": "#atlas"
+        },
+        "up": {
+          "uv": [
+            15.65,
+            1.5,
+            15.85,
+            1.5375
+          ],
+          "texture": "#atlas"
+        },
+        "north": {
+          "uv": [
+            12.15,
+            3.55,
+            12.35,
+            3.75
+          ],
+          "texture": "#atlas"
+        },
+        "south": {
+          "uv": [
+            15.65,
+            3.55,
+            15.85,
+            3.75
+          ],
+          "texture": "#atlas"
+        },
+        "west": {
+          "uv": [
+            13.5,
+            3.55,
+            13.5375,
+            3.75
+          ],
+          "texture": "#atlas"
+        },
+        "east": {
+          "uv": [
+            14.4625,
+            3.55,
+            14.5,
+            3.75
+          ],
+          "texture": "#atlas"
+        }
+      }
+    },
+    {
+      "name": "frame_fastener",
+      "from": [
+        14.6,
+        14,
+        6
+      ],
+      "to": [
+        15.4,
+        14.8,
+        6.15
+      ],
+      "faces": {
+        "down": {
+          "uv": [
+            15.65,
+            2.4625,
+            15.85,
+            2.5
+          ],
+          "texture": "#atlas"
+        },
+        "up": {
+          "uv": [
+            15.65,
+            1.5,
+            15.85,
+            1.5375
+          ],
+          "texture": "#atlas"
+        },
+        "north": {
+          "uv": [
+            12.15,
+            0.3,
+            12.35,
+            0.5
+          ],
+          "texture": "#atlas"
+        },
+        "south": {
+          "uv": [
+            15.65,
+            0.3,
+            15.85,
+            0.5
+          ],
+          "texture": "#atlas"
+        },
+        "west": {
+          "uv": [
+            13.5,
+            0.3,
+            13.5375,
+            0.5
+          ],
+          "texture": "#atlas"
+        },
+        "east": {
+          "uv": [
+            14.4625,
+            0.3,
+            14.5,
+            0.5
+          ],
+          "texture": "#atlas"
+        }
+      }
+    }
+  ]
 }

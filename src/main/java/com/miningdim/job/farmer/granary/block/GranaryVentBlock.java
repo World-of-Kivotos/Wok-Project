@@ -22,7 +22,8 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 public final class GranaryVentBlock extends HorizontalDirectionalBlock {
 
     public static final DirectionProperty FACING = HorizontalDirectionalBlock.FACING;
-    private static final VoxelShape SHAPE = Block.box(0.0D, 6.0D, 0.0D, 16.0D, 10.0D, 16.0D);
+    private static final VoxelShape NORTH_SOUTH_SHAPE = Block.box(0.0D, 0.0D, 6.0D, 16.0D, 16.0D, 10.0D);
+    private static final VoxelShape EAST_WEST_SHAPE = Block.box(6.0D, 0.0D, 0.0D, 10.0D, 16.0D, 16.0D);
 
     public GranaryVentBlock(Properties properties) {
         super(properties);
@@ -41,6 +42,10 @@ public final class GranaryVentBlock extends HorizontalDirectionalBlock {
 
     @Override
     public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
-        return SHAPE;
+        return switch (state.getValue(FACING).getAxis()) {
+            case X -> EAST_WEST_SHAPE;
+            case Z -> NORTH_SOUTH_SHAPE;
+            case Y -> throw new IllegalStateException("Granary vent facing must be horizontal");
+        };
     }
 }

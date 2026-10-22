@@ -58,7 +58,8 @@ public final class GranaryBlocks {
                     .mapColor(MapColor.WOOD)
                     .strength(2.0F, 1200.0F)
                     .pushReaction(PushReaction.BLOCK)
-                    .sound(SoundType.WOOD)));
+                    .sound(SoundType.WOOD)
+                    .noOcclusion()));
 
     public static final RegistryObject<Item> CENTER_ITEM = ITEMS.register("granary_center",
             () -> new BlockItem(CENTER.get(), new Item.Properties()));

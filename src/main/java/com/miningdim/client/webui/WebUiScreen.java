@@ -4,10 +4,12 @@ import javax.annotation.Nullable;
 
 import org.lwjgl.glfw.GLFW;
 
+import com.google.gson.Gson;
 import com.miningdim.config.MiningClientConfig;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
@@ -36,8 +38,22 @@ public final class WebUiScreen extends Screen {
     /** 面板之外那圈背景的压暗程度 (ARGB)。原版 Screen 的默认遮罩是全屏渐变, 这里只压面板外的部分。 */
     private static final int BACKDROP_COLOR = 0xB0101014;
 
+    private static final Gson GSON = new Gson();
+
     private final WebUiInput input = new WebUiInput();
     private boolean cleanedUp;
+
+    /** 全屏模式 (社交平板)：面板铺满，CEF 缩放 100%，不走市场面板的 coverage/zoom 配置。 */
+    private final boolean fullscreen;
+
+    /** 原生文本输入覆盖层 (中文 IME 由原版 EditBox 承担)。 */
+    @Nullable
+    private EditBox textInput;
+    @Nullable
+    private String textFieldId;
+    @Nullable
+    private String textInputHint;
+    private boolean textInputActive;
 
     // 帧缓冲实际像素尺寸 (考虑系统 DPI / GUI scale 的真实渲染分辨率); CEF 离屏渲染按此尺寸, 避免模糊。
     private int pixelWidth;
@@ -54,8 +70,13 @@ public final class WebUiScreen extends Screen {
     }
 
     public WebUiScreen(@Nullable WebBrowser browser, Component title) {
+        this(browser, title, false);
+    }
+
+    public WebUiScreen(@Nullable WebBrowser browser, Component title, boolean fullscreen) {
         super(title);
         this.browser = browser;
+        this.fullscreen = fullscreen;
     }
 
     @Override
@@ -87,7 +108,7 @@ public final class WebUiScreen extends Screen {
      */
     private void layout() {
         Minecraft mc = Minecraft.getInstance();
-        double coverage = MiningClientConfig.WEBUI_COVERAGE_PERCENT.get() / 100.0;
+        double coverage = fullscreen ? 1.0 : MiningClientConfig.WEBUI_COVERAGE_PERCENT.get() / 100.0;
         panelWidth = Math.max(1, (int) Math.round(this.width * coverage));
         panelHeight = Math.max(1, (int) Math.round(this.height * coverage));
         panelX = (this.width - panelWidth) / 2;
@@ -115,7 +136,11 @@ public final class WebUiScreen extends Screen {
          * 采样密度。两者同比缩放后 CSS 视口逐像素不变, 变的只有那张贴图的清晰度 (贴图按 GL_LINEAR 放大回
          * 面板尺寸, 表现为文字糊一档)。
          */
-        int maxRenderWidth = MiningClientConfig.WEBUI_MAX_RENDER_WIDTH.get();
+        int configuredMaxWidth = MiningClientConfig.WEBUI_MAX_RENDER_WIDTH.get();
+        // 社交平板是整屏产品界面, 文字密度高, 降采样的代价比市场面板大得多 (1440p 上 1600 上限会把
+        // 字形压到 0.6 倍再线性放大, 中文直接糊成一片)。全屏页因此把上限抬到 2560: 1080p/1440p 都是
+        // 1:1, 只有 4K 才会降一档; 市场面板仍按配置的 1600 走, 保住它原本的 CPU 预算。
+        int maxRenderWidth = fullscreen ? Math.max(2560, configuredMaxWidth) : configuredMaxWidth;
         double renderScale = framebufferWidth <= maxRenderWidth
                 ? 1.0
                 : (double) maxRenderWidth / framebufferWidth;
@@ -124,14 +149,17 @@ public final class WebUiScreen extends Screen {
 
         if (browser != null) {
             browser.resize(pixelWidth, pixelHeight);
-            browser.setZoomPercent(MiningClientConfig.WEBUI_ZOOM_PERCENT.get() * renderScale);
+            double zoom = fullscreen ? 100.0 : MiningClientConfig.WEBUI_ZOOM_PERCENT.get();
+            browser.setZoomPercent(zoom * renderScale);
         }
     }
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         // 面板外压暗: 让它读起来是一层浮在游戏之上的模态, 而不是一块贴在画面中间的方形贴图。
-        graphics.fill(0, 0, this.width, this.height, BACKDROP_COLOR);
+        // 全屏页 (社交平板) 用页面开场的底色 #061521: 浏览器出首帧前不会先闪一块半透明黑, 页面自己
+        // 的深色开场直接接上, 省掉一次世界→面板的硬切。
+        graphics.fill(0, 0, this.width, this.height, fullscreen ? 0xFF061521 : BACKDROP_COLOR);
         WebBrowser.LoadFailure failure = browser == null ? null : browser.loadFailure();
         if (failure != null) {
             // 加载失败时不画浏览器贴图: 浏览器是透明底的, CEF 那张内部错误页在这层近黑背板上几乎看不见,
@@ -161,7 +189,24 @@ public final class WebUiScreen extends Screen {
             graphics.drawCenteredString(this.font, "WebUI browser not ready",
                     this.width / 2, this.height / 2, 0xFFFF00);
         }
+        renderTextInput(graphics);
         super.render(graphics, mouseX, mouseY, partialTick);
+    }
+
+    private void renderTextInput(GuiGraphics graphics) {
+        if (!textInputActive || textInput == null) {
+            return;
+        }
+        int panelW = Math.min(720, this.width - 60);
+        int panelX = (this.width - panelW) / 2;
+        int panelY = this.height - 92;
+        graphics.fill(panelX, panelY, panelX + panelW, panelY + 76, 0xE60A1828);
+        graphics.fill(panelX, panelY, panelX + panelW, panelY + 1, 0xFF5AB5FF);
+        graphics.fill(panelX, panelY + 75, panelX + panelW, panelY + 76, 0x885AB5FF);
+        String hint = textInputHint == null ? "" : textInputHint;
+        graphics.drawString(this.font, "输入中 / " + hint, panelX + 14, panelY + 9, 0xFF9FD7FF, false);
+        graphics.drawString(this.font, "Enter 提交   Esc 取消", panelX + panelW - 154, panelY + 9,
+                0xFF8FB4D9, false);
     }
 
     /**
@@ -183,6 +228,77 @@ public final class WebUiScreen extends Screen {
         y += this.font.lineHeight * 2;
         graphics.drawCenteredString(this.font,
                 Component.translatable("gui.miningdim.webui.load_failed.hint"), cx, y, 0xFF9AA3B2);
+    }
+
+    // ---- 原生文本输入 (中文 IME 走原版 EditBox) ----
+
+    /**
+     * 页面请求一个原生输入框。页面侧 input/textarea 在 MCEF 里无法可靠接收中文组字，故由宿主在屏幕底部
+     * 叠加一个 EditBox，提交后经 {@code window.miningdimSubmitField} 回填页面。
+     */
+    public void beginTextInput(String fieldId, String initial, String placeholder, int maxLength) {
+        if (textInputActive) {
+            endTextInput();
+        }
+        this.textFieldId = fieldId;
+        this.textInputHint = placeholder;
+        int panelW = Math.min(720, this.width - 60);
+        int panelX = (this.width - panelW) / 2;
+        int panelY = this.height - 92;
+        EditBox box = new EditBox(this.font, panelX + 14, panelY + 34, panelW - 28, 18,
+                Component.literal(placeholder == null ? "" : placeholder));
+        box.setMaxLength(Math.max(1, Math.min(600, maxLength)));
+        box.setValue(initial == null ? "" : initial);
+        box.setBordered(false);
+        box.setTextColor(0xFFFFFF);
+        box.setCanLoseFocus(false);
+        box.setFocused(true);
+        addRenderableWidget(box);
+        this.textInput = box;
+        this.textInputActive = true;
+        if (browser != null) {
+            browser.setFocus(false);
+        }
+        setFocused(box);
+    }
+
+    private void commitTextInput() {
+        if (!textInputActive || textInput == null) {
+            return;
+        }
+        String id = textFieldId == null ? "" : textFieldId;
+        String value = textInput.getValue();
+        endTextInput();
+        if (browser != null) {
+            browser.executeJavaScript("if (typeof window.miningdimSubmitField === 'function') {"
+                    + " window.miningdimSubmitField(" + GSON.toJson(id) + ", "
+                    + GSON.toJson(value) + "); }");
+        }
+    }
+
+    private void cancelTextInput() {
+        if (!textInputActive) {
+            return;
+        }
+        String id = textFieldId == null ? "" : textFieldId;
+        endTextInput();
+        if (browser != null) {
+            browser.executeJavaScript("if (typeof window.miningdimCancelField === 'function') {"
+                    + " window.miningdimCancelField(" + GSON.toJson(id) + "); }");
+        }
+    }
+
+    private void endTextInput() {
+        if (textInput != null) {
+            removeWidget(textInput);
+            textInput = null;
+        }
+        textInputActive = false;
+        textFieldId = null;
+        textInputHint = null;
+        if (browser != null) {
+            browser.setFocus(true);
+        }
     }
 
     // ---- 坐标换算: GUI 坐标系 -> 面板内的帧缓冲像素 ----
@@ -220,6 +336,14 @@ public final class WebUiScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (textInputActive) {
+            if (textInput != null && textInput.isMouseOver(mouseX, mouseY)) {
+                textInput.mouseClicked(mouseX, mouseY, button);
+            } else {
+                commitTextInput();
+            }
+            return true;
+        }
         if (browser != null && insidePanel(mouseX, mouseY)) {
             browser.sendMousePress(toPixelX(mouseX), toPixelY(mouseY), input.toCefMouseButton(button));
             return true;
@@ -268,7 +392,32 @@ public final class WebUiScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (textInputActive) {
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                cancelTextInput();
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+                commitTextInput();
+                return true;
+            }
+            if (textInput != null) {
+                textInput.keyPressed(keyCode, scanCode, modifiers);
+            }
+            return true;
+        }
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            // 开场动画期间 Esc 先跳过动画 (页面自己收回遮罩), 再按一次才关面板。
+            if (WebUiClient.isSocialOpeningActive() && browser != null) {
+                browser.executeJavaScript(
+                        "window.miningdimSkipOpening && window.miningdimSkipOpening()");
+                WebUiClient.markSocialOpeningDone();
+                return true;
+            }
+            // 社交平板：关界面后由 3D 动画把平板收回手里（浏览器贴图仍在, 画面不黑）。
+            if (WebUiClient.requestSocialCloseWithAnimation()) {
+                return true;
+            }
             onClose();
             return true;
         }
@@ -288,6 +437,9 @@ public final class WebUiScreen extends Screen {
 
     @Override
     public boolean keyReleased(int keyCode, int scanCode, int modifiers) {
+        if (textInputActive) {
+            return true;
+        }
         if (browser != null) {
             input.updateModifiers(keyCode, false);
             browser.sendKeyRelease(keyCode, scanCode, modifiers);
@@ -298,10 +450,13 @@ public final class WebUiScreen extends Screen {
 
     @Override
     public boolean charTyped(char codePoint, int modifiers) {
+        if (textInputActive) {
+            if (textInput != null) {
+                textInput.charTyped(codePoint, modifiers);
+            }
+            return true;
+        }
         if (browser != null) {
-            // step2 中文 IME 接口位: 完整组字 (preedit) 需在此 Screen 叠加一个隐藏 EditBox, 接 GLFW IME
-            // 组字/上屏事件, 再把 commit 的字符序列经 sendKeyTyped 注入。本步仅转发单 BMP 字符 (英文/已上屏单字),
-            // 不处理组字中间态。
             browser.sendKeyTyped(codePoint, modifiers);
             return true;
         }
@@ -327,6 +482,7 @@ public final class WebUiScreen extends Screen {
             return;
         }
         cleanedUp = true;
+        endTextInput();
         if (browser != null) {
             // 失焦并清修饰键, 防卡键; 不在此 close 浏览器 (浏览器由 WebUiClient 持有复用, 仅隐藏界面)。
             browser.setFocus(false);

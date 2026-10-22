@@ -40,6 +40,7 @@
 | 支撑 | WOK-实体堆叠模块 | `wok-stacking` | `stacking` |
 | 玩法 | WOK-成就模块 | `wok-achievement` | `achievement` |
 | 玩法 | WOK-自管区模块 | `wok-district` | `district` |
+| 玩法 | WOK-社交平板模块 | `wok-social` | `social`、`client/social` |
 | 装配 | WOK-综合装配模块 | `wok-app` | `MiningDim.java` |
 
 读表须知：

@@ -76,6 +76,7 @@ WOK 主 mod（`modid=miningdim`）的全部设计文档入口。截至 2026-10-1
 | WebUI · 前端接线清单 | [WebUI_Frontend_Wiring_Checklist](WebUI_Frontend_Wiring_Checklist.md) | `webui/src` |
 | WebUI · 接线范围裁定 | [WebUI_Wiring_Execution_Scope](WebUI_Wiring_Execution_Scope.md) | 同上 |
 | 婚姻社交 | [Marriage_System_DesignSpec](Marriage_System_DesignSpec.md) | `marriage` |
+| 社交平板 · 存储与七天保留 | [SocialTablet_Storage](SocialTablet_Storage.md) | `social` |
 | 成就 · 原版进度 + 成就点商店 | [Achievement_System_DesignSpec](Achievement_System_DesignSpec.md)（P1、P2 已实现；成就点商店只有框架，商品待上架） | `achievement` |
 | 称号 | [Title_System_DesignSpec](Title_System_DesignSpec.md)（P1 与赞助专属称号已实现） | `title` `client/title` |
 | 自管区 · 后端设计与实现记录 | [District_Backend_Design](District_Backend_Design.md)（已实现；生产开关默认关闭，第二十三章的实机核对未做完） | `district` `webui/src/pages/district` |

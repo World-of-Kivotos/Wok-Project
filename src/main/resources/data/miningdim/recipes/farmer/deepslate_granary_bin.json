@@ -1,0 +1,33 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "minecraft:barrel"
+    },
+    {
+      "item": "minecraft:deepslate"
+    },
+    {
+      "item": "minecraft:deepslate"
+    },
+    {
+      "item": "minecraft:deepslate"
+    },
+    {
+      "item": "minecraft:deepslate"
+    },
+    {
+      "item": "minecraft:wheat"
+    },
+    {
+      "item": "minecraft:wheat"
+    },
+    {
+      "item": "minecraft:wheat"
+    }
+  ],
+  "result": {
+    "item": "miningdim:deepslate_granary_bin"
+  }
+}

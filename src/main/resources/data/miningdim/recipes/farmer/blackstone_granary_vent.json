@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "S",
+    "S"
+  ],
+  "key": {
+    "S": {
+      "item": "minecraft:blackstone"
+    }
+  },
+  "result": {
+    "item": "miningdim:blackstone_granary_vent",
+    "count": 2
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "miningdim:block/blackstone_granary_center"
+    },
+    "facing=east": {
+      "model": "miningdim:block/blackstone_granary_center",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "miningdim:block/blackstone_granary_center",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "miningdim:block/blackstone_granary_center",
+      "y": 270
+    }
+  }
+}

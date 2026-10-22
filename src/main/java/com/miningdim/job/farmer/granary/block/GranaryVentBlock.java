@@ -5,12 +5,16 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.RenderShape;
+import net.minecraft.world.level.block.EntityBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.HorizontalDirectionalBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * 粮仓气窗 (Spoilage_Granary_DesignSpec「部件」): 嵌在外墙上, 一面贴着屋里, 至少一面不贴屋里。
@@ -19,7 +23,7 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * 所以判定不看它外面那一面。
  * 它自己是个薄片方块: 贴在墙面上, 朝向由放置时的水平方向决定。
  */
-public final class GranaryVentBlock extends HorizontalDirectionalBlock {
+public final class GranaryVentBlock extends HorizontalDirectionalBlock implements EntityBlock {
 
     public static final DirectionProperty FACING = HorizontalDirectionalBlock.FACING;
     private static final VoxelShape NORTH_SOUTH_SHAPE = Block.box(0.0D, 0.0D, 6.0D, 16.0D, 16.0D, 10.0D);
@@ -28,6 +32,17 @@ public final class GranaryVentBlock extends HorizontalDirectionalBlock {
     public GranaryVentBlock(Properties properties) {
         super(properties);
         registerDefaultState(stateDefinition.any().setValue(FACING, Direction.NORTH));
+    }
+
+    @Override
+    public RenderShape getRenderShape(BlockState state) {
+        return RenderShape.ENTITYBLOCK_ANIMATED;
+    }
+
+    @Nullable
+    @Override
+    public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
+        return new GranaryVentBlockEntity(pos, state);
     }
 
     @Override

@@ -1,0 +1,33 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "minecraft:barrel"
+    },
+    {
+      "item": "minecraft:polished_blackstone_bricks"
+    },
+    {
+      "item": "minecraft:polished_blackstone_bricks"
+    },
+    {
+      "item": "minecraft:polished_blackstone_bricks"
+    },
+    {
+      "item": "minecraft:polished_blackstone_bricks"
+    },
+    {
+      "item": "minecraft:wheat"
+    },
+    {
+      "item": "minecraft:wheat"
+    },
+    {
+      "item": "minecraft:wheat"
+    }
+  ],
+  "result": {
+    "item": "miningdim:polished_blackstone_bricks_granary_bin"
+  }
+}

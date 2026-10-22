@@ -436,8 +436,7 @@
       ],
       "resourcePaths": [
         "data/miningdim/recipes/farmer",
-        "assets/miningdim/textures/block/granary",
-        "assets/miningdim/models/block/granary"
+        "assets/miningdim/textures/block/granary"
       ],
       "resourceNamePrefixes": [
         "farmer_",
@@ -451,7 +450,27 @@
         "jungle_granary_",
         "mangrove_granary_",
         "spruce_granary_",
-        "warped_granary_"
+        "warped_granary_",
+        "quartz_granary_",
+        "smooth_quartz_granary_",
+        "stone_granary_",
+        "smooth_stone_granary_",
+        "cobblestone_granary_",
+        "mossy_cobblestone_granary_",
+        "stone_bricks_granary_",
+        "mossy_stone_bricks_granary_",
+        "bricks_granary_",
+        "deepslate_granary_",
+        "cobbled_deepslate_granary_",
+        "deepslate_bricks_granary_",
+        "deepslate_tiles_granary_",
+        "blackstone_granary_",
+        "polished_blackstone_granary_",
+        "polished_blackstone_bricks_granary_",
+        "sandstone_granary_",
+        "smooth_sandstone_granary_",
+        "red_sandstone_granary_",
+        "smooth_red_sandstone_granary_"
       ],
       "dependencies": [
         "wok-core",

@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "S",
+    "S"
+  ],
+  "key": {
+    "S": {
+      "item": "minecraft:sandstone"
+    }
+  },
+  "result": {
+    "item": "miningdim:sandstone_granary_vent",
+    "count": 2
+  }
+}

@@ -22,6 +22,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import software.bernie.geckolib.animatable.GeoBlockEntity;
+import software.bernie.geckolib.core.animation.AnimatableManager;
+import software.bernie.geckolib.core.animatable.instance.AnimatableInstanceCache;
+import software.bernie.geckolib.util.GeckoLibUtil;
+
 /**
  * 储粮囤方块实体 (Spoilage_Granary_DesignSpec「部件」「保护与防复制」「物品数据与存档」)。
  *
@@ -30,7 +35,7 @@ import java.util.UUID;
  * 这些字段一旦发布就不能改, 所以没有对应功能之前不预埋。
  */
 public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyContainer,
-        net.minecraft.world.MenuProvider {
+        net.minecraft.world.MenuProvider, GeoBlockEntity {
 
     private static final String KEY_SLOTS = "Slots";
     private static final String KEY_INV = "Inv";
@@ -39,6 +44,8 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
     private static final String KEY_ENTRY_HOURS = "EntryHours";
     private static final String KEY_CREDITED_HOURS = "CreditedHours";
     private static final String KEY_STOPPING = "Stopping";
+
+    private final AnimatableInstanceCache animationCache = GeckoLibUtil.createInstanceCache(this);
 
     private NonNullList<ItemStack> items;
     private UUID owner;
@@ -61,6 +68,16 @@ public final class GranaryBinBlockEntity extends BlockEntity implements WorldlyC
         this.items = NonNullList.withSize(GranaryConfig.binSlots(), ItemStack.EMPTY);
         this.entryHours = new long[GranaryConfig.binSlots()];
         this.creditedHours = new int[GranaryConfig.binSlots()];
+    }
+
+    // 静态骨骼模型没有动画，不注册动画控制器。
+    @Override
+    public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
+    }
+
+    @Override
+    public AnimatableInstanceCache getAnimatableInstanceCache() {
+        return animationCache;
     }
 
     // ============================================================

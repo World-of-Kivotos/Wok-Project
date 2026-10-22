@@ -1,0 +1,36 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "minecraft:chest"
+    },
+    {
+      "item": "minecraft:book"
+    },
+    {
+      "item": "minecraft:mossy_cobblestone"
+    },
+    {
+      "item": "minecraft:mossy_cobblestone"
+    },
+    {
+      "item": "minecraft:mossy_cobblestone"
+    },
+    {
+      "item": "minecraft:mossy_cobblestone"
+    },
+    {
+      "item": "minecraft:wheat"
+    },
+    {
+      "item": "minecraft:wheat"
+    },
+    {
+      "item": "minecraft:wheat"
+    }
+  ],
+  "result": {
+    "item": "miningdim:mossy_cobblestone_granary_center"
+  }
+}

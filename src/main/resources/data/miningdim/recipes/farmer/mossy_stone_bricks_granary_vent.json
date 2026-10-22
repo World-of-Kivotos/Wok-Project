@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "S",
+    "S"
+  ],
+  "key": {
+    "S": {
+      "item": "minecraft:mossy_stone_bricks"
+    }
+  },
+  "result": {
+    "item": "miningdim:mossy_stone_bricks_granary_vent",
+    "count": 2
+  }
+}

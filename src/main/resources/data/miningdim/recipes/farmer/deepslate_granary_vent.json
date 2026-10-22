@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "S",
+    "S"
+  ],
+  "key": {
+    "S": {
+      "item": "minecraft:deepslate"
+    }
+  },
+  "result": {
+    "item": "miningdim:deepslate_granary_vent",
+    "count": 2
+  }
+}

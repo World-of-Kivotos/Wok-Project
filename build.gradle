@@ -164,6 +164,8 @@ configurations {
     }
 }
 
+def farmersDelightDevJar = file("libs/FarmersDelight-1.20.1-1.3.2.jar")
+
 dependencies {
     // Forge MDK 基础: forge 自带 Minecraft + 全部原版依赖
     minecraft "net.minecraftforge:forge:${forge_full_version}"
@@ -196,14 +198,11 @@ dependencies {
 
     // Optional in production; required in dev for Farmer's Delight compile-time compatibility and GameTests.
     // Keep this pinned to the locally approved 1.20.1-1.3.2 baseline; production still treats FD as optional.
-    def farmersDelightDevJar = file("libs/FarmersDelight-1.20.1-1.3.2.jar")
-    if (!farmersDelightDevJar.exists()) {
-        throw new GradleException("Missing required development dependency: ${farmersDelightDevJar}. Copy the approved Farmer's Delight 1.20.1-1.3.2 JAR into libs/.")
+    if (farmersDelightDevJar.isFile()) {
+        runtimeOnly fg.deobf("local:FarmersDelight-1.20.1:1.3.2")
+        // Production mixins remain optional; compiling FD signatures requires the pinned development JAR.
+        compileOnly fg.deobf("local:FarmersDelight-1.20.1:1.3.2")
     }
-    runtimeOnly fg.deobf("local:FarmersDelight-1.20.1:1.3.2")
-    // compileOnly enables compile-time references used by FD compatibility GameTests and mixin signatures.
-    // Production mixins remain optional: FreshnessCompatMixinPlugin skips them when FD is absent.
-    compileOnly fg.deobf("local:FarmersDelight-1.20.1:1.3.2")
 
     // Flan 1.20.1-1.11.16 (Forge): 自管区的领地后端 (docs/District_Backend_Design.md 20.1)。
     //   坐标用 Modrinth 版本 id (不可变), 不用版本号 (Modrinth 上版本号不保证唯一)。
@@ -372,7 +371,16 @@ tasks.register('verifyFlanArtifact') {
         logger.lifecycle(summary)
     }
 }
+// 静态登记检查不需要本地 MOD；只在实际编译（含开发启动）前要求 FD 依赖。
+tasks.register('verifyFarmersDelightDevDependency') {
+    doLast {
+        if (!farmersDelightDevJar.isFile()) {
+            throw new GradleException("Missing required development dependency: ${farmersDelightDevJar}. Copy the approved Farmer's Delight 1.20.1-1.3.2 JAR into libs/.")
+        }
+    }
+}
 tasks.named('compileJava').configure {
+    dependsOn tasks.named('verifyFarmersDelightDevDependency')
     dependsOn tasks.named('verifyFlanArtifact')
 }
 

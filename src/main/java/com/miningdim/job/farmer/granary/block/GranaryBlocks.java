@@ -19,12 +19,14 @@ import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.RegistryObject;
 
-/**
- * 粮仓方块的注册 (Spoilage_Granary_DesignSpec「部件」)。
- *
- * 本片只注册储粮囤; 账台与气窗/冷源随各自的分片加入。注册 ID {@code granary_bin} 一旦发布不能改。
- */
+import java.util.ArrayList;
+import java.util.List;
+
+/** 粮仓方块与各木材外观变体的注册。 */
 public final class GranaryBlocks {
+
+    private static final List<String> WOOD_NAMES = List.of("oak", "spruce", "birch", "jungle", "acacia",
+            "dark_oak", "mangrove", "cherry", "bamboo", "crimson", "warped");
 
     public static final DeferredRegister<Block> BLOCKS =
             DeferredRegister.create(ForgeRegistries.BLOCKS, MiningConstants.MODID);
@@ -35,63 +37,80 @@ public final class GranaryBlocks {
     public static final DeferredRegister<CreativeModeTab> TABS =
             DeferredRegister.create(Registries.CREATIVE_MODE_TAB, MiningConstants.MODID);
 
-    /** 储粮囤: 27 格, 谁放下就归谁。 */
-    public static final RegistryObject<Block> BIN = BLOCKS.register("granary_bin",
-            () -> new GranaryBinBlock(BlockBehaviour.Properties.of()
-                    .mapColor(MapColor.WOOD)
-                    .strength(2.0F, 1200.0F)
-                    // 推不动: 归属按坐标记, 被推走会把记录孤儿在旧坐标 (与耕地同一条理由)。
-                    .pushReaction(PushReaction.BLOCK)
-                    .sound(SoundType.WOOD)
-                    .noOcclusion()));
+    public static final RegistryObject<Block> BIN = registerBin("granary_bin");
+    public static final RegistryObject<Item> BIN_ITEM = registerItem("granary_bin", BIN);
+    public static final RegistryObject<Block> CENTER = registerCenter("granary_center");
+    public static final RegistryObject<Item> CENTER_ITEM = registerItem("granary_center", CENTER);
+    public static final RegistryObject<Block> VENT = registerVent("granary_vent");
+    public static final RegistryObject<Item> VENT_ITEM = registerItem("granary_vent", VENT);
 
-    public static final RegistryObject<Item> BIN_ITEM = ITEMS.register("granary_bin",
-            () -> new BlockItem(BIN.get(), new Item.Properties()));
+    /** 顺序与创造栏分组一致；橡木沿用已发布的三个注册 ID。 */
+    public static final List<WoodVariant> WOOD_VARIANTS = registerWoodVariants();
 
     public static final RegistryObject<BlockEntityType<GranaryBinBlockEntity>> BIN_ENTITY =
-            BLOCK_ENTITIES.register("granary_bin",
-                    () -> BlockEntityType.Builder.of(GranaryBinBlockEntity::new, BIN.get()).build(null));
-
-    /** 账台: 粮仓的大脑, 本身不装东西; 可以嵌在墙上。 */
-    public static final RegistryObject<Block> CENTER = BLOCKS.register("granary_center",
-            () -> new GranaryCenterBlock(BlockBehaviour.Properties.of()
-                    .mapColor(MapColor.WOOD)
-                    .strength(2.0F, 1200.0F)
-                    .pushReaction(PushReaction.BLOCK)
-                    .sound(SoundType.WOOD)
-                    .noOcclusion()));
-
-    public static final RegistryObject<Item> CENTER_ITEM = ITEMS.register("granary_center",
-            () -> new BlockItem(CENTER.get(), new Item.Properties()));
-
+            BLOCK_ENTITIES.register("granary_bin", () -> BlockEntityType.Builder.of(GranaryBinBlockEntity::new,
+                    WOOD_VARIANTS.stream().map(variant -> variant.bin().get()).toArray(Block[]::new)).build(null));
     public static final RegistryObject<BlockEntityType<GranaryCenterBlockEntity>> CENTER_ENTITY =
-            BLOCK_ENTITIES.register("granary_center",
-                    () -> BlockEntityType.Builder.of(GranaryCenterBlockEntity::new, CENTER.get()).build(null));
+            BLOCK_ENTITIES.register("granary_center", () -> BlockEntityType.Builder.of(GranaryCenterBlockEntity::new,
+                    WOOD_VARIANTS.stream().map(variant -> variant.center().get()).toArray(Block[]::new)).build(null));
 
-    /** 气窗: 嵌在外墙上, 每 4 个储粮囤要 1 扇; 判定时算墙。 */
-    public static final RegistryObject<Block> VENT = BLOCKS.register("granary_vent",
-            () -> new GranaryVentBlock(BlockBehaviour.Properties.of()
-                    .mapColor(MapColor.WOOD)
-                    .strength(2.0F)
-                    .sound(SoundType.WOOD)
-                    .noOcclusion()));
-
-    public static final RegistryObject<Item> VENT_ITEM = ITEMS.register("granary_vent",
-            () -> new BlockItem(VENT.get(), new Item.Properties()));
-
-    /** 农夫模块自己的创造页 (粮仓部件都进这里, 不碰中央创造栏)。 */
     public static final RegistryObject<CreativeModeTab> TAB = TABS.register("farmer_granary",
             () -> CreativeModeTab.builder()
                     .title(Component.translatable("itemGroup.miningdim.granary"))
                     .icon(() -> new ItemStack(BIN_ITEM.get()))
-                    .displayItems((params, output) -> {
-                        output.accept(CENTER_ITEM.get());
-                        output.accept(BIN_ITEM.get());
-                        output.accept(VENT_ITEM.get());
-                    })
+                    .displayItems((params, output) -> WOOD_VARIANTS.forEach(variant -> {
+                        output.accept(variant.centerItem().get());
+                        output.accept(variant.binItem().get());
+                        output.accept(variant.ventItem().get());
+                    }))
                     .build());
 
     private GranaryBlocks() {
+    }
+
+    private static List<WoodVariant> registerWoodVariants() {
+        List<WoodVariant> variants = new ArrayList<>(WOOD_NAMES.size());
+        variants.add(new WoodVariant("oak", BIN, CENTER, VENT, BIN_ITEM, CENTER_ITEM, VENT_ITEM));
+        for (String wood : WOOD_NAMES.subList(1, WOOD_NAMES.size())) {
+            String prefix = wood + "_granary_";
+            RegistryObject<Block> bin = registerBin(prefix + "bin");
+            RegistryObject<Block> center = registerCenter(prefix + "center");
+            RegistryObject<Block> vent = registerVent(prefix + "vent");
+            variants.add(new WoodVariant(wood, bin, center, vent,
+                    registerItem(prefix + "bin", bin), registerItem(prefix + "center", center),
+                    registerItem(prefix + "vent", vent)));
+        }
+        return List.copyOf(variants);
+    }
+
+    private static RegistryObject<Block> registerBin(String id) {
+        return BLOCKS.register(id, () -> new GranaryBinBlock(BlockBehaviour.Properties.of()
+                .mapColor(MapColor.WOOD)
+                .strength(2.0F, 1200.0F)
+                .pushReaction(PushReaction.BLOCK)
+                .sound(SoundType.WOOD)
+                .noOcclusion()));
+    }
+
+    private static RegistryObject<Block> registerCenter(String id) {
+        return BLOCKS.register(id, () -> new GranaryCenterBlock(BlockBehaviour.Properties.of()
+                .mapColor(MapColor.WOOD)
+                .strength(2.0F, 1200.0F)
+                .pushReaction(PushReaction.BLOCK)
+                .sound(SoundType.WOOD)
+                .noOcclusion()));
+    }
+
+    private static RegistryObject<Block> registerVent(String id) {
+        return BLOCKS.register(id, () -> new GranaryVentBlock(BlockBehaviour.Properties.of()
+                .mapColor(MapColor.WOOD)
+                .strength(2.0F)
+                .sound(SoundType.WOOD)
+                .noOcclusion()));
+    }
+
+    private static RegistryObject<Item> registerItem(String id, RegistryObject<Block> block) {
+        return ITEMS.register(id, () -> new BlockItem(block.get(), new Item.Properties()));
     }
 
     public static void register(IEventBus modBus) {
@@ -101,8 +120,12 @@ public final class GranaryBlocks {
         TABS.register(modBus);
     }
 
-    /** 储粮囤的容量上限 (提示文案用)。 */
     public static int binSlots() {
         return GranaryConstants.BIN_SLOTS;
+    }
+
+    public record WoodVariant(String wood, RegistryObject<Block> bin, RegistryObject<Block> center,
+                              RegistryObject<Block> vent, RegistryObject<Item> binItem,
+                              RegistryObject<Item> centerItem, RegistryObject<Item> ventItem) {
     }
 }

@@ -3,7 +3,6 @@ package com.miningdim.job.farmer.granary;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.farmer.granary.block.GranaryBinBlockEntity;
-import com.miningdim.job.farmer.granary.block.GranaryBlocks;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -228,6 +227,6 @@ public final class GranaryQuery {
     public static Component where(BlockPos pos) {
         return Component.translatable("message.miningdim.granary.command.where",
                 pos.getX(), pos.getY(), pos.getZ(),
-                GranaryBlocks.BIN.get().getName());
+                Component.translatable("container.miningdim.granary_bin"));
     }
 }

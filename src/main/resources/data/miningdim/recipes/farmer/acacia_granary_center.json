@@ -1,0 +1,36 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "minecraft:chest"
+    },
+    {
+      "item": "minecraft:book"
+    },
+    {
+      "item": "minecraft:acacia_log"
+    },
+    {
+      "item": "minecraft:acacia_log"
+    },
+    {
+      "item": "minecraft:acacia_log"
+    },
+    {
+      "item": "minecraft:acacia_log"
+    },
+    {
+      "item": "minecraft:wheat"
+    },
+    {
+      "item": "minecraft:wheat"
+    },
+    {
+      "item": "minecraft:wheat"
+    }
+  ],
+  "result": {
+    "item": "miningdim:acacia_granary_center"
+  }
+}

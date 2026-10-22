@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "F",
+    "T",
+    "T"
+  ],
+  "key": {
+    "F": {
+      "item": "minecraft:mangrove_fence"
+    },
+    "T": {
+      "item": "minecraft:mangrove_trapdoor"
+    }
+  },
+  "result": {
+    "item": "miningdim:mangrove_granary_vent",
+    "count": 2
+  }
+}

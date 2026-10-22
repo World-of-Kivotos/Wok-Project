@@ -1,7 +1,6 @@
 package com.miningdim.job.farmer.granary;
 
 import com.miningdim.job.farmer.granary.block.GranaryBinBlockEntity;
-import com.miningdim.job.farmer.granary.block.GranaryBlocks;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -77,7 +76,7 @@ public final class GranaryTransfer {
             bin.clearContent();
         }
         if (removeBlock) {
-            items.add(new ItemStack(GranaryBlocks.BIN.get()));
+            items.add(new ItemStack(level.getBlockState(pos).getBlock()));
         }
         long graceUntil = reason.stopsClock() ? nowHour + GranaryGrace.DAMAGE_HOURS : 0L;
         GranaryPending.put(data, owner, gid, reason, nowHour, graceUntil, items);

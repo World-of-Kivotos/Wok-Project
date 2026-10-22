@@ -4,10 +4,14 @@ import com.miningdim.core.Subsystem;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobXpPolicies;
 import com.miningdim.job.farmer.block.FarmerBlocks;
+import com.miningdim.job.farmer.granary.GranaryConfig;
+import com.miningdim.job.farmer.granary.GranarySystem;
 import com.miningdim.job.farmer.item.FarmerCreativeTab;
 import com.miningdim.job.farmer.item.FarmerItems;
 import com.miningdim.progression.ExperienceServices;
 import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.fml.ModLoadingContext;
+import net.minecraftforge.fml.config.ModConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,6 +31,8 @@ public final class FarmerModule implements Subsystem {
 
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
+        ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER,
+                GranaryConfig.SPEC, "miningdim-farmer.toml");
         JobXpPolicies.register(JobId.FARMER, FarmerXpCurve.POLICY);
         ExperienceServices.experienceService().registerSource(
                 FarmerExperience.HARVEST_SOURCE, FarmerExperience.TRACK_ID);
@@ -36,9 +42,22 @@ public final class FarmerModule implements Subsystem {
         FarmerItems.register(modBus);
         FarmerCreativeTab.register(modBus);
         FarmerLootModifiers.register(modBus);
+        // 粮仓子包 (job/farmer/granary): 储粮囤方块、归属与额度裁决。一个模块只有一个公开装配入口,
+        // 所以粮仓在这里接进来, 不另占一个子系统 (docs/Spoilage_Granary_DesignSpec.md「模块落位」)。
+        GranarySystem.register(modBus, forgeBus);
+        // 客户端界面注册 (FMLClientSetupEvent + DistExecutor 隔离; 专用服务器永不触客户端类)。
+        modBus.addListener(FarmerModule::onClientSetup);
         forgeBus.register(runtime);
         FarmerWebUiActions.registerAll();
-        LOGGER.info("[miningdim] {} registered (5 farmland tiers + crop yield + Farmer's Delight + harvest xp + placement cap + /farmer sell + /farmer admin legacy|recount + 2 job.farmer.* actions)", MODULE_ID);
+        LOGGER.info("[miningdim] {} registered (5 farmland tiers + crop yield + Farmer's Delight + harvest xp "
+                + "+ placement cap + /farmer sell + /farmer admin legacy|recount + 2 job.farmer.* actions "
+                + "+ granary storage bins with level-gated caps)", MODULE_ID);
+    }
+
+    private static void onClientSetup(net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent event) {
+        event.enqueueWork(() -> net.minecraftforge.fml.DistExecutor.unsafeRunWhenOn(
+                net.minecraftforge.api.distmarker.Dist.CLIENT,
+                () -> () -> com.miningdim.job.farmer.granary.client.GranaryClientSetup.registerScreens()));
     }
 
     @Override

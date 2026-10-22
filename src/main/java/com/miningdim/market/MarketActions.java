@@ -65,6 +65,11 @@ public final class MarketActions {
     private static final int DEFAULT_PAGE_SIZE = 20;
     /** 单页行数上限 (与 listingJson 里"单页上限 100 行"的既有口径同值)。 */
     private static final int MAX_PAGE_SIZE = 100;
+    /**
+     * market.list 因腐烂隐去行时最多再补取几次 (每次一页): 上限的意义是别让"全服都是烂货"变成一次拉几百行的循环,
+     * 4 次已能覆盖绝大多数页面。
+     */
+    private static final int MAX_TOP_UP_QUERIES = 4;
 
     private MarketActions() {
     }
@@ -104,16 +109,45 @@ public final class MarketActions {
         int pageSize = clamp(optInt(payload, "pageSize", DEFAULT_PAGE_SIZE), 1, MAX_PAGE_SIZE);
         int offset = page * pageSize;
 
-        List<ListingRow> rows = MarketServices.marketEngine().queryActive(query, sort, offset, pageSize);
-
+        long nowMinute = MarketServices.marketEngine().nowMinute();
+        /*
+         * 现算新鲜度并**不显示已腐烂的** (规格「消费点改造 · 市场」)。
+         *
+         * 新鲜度不在 SQL 里 (它活在物品 NBT 的章上), 所以只能在取回这一页之后筛 —— 一页 20 行里有 3 行烂了,
+         * 前端就会看到 17 行。为此这里最多再补取几页把这一页填满 ({@link #MAX_TOP_UP_QUERIES}): 否则一整页全是
+         * 烂货时玩家会以为"没有更多了", 后面明明还有能买的。
+         */
         JsonArray listings = new JsonArray();
-        for (ListingRow r : rows) {
-            listings.add(listingJson(r));
+        int skipped = 0;
+        int fetchOffset = offset;
+        final int wanted = pageSize;
+        for (int attempt = 0; attempt <= MAX_TOP_UP_QUERIES && listings.size() < wanted; attempt++) {
+            List<ListingRow> rows = MarketServices.marketEngine().queryActive(query, sort, fetchOffset, wanted);
+            if (rows.isEmpty()) {
+                break;
+            }
+            fetchOffset += rows.size();
+            for (ListingRow r : rows) {
+                JsonObject json = listingJson(r, nowMinute);
+                if (json.get("freshRotten").getAsBoolean()) {
+                    skipped++;
+                    continue;
+                }
+                if (listings.size() < wanted) {
+                    listings.add(json);
+                }
+            }
+            if (rows.size() < wanted) {
+                break; // 已经取到最后一页, 再补也是空
+            }
         }
+
         JsonObject result = new JsonObject();
         result.add("listings", listings);
         result.addProperty("page", page);
         result.addProperty("pageSize", pageSize);
+        // 这一页因为腐烂被隐去了几行: 前端据此说明"还有货, 只是烂了没显示", 而不是当成数据缺失。
+        result.addProperty("hiddenRotten", skipped);
         return GSON.toJson(result);
     };
 
@@ -135,6 +169,9 @@ public final class MarketActions {
         JsonObject result = new JsonObject();
         result.addProperty("listingId", pr.listingId());
         result.addProperty("listFee", pr.listFee());
+        // 能挂但可能来不及卖出 (不足 12 小时): 只提示, 不拦 (规格「消费点改造 · 市场」)。
+        result.addProperty("freshWarning", pr.freshWarning());
+        result.addProperty("freshMinMinutes", pr.freshMinMinutes() == Long.MAX_VALUE ? -1L : pr.freshMinMinutes());
         return GSON.toJson(result);
     };
 
@@ -181,9 +218,11 @@ public final class MarketActions {
         List<ListingRow> rows = MarketServices.marketEngine()
                 .listingsBySeller(sender.getUUID(), "ACTIVE");
 
+        long nowMinute = MarketServices.marketEngine().nowMinute();
         JsonArray listings = new JsonArray();
         for (ListingRow r : rows) {
-            listings.add(listingJson(r));
+            // 我的挂单**照常列出**已腐烂的 (卖家要看到它、自己撤单), 前端按 freshRotten 标"已腐烂"。
+            listings.add(listingJson(r, nowMinute));
         }
         JsonObject result = new JsonObject();
         result.add("listings", listings);
@@ -197,7 +236,7 @@ public final class MarketActions {
      * 而 itemId 推不出翻译键 (物品是 item.&lt;ns&gt;.&lt;path&gt;、方块是 block.&lt;ns&gt;.&lt;path&gt;)。
      * 物品已从注册表移除时 (卸载 mod 后的历史挂单) 回退为 itemId 本身, 与 MarketCategoryTree 的 label 同纪律。
      */
-    private static JsonObject listingJson(ListingRow r) {
+    private static JsonObject listingJson(ListingRow r, long nowMinute) {
         JsonObject o = new JsonObject();
         o.addProperty("id", r.id());
         o.addProperty("sellerName", r.sellerName());
@@ -223,7 +262,38 @@ public final class MarketActions {
         // 托管物所属 mod 被卸载后, deserializeStack 兜成 EMPTY —— 这类挂单在列表里与正常挂单长得一模一样,
         // 而成交路径会硬拒 (托管不可解析守卫)。多这一个键前端才能提前灰掉按钮, 不必让玩家点了才失败。
         o.addProperty("escrowResolvable", !escrow.isEmpty());
+        appendFreshness(o, escrow, nowMinute);
         return o;
+    }
+
+    /**
+     * 一条挂单的新鲜度字段 (market.list 与 market.mine 共用; 规格「消费点改造 · 市场」: 浏览时**现算**剩余时间)。
+     *
+     * 三个键的形状与物品详情的 fresh.hours / fresh.rotten / fresh.untimed 一致, 前端只需要一套渲染:
+     * <ul>
+     *   <li>{@code freshHours}: 剩余小时数 (所有层里最少的那一层), 一位小数; 已腐烂为 0;</li>
+     *   <li>{@code freshRotten}: 是否已腐烂 (浏览侧据此不显示, 我的挂单侧据此标「已腐烂」);</li>
+     *   <li>{@code freshUntimed}: 一层易腐品都没有 (石头、工具): 不显示倒计时, 也永远不会腐烂。</li>
+     * </ul>
+     */
+    private static void appendFreshness(JsonObject o, ItemStack escrow, long nowMinute) {
+        if (escrow.isEmpty()) {
+            // 托管物读不出来时只有"不可解析"这一个结论, 不编新鲜度 (那是另一个码的事)。
+            o.add("freshHours", JsonNull.INSTANCE);
+            o.addProperty("freshRotten", false);
+            o.addProperty("freshUntimed", true);
+            return;
+        }
+        long remaining = MarketFreshness.remainingMinutes(escrow, nowMinute);
+        boolean untimed = remaining == Long.MAX_VALUE;
+        boolean rotten = !untimed && remaining <= 0L;
+        if (untimed) {
+            o.add("freshHours", JsonNull.INSTANCE);
+        } else {
+            o.addProperty("freshHours", rotten ? 0.0D : MarketFreshness.hoursValue(remaining));
+        }
+        o.addProperty("freshRotten", rotten);
+        o.addProperty("freshUntimed", untimed);
     }
 
     // ============================================================
@@ -459,18 +529,37 @@ public final class MarketActions {
         }
 
         MarketTradeWhitelist.Verdict verdict = MarketTradeWhitelist.judge(stack);
+        /*
+         * 新鲜度预判 (规格「消费点改造 · 市场」): 判据与 MarketEngine.place 共用 MarketFreshness.judgeForListing,
+         * 于是"前端灰掉的按钮"与"服务端硬拒"永远同一条规则 —— 与上面白名单同一条纪律。
+         *
+         * 这里也**不盖章**: 预判只是看一眼, 盖章是上架那一刻的事 (盖章会改物品, 一个只读的预览动作不该写数据)。
+         * 代价是"预览显示的剩余"与"真上架时的剩余"可能差一小时以内 (整点章), 这个误差对 6 小时门槛无影响。
+         */
+        MarketFreshness.Verdict fresh = MarketFreshness.judgeForListing(stack, MarketServices.marketEngine().nowMinute());
+        boolean tradable = verdict.tradable()
+                && (!com.miningdim.freshness.FreshnessConfig.replacementEnabled() || fresh.listable());
         JsonObject result = new JsonObject();
         // 回显 slot: 玩家快速换格时, 前端靠它把异步回执对回当前选中格 (防串行)。
         result.addProperty("slot", slot);
         result.addProperty("itemId", MarketEngine.itemIdOf(stack));
-        result.addProperty("tradable", verdict.tradable());
-        if (verdict.tradable()) {
+        result.addProperty("tradable", tradable);
+        appendFreshness(result, stack, MarketServices.marketEngine().nowMinute());
+        if (tradable) {
             result.add("reasonCode", JsonNull.INSTANCE);
             result.add("reason", JsonNull.INSTANCE);
-        } else {
+        } else if (!verdict.tradable()) {
+            // 白名单先说话 (品质/绑定是硬规则), 新鲜度只在白名单放行之后才有机会成为理由。
             result.addProperty("reasonCode", verdict.reasonCode());
             result.addProperty("reason", verdict.reason());
+        } else {
+            result.addProperty("reasonCode", fresh.reasonCode());
+            result.addProperty("reason", fresh.rotten()
+                    ? "这一单里有已经腐烂的东西 (可能是装在里面的), 不能上架"
+                    : "这一单里有剩不到 6 小时就坏的东西, 挂上去也来不及卖, 不能上架");
         }
+        // 能挂但可能来不及卖出: 前端用这句提示, 不拦。
+        result.addProperty("freshWarning", tradable && fresh.warn());
         return GSON_NULLS.toJson(result);
     };
 

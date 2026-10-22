@@ -1,0 +1,13 @@
+{
+  "replace": false,
+  "values": [
+    {"id": "farmersdelight:cabbage", "required": false},
+    {"id": "farmersdelight:cabbage_leaf", "required": false},
+    {"id": "farmersdelight:tomato", "required": false},
+    {"id": "farmersdelight:onion", "required": false},
+    {"id": "farmersdelight:pumpkin_slice", "required": false},
+    {"id": "farmersdelight:wheat_dough", "required": false},
+    {"id": "farmersdelight:raw_pasta", "required": false},
+    {"id": "farmersdelight:pie_crust", "required": false}
+  ]
+}

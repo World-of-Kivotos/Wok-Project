@@ -440,4 +440,22 @@ public final class WebUiErrorCodes {
 
     /** 冻结地块的原户主现在不是本区住户。params: {@code playerName}。抛出点: 解除冻结。 */
     public static final String FORMER_OWNER_NOT_RESIDENT = "FORMER_OWNER_NOT_RESIDENT";
+
+    // ---- 腐烂底座 (Spoilage_Granary_DesignSpec「消费点改造 · 市场」) ----
+    //
+    // 两道门共用这一个码: 上架时"这一单里有已经腐烂的"与购买时"这一单里的东西已经烂了"。都不改挂单状态 ——
+    // 上架被拒时玩家的货还在背包里, 购买被拒时挂单保持 ACTIVE (卖家可自行撤单)。params: {@code itemId} /
+    // {@code remainingMinutes} (负数 = 已腐烂的层里最早那层烂了多久); 购买侧另带 {@code listingId}。
+    // 抛出点: MarketEngine.place / MarketEngine.buy。
+    /** 这一单 (含嵌套内容) 里有东西已经腐烂。params: {@code itemId} / {@code remainingMinutes} (购买侧另有 {@code listingId})。 */
+    public static final String FRESHNESS_ROTTEN = "FRESHNESS_ROTTEN";
+
+    /**
+     * 上架时这一单里有东西剩不到 6 小时就坏 (挂上去也来不及卖), 因此拒绝。params: {@code itemId} /
+     * {@code remainingMinutes}。抛出点: {@code MarketEngine.place}。
+     *
+     * 与 {@link #FRESHNESS_ROTTEN} 分开是因为玩家要做的事不同: 这个码的货还能吃还能用 (只是不适合挂),
+     * 那个码的货已经废了。前端把一条码分成两句文案的依据就在这里 (先例: ITEM_NOT_TRADABLE 的 {@code rule})。
+     */
+    public static final String FRESHNESS_TOO_SHORT = "FRESHNESS_TOO_SHORT";
 }

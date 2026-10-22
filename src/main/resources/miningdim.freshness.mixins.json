@@ -1,0 +1,22 @@
+{
+  "required": true,
+  "minVersion": "0.8.5",
+  "package": "com.miningdim.freshness.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "miningdim.refmap.json",
+  "mixins": [
+    "CraftingMenuMixin",
+    "AbstractFurnaceBlockEntityMixin",
+    "HopperBlockEntityMixin",
+    "InventoryMixin",
+    "ServerPlaceRecipeMixin",
+    "AbstractContainerMenuMixin",
+    "CampfireBlockEntityMixin",
+    "PlacedFoodInteractionMixin"
+  ],
+  "client": [],
+  "server": [],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

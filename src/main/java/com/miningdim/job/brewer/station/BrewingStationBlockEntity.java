@@ -1,5 +1,6 @@
 package com.miningdim.job.brewer.station;
 
+import com.miningdim.freshness.FreshnessClockData;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobServices;
 import com.miningdim.job.brewer.BrewerConstants;
@@ -143,7 +144,7 @@ public final class BrewingStationBlockEntity extends BlockEntity implements Menu
             }
         }
         // 推进中仍校验配方仍满足 (投料被外部抽走经 onContentsChanged 已 abort, 此为双保险)。
-        if (BrewRecipes.match(inventory) != pendingType) {
+        if (BrewRecipes.match(inventory, nowMinute()) != pendingType) {
             abortBrew();
             return;
         }
@@ -156,7 +157,7 @@ public final class BrewingStationBlockEntity extends BlockEntity implements Menu
 
     /** 开始帧: match 投料锁定酒类型, 据 operator 等级 roll 锁定品质 (进度仍由统一 progress++ 从 0 推进)。 */
     private void tryStartBrew() {
-        WineType type = BrewRecipes.match(inventory);
+        WineType type = BrewRecipes.match(inventory, nowMinute());
         if (type == null) {
             return;
         }
@@ -181,7 +182,7 @@ public final class BrewingStationBlockEntity extends BlockEntity implements Menu
             return;
         }
         // 完成帧重校配方仍精确满足 (中途增投料经 onContentsChanged abort, 此为时序双保险)。
-        if (BrewRecipes.match(inventory) != pendingType) {
+        if (BrewRecipes.match(inventory, nowMinute()) != pendingType) {
             abortBrew();
             return;
         }
@@ -193,7 +194,7 @@ public final class BrewingStationBlockEntity extends BlockEntity implements Menu
         pendingType = null;
         pendingQuality = null;
 
-        BrewRecipes.consume(inventory, type);
+        BrewRecipes.consume(inventory, type, nowMinute());
 
         ItemStack output = new ItemStack(BrewerItems.itemFor(type), BrewerConstants.BREW_OUTPUT_COUNT);
         WineNbt.stamp(output, quality, operatorUuid);
@@ -201,6 +202,16 @@ public final class BrewingStationBlockEntity extends BlockEntity implements Menu
 
         grantBrewXp(type, quality);
         setChanged();
+    }
+
+    /**
+     * 当下分钟数 (全服统一保鲜时钟): 投料统计/扣料都以它为准 —— 烂料不算数, 扣料先扣最老的。
+     *
+     * 只有服务端 tick 会走到这里 ({@link #serverTick} 首行已挡客户端), 客户端渲染不碰配方; level 为空的
+     * 极端时刻退回 0 (即 "看第 0 分钟"), 此时未盖章的新鲜物品既不算烂也不受影响, 不会误伤。
+     */
+    private long nowMinute() {
+        return level instanceof ServerLevel serverLevel ? FreshnessClockData.nowMinute(serverLevel) : 0L;
     }
 
     /** 输出槽是否可放本轮产物 (空, 或已是同物同章且未满)。粗判 "空或未满堆"; 精确同章合并交给 mergeIntoOutput。 */

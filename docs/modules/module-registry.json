@@ -918,10 +918,12 @@
       "name": "WOK-社交平板模块",
       "category": "gameplay",
       "javaPackagePrefixes": [
-        "com.miningdim.social"
+        "com.miningdim.social",
+        "com.miningdim.client.social"
       ],
       "currentPaths": [
-        "social"
+        "social",
+        "client/social"
       ],
       "resourcePaths": [
         "assets/miningdim/web/social.html"

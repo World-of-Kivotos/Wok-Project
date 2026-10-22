@@ -112,11 +112,6 @@ public final class SocialStore implements AutoCloseable {
         }
     }
 
-    public synchronized SocialData data() {
-        requireLoaded();
-        return data;
-    }
-
     public synchronized SocialData.Profile touch(UUID uuid, String name) {
         requireWritable();
         String key = uuid.toString();
@@ -146,12 +141,6 @@ public final class SocialStore implements AutoCloseable {
     public synchronized SocialData.Profile profile(UUID uuid) {
         requireLoaded();
         return data.profiles.get(uuid.toString());
-    }
-
-    public synchronized String nameOf(UUID uuid) {
-        requireLoaded();
-        SocialData.Profile profile = data.profiles.get(uuid.toString());
-        return profile == null ? "Unknown" : profile.name;
     }
 
     public synchronized List<UUID> friendIds(UUID uuid) {
@@ -407,8 +396,7 @@ public final class SocialStore implements AutoCloseable {
     public synchronized List<SocialData.Moment> pageMoments(int limit, long before, String beforeId) {
         requireLoaded();
         List<SocialData.Moment> result = new ArrayList<>();
-        int cap = Math.max(0, Math.min(limit, 20));
-        for (SocialDatabase.Row row : database.history("moment", "", before, beforeId, cap, System.currentTimeMillis())) {
+        for (SocialDatabase.Row row : database.history("moment", "", before, beforeId, limit, System.currentTimeMillis())) {
             result.add(readMoment(row));
         }
         return result;
@@ -579,12 +567,7 @@ public final class SocialStore implements AutoCloseable {
         }
         List<UUID> result = new ArrayList<>(raw.size());
         for (String value : raw) {
-            try {
-                result.add(UUID.fromString(value));
-            } catch (IllegalArgumentException ignored) {
-                // 损坏的单条 UUID 不应拖垮整份好友列表；记录后跳过。
-                LOGGER.warn("社交存档中出现非法 UUID: {}", value);
-            }
+            result.add(UUID.fromString(value));
         }
         return result;
     }
@@ -609,6 +592,9 @@ public final class SocialStore implements AutoCloseable {
         if (data.moments == null) data.moments = new ArrayList<>();
         if (data.chats == null) data.chats = new java.util.LinkedHashMap<>();
         if (data.world == null) data.world = new ArrayList<>();
+        validateLegacyRelations("friends", data.friends);
+        validateLegacyRelations("incoming", data.incoming);
+        validateLegacyRelations("outgoing", data.outgoing);
         for (SocialData.Moment moment : data.moments) {
             if (moment.likes == null) moment.likes = new ArrayList<>();
             if (moment.comments == null) moment.comments = new ArrayList<>();
@@ -620,6 +606,30 @@ public final class SocialStore implements AutoCloseable {
             if (profile.unlockedThemes == null) {
                 profile.unlockedThemes = new ArrayList<>();
             }
+        }
+    }
+
+    private static void validateLegacyRelations(String field, java.util.Map<String, List<String>> relations) {
+        for (var entry : relations.entrySet()) {
+            String owner = entry.getKey();
+            validateLegacyUuid(owner, field, owner, "owner");
+            List<String> members = entry.getValue();
+            if (members == null) {
+                throw new IllegalArgumentException("Invalid social " + field + " for owner " + owner
+                        + ": UUID list is null");
+            }
+            for (int index = 0; index < members.size(); index++) {
+                validateLegacyUuid(members.get(index), field, owner, "member[" + index + "]");
+            }
+        }
+    }
+
+    private static void validateLegacyUuid(String value, String field, String owner, String position) {
+        try {
+            UUID.fromString(value);
+        } catch (IllegalArgumentException | NullPointerException error) {
+            throw new IllegalArgumentException("Invalid UUID in social " + field + " for owner " + owner
+                    + " at " + position + ": " + value, error);
         }
     }
 

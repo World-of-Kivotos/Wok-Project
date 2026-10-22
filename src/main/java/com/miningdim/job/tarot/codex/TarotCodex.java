@@ -29,7 +29,7 @@ public final class TarotCodex {
     }
 
     public static void addListener(MilestoneListener listener) {
-        if (listener != null && !LISTENERS.contains(listener)) {
+        if (!LISTENERS.contains(listener)) {
             LISTENERS.add(listener);
         }
     }

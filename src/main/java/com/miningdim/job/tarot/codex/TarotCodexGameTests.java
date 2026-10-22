@@ -132,6 +132,11 @@ public final class TarotCodexGameTests {
         wrongWordCount.putLongArray("Bits", new long[3]);
         assertMalformedRow(helper, wrongWordCount, "Uuid", "Bits must contain 4 longs, found 3");
 
+        CompoundTag outsideFormRange = new CompoundTag();
+        outsideFormRange.putUUID("Uuid", UUID.randomUUID());
+        outsideFormRange.putLongArray("Bits", new long[]{0L, 0L, 0L, 1L << 28});
+        assertMalformedRow(helper, outsideFormRange, "Uuid", "Bits contain forms beyond 220");
+
         helper.succeed();
     }
 

@@ -63,19 +63,16 @@ public final class SocialCodexMilestones {
 
     /** 主题对应的图鉴进度；非塔罗皮肤返回 null（页面就不画进度条）。 */
     public static Progress progress(SocialThemes.Theme theme, TarotCodex.Summary summary) {
-        if (theme == null || summary == null) {
-            return null;
-        }
-        int total = Math.max(1, summary.total());
+        int total = summary.total();
         return switch (theme.id()) {
             case SocialThemes.STARDUST -> new Progress(
-                    Math.min(summary.arcana(), summary.arcanaTotal()), summary.arcanaTotal(),
+                    summary.arcana(), summary.arcanaTotal(),
                     summary.arcana() + " / " + summary.arcanaTotal() + " 张");
             case SocialThemes.SHINING -> summary.shiny()
                     ? new Progress(1, 1, "已获得闪耀")
                     : new Progress(0, 1, "尚未获得闪耀");
             case SocialThemes.STARMASTER -> new Progress(
-                    Math.min(summary.count(), total), total, summary.count() + " / " + total);
+                    summary.count(), total, summary.count() + " / " + total);
             default -> null;
         };
     }
@@ -83,7 +80,7 @@ public final class SocialCodexMilestones {
     /** @param now 当前进度 @param max 上限（&gt;0） @param label 直接展示的文本 */
     public record Progress(int now, int max, String label) {
         public int percent() {
-            return Math.max(0, Math.min(100, Math.round(now * 100F / Math.max(1, max))));
+            return Math.round(now * 100F / max);
         }
     }
 }

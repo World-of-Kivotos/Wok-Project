@@ -26,6 +26,8 @@
 3. 已初始化数据库后，不再导入旧 JSON，避免重启时重复添加或回灌已经过期的记录。
 4. JSON 损坏、备份失败或导入失败时直接停止加载，不用空档覆盖。损坏 JSON 的恢复副本尽力写为 `.corrupt-<时间戳>`；备份失败会与原始错误一起记录，原件保留。
 
+好友、收到请求和发出请求的关系拥有者及成员 UUID 在迁移前校验；错误包含字段、拥有者和所在位置。坏关系不进入数据库、不写迁移完成标记，源 JSON 保留。正常查询不再跳过非法 UUID。
+
 迁移备份用于人工恢复，不自动按七天清理。备份正在运行的 SQLite 时须使用支持 SQLite 在线备份的工具，或正常停服后备份数据库；不能只复制正在写入的 `.db` 而忽略 WAL。
 
 ## 客户端与验证
@@ -34,6 +36,6 @@
 
 回执按实际 JSON 编码后的长度遵守原网络上限；聊天优先保留最新消息，动态保留可继续翻页的前缀。固定档案/好友字段过大时明确报错，不静默隐藏好友。
 
-`SocialDatabaseGameTests` 的四项用例覆盖迁移与损坏保护、七天边界与分批清理、超旧数量上限的持久化与即时读取；`SocialActionsResponseSizeGameTests` 的四项用例覆盖编码膨胀与同毫秒分页。
+`SocialDatabaseGameTests` 的五项用例覆盖迁移、坏关系 UUID 拒绝与损坏保护、七天边界与分批清理、超旧数量上限的持久化与即时读取；`SocialActionsResponseSizeGameTests` 的四项用例覆盖编码膨胀与同毫秒分页。
 
-本轮审查修复使用 JDK 17 和工程 Gradle Wrapper，通过 `compileJava`、`verifyModuleBoundaries`；完整 Forge GameTest 日志明确出现 `All 2126 required tests passed`。内联 JS 语法解析通过。这些结果不能替代 MCEF 实机与大型服负载验收。
+本轮审查修复使用 JDK 17 和工程 Gradle Wrapper，通过 `compileJava`、`verifyModuleBoundaries`；完整 Forge GameTest 日志明确出现 `All 2127 required tests passed`。此前内联 JS 语法解析通过，本轮未改页面。这些结果不能替代 MCEF 实机与大型服负载验收。

@@ -116,7 +116,7 @@
 | 项 | 结果 |
 |---|---|
 | 图鉴去重 / 22·闪耀·220 边界 / 落盘往返 | `TarotCodexGameTests` 保留 5 项业务用例；移除位索引实现、空档和上游已排除的非法入参用例 |
-| 图鉴损坏记录拒绝 | 单独覆盖缺 UUID、Bits 长度异常，错误包含条目上下文 |
+| 图鉴损坏记录拒绝 | 覆盖缺 UUID、Bits 长度异常及 220 形态范围外的置位，错误包含条目上下文 |
 | 三档主题在册、默认锁定、`unlockTheme` 幂等、进度边界 | `SocialGameTests` 新增 2 项 |
 | 真实记录触发三档解锁、21/22 与 219/220 门槛、重复记录 | `SocialGameTests.codexRecordsUnlockAllThreeTabletThemes` 通过 |
 | 创造模式直接获取、产物记录和背包补扫 | `SocialGameTests.creativeAcquisitionDoesNotRecordCodex` 通过，图鉴保持 0 |
@@ -129,7 +129,7 @@
 | 三档 + 选择器 + 翻牌/洗牌/点星座的视觉 | Chromium 116 渲染截图（`_tarot_skins/prod/shots/`） |
 | 解锁链路 | 服务端权威：图鉴触发正式成就，成就完成事件及登录/开机同步解锁；客户端无写入口 |
 
-PR #80 审查修复后的完整回归日志明确出现 `All 2126 required tests passed`，包含正式成就定义、元数据、条件 JSON 往返与非法条件拒收，以及成就到皮肤奖励的完整链路。图鉴内部信任已校验的牌身份与在线玩家；NBT 读档仍在反序列化边界拒绝损坏记录。SQLite 存储、七天清理与编码后回执预算的验证见 [SocialTablet_Storage](SocialTablet_Storage.md)。实机 MCEF 画面不在本轮服务端回归结论内。
+PR #80 审查修复后的完整回归日志明确出现 `All 2127 required tests passed`，包含正式成就定义、元数据、条件 JSON 往返与非法条件拒收，以及成就到皮肤奖励的完整链路。图鉴内部信任已校验的牌身份与在线玩家；NBT 读档在反序列化边界拒绝损坏记录，包含未使用位被置位的情况，进度展示不再用钳制掩盖它。NBT 布局和三档条件不变。SQLite 存储、七天清理与编码后回执预算的验证见 [SocialTablet_Storage](SocialTablet_Storage.md)。实机 MCEF 画面不在本轮服务端回归结论内。
 
 ## 5. 未完成 / 风险
 

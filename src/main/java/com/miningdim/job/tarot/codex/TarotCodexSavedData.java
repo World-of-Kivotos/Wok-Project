@@ -8,7 +8,7 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.saveddata.SavedData;
 
-import javax.annotation.Nullable;
+import java.util.BitSet;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -35,14 +35,6 @@ public final class TarotCodexSavedData extends SavedData {
                 .computeIfAbsent(TarotCodexSavedData::load, TarotCodexSavedData::new, FILE_ID);
     }
 
-    @Nullable
-    public static TarotCodexSavedData getIfPresent(MinecraftServer server) {
-        if (server == null) {
-            return null;
-        }
-        return get(server);
-    }
-
     /** 反序列化；包内可见以便 GameTest 直接验证落盘往返。 */
     static TarotCodexSavedData load(CompoundTag tag) {
         TarotCodexSavedData data = new TarotCodexSavedData();
@@ -59,6 +51,10 @@ public final class TarotCodexSavedData extends SavedData {
                 throw new IllegalStateException("Malformed tarot codex player entry at index " + i
                         + " for Uuid " + uuid + ": Bits must contain " + WORDS
                         + " longs, found " + words.length);
+            }
+            if (BitSet.valueOf(words).length() > FORMS) {
+                throw new IllegalStateException("Malformed tarot codex player entry at index " + i
+                        + " for Uuid " + uuid + ": Bits contain forms beyond " + FORMS);
             }
             data.bits.put(uuid, words);
         }

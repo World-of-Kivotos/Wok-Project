@@ -90,6 +90,45 @@ public final class SocialDatabaseGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void invalidLegacyRelationUuidsAreRejectedBeforeImport(GameTestHelper helper) {
+        inTemp(helper, dir -> {
+            // 旧 JSON 可被截断或人工损坏；在进入数据库前拒绝坏关系，不能在读列表时丢项。
+            for (String fixture : List.of("friends", "incoming", "outgoing", "owner")) {
+                Path caseDir = Files.createDirectory(dir.resolve(fixture));
+                Path jsonFile = caseDir.resolve("social.json");
+                SocialData legacy = new SocialData();
+                String owner = fixture.equals("owner") ? "broken-owner" : ALPHA.toString();
+                String field = fixture.equals("owner") ? "friends" : fixture;
+                var relations = switch (field) {
+                    case "incoming" -> legacy.incoming;
+                    case "outgoing" -> legacy.outgoing;
+                    default -> legacy.friends;
+                };
+                relations.put(owner, List.of(fixture.equals("owner") ? BETA.toString() : "broken-member"));
+                byte[] original = new com.google.gson.Gson().toJson(legacy).getBytes(StandardCharsets.UTF_8);
+                Files.write(jsonFile, original);
+                boolean rejectedWithContext = false;
+                try (SocialStore store = new SocialStore(jsonFile)) {
+                    try {
+                        store.load();
+                    } catch (IllegalStateException error) {
+                        String detail = error.getCause().getCause().getMessage();
+                        rejectedWithContext = detail.contains(field) && detail.contains(owner)
+                                && detail.contains(fixture.equals("owner") ? "at owner" : "member[0]");
+                    }
+                }
+                helper.assertTrue(rejectedWithContext, "bad UUID must fail migration with owner and field: " + fixture);
+                helper.assertTrue(java.util.Arrays.equals(original, Files.readAllBytes(jsonFile)),
+                        "bad UUID must not overwrite the source JSON: " + fixture);
+                try (SocialDatabase database = new SocialDatabase(caseDir.resolve("social.db"))) {
+                    helper.assertTrue(!database.initialized() && database.permanent("relations").isEmpty(),
+                            "bad UUID must not import relations or mark migration complete: " + fixture);
+                }
+            }
+        });
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void retentionBoundaryAndCleanupBatch(GameTestHelper helper) {
         inTemp(helper, dir -> {
             long boundaryNow = System.currentTimeMillis();

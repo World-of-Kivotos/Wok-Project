@@ -1,0 +1,40 @@
+{
+  "type": [
+    {"name": "type:feat", "color": "1d76db", "description": "新功能"},
+    {"name": "type:fix", "color": "1d76db", "description": "缺陷修复"},
+    {"name": "type:refactor", "color": "1d76db", "description": "重构, 不改行为"},
+    {"name": "type:perf", "color": "1d76db", "description": "性能优化"},
+    {"name": "type:docs", "color": "1d76db", "description": "只改文档"},
+    {"name": "type:test", "color": "1d76db", "description": "只改测试"},
+    {"name": "type:chore", "color": "1d76db", "description": "构建、CI、工具与杂务"},
+    {"name": "type:art", "color": "1d76db", "description": "美术与资源"}
+  ],
+  "area": {
+    "color": "c5def5",
+    "extra": [
+      {"id": "ci", "description": ".github 与构建脚本"},
+      {"id": "standalone", "description": "standalone/ 下的独立子工程"}
+    ]
+  },
+  "risk": [
+    {"name": "risk:save-format", "color": "d93f0b", "description": "改动存档或 NBT 格式"},
+    {"name": "risk:economy", "color": "d93f0b", "description": "改动经济结算(发钱、扣费、市场、收购)"},
+    {"name": "risk:network", "color": "d93f0b", "description": "改动网络包协议"},
+    {"name": "risk:mixin", "color": "d93f0b", "description": "新增或改动 Mixin 注入"},
+    {"name": "risk:dep-version", "color": "d93f0b", "description": "依赖第三方 mod 的特定版本"},
+    {"name": "risk:balance", "color": "fbca04", "description": "含待维护者拍板的玩法数值"}
+  ],
+  "review": [
+    {"name": "review:pass", "route": "A", "color": "0e8a16", "description": "Claude 审查: 未发现问题"},
+    {"name": "review:fixed", "route": "B", "color": "5319e7", "description": "Claude 审查: 已自动修复, 待维护者看"},
+    {"name": "review:needs-decision", "route": "C", "color": "b60205", "description": "Claude 审查: 有需维护者处理的问题"}
+  ],
+  "static_only": {"name": "ci:static-only", "color": "bfdadc", "description": "CI 缺第三方 libs, 只做了静态审查"},
+  "ingame": {"name": "needs-ingame-test", "color": "f9d0c4", "description": "需要进游戏实机验收"},
+  "size": [
+    {"name": "size/S", "below": 200, "color": "c2e0c6", "description": "生产代码少于 200 行"},
+    {"name": "size/M", "below": 600, "color": "fef2c0", "description": "生产代码 200 到 599 行"},
+    {"name": "size/L", "below": 1500, "color": "f9c513", "description": "生产代码 600 到 1499 行"},
+    {"name": "size/XL", "below": null, "color": "b60205", "description": "生产代码 1500 行及以上, 超出 dev 体量上限"}
+  ]
+}

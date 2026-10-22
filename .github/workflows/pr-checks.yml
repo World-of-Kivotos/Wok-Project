@@ -1,0 +1,33 @@
+name: PR 规范检查
+
+# 每个 PR 打开、更新、改描述或改目标分支时跑一次, 规则见 .github/scripts/pr_checks.py 与 分支协作.md 第五节。
+# 脚本与 labels.json 一律从 base 分支检出: PR 改不了检查对它自己的判定; 只读 PR 元数据, 不执行 PR 里的代码。
+# 本 job 名 pr-checks 是 dev 规则集里的必过检查, 改名要同步改规则集。
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write  # gh label create 需要
+    steps:
+      - name: 检出 base 分支
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          persist-credentials: false
+
+      - name: 检查体量与描述
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/pr_checks.py

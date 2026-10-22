@@ -908,9 +908,34 @@
         "wok-case-opening",
         "wok-stacking",
         "wok-achievement",
-        "wok-district"
+        "wok-district",
+        "wok-social"
       ],
       "optionalIntegrations": []
+    },
+    {
+      "id": "wok-social",
+      "name": "WOK-社交平板模块",
+      "category": "gameplay",
+      "javaPackagePrefixes": [
+        "com.miningdim.social"
+      ],
+      "currentPaths": [
+        "social"
+      ],
+      "resourcePaths": [],
+      "resourceNamePrefixes": [],
+      "dependencies": [
+        "wok-core",
+        "wok-webui",
+        "wok-job-tarot",
+        "wok-achievement"
+      ],
+      "optionalIntegrations": [
+        "mcef"
+      ],
+      "publicEntry": "com.miningdim.social.SocialStore",
+      "scope": "Server-authoritative social data model and SQLite storage with seven-day history retention; lifecycle and client entry points follow in the stack."
     }
   ],
   "boundaryExceptions": [

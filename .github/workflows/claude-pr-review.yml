@@ -14,20 +14,79 @@ name: Claude PR 审查
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 要重跑审查的本仓库 PR 编号
+        required: true
+        type: string
+  push:
+    branches: [codex/ci-review-dependencies]
 
 concurrency:
-  group: claude-pr-review-${{ github.event.pull_request.number }}
+  group: claude-pr-review-${{ github.event.pull_request.number || inputs.pr_number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  review:
-    # 只审本仓库分支发起、由真人触发的非草稿 PR: fork 拿不到 secret, 机器人(含 claude[bot] 推送修复)触发的事件不审。
-    # dev -> main 的发布 PR 不审: 其中每个切片进 dev 时都审过, 整体再审只是重复花额度。
+  bootstrap-check:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/review-bootstrap
+        with:
+          restore-libs: 'true'
+
+  context:
+    # 手动重跑仍限定本仓库、非草稿且目标不是 main 的开放 PR。
     if: >-
-      github.event.pull_request.draft == false &&
-      github.event.pull_request.base.ref != 'main' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.sender.type == 'User'
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.draft == false &&
+       github.event.pull_request.base.ref != 'main' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.sender.type == 'User')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      pr: ${{ steps.pr.outputs.metadata }}
+    steps:
+      - name: 固定本轮被审 PR 与提交
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+        run: |
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/review-pr.json"
+          python3 - <<'PY'
+          import json, os, re
+          with open(os.environ["RUNNER_TEMP"] + "/review-pr.json", encoding="utf-8") as source:
+              pr = json.load(source)
+          if (pr["state"] != "open" or pr["draft"] or pr["base"]["ref"] == "main"
+                  or pr["head"]["repo"]["full_name"] != os.environ["GITHUB_REPOSITORY"]):
+              raise SystemExit("PR 必须开放、非草稿、来自本仓库且目标不是 main")
+          if not re.fullmatch(r"[0-9a-f]{40}", pr["head"]["sha"]):
+              raise SystemExit("PR head SHA 无效")
+          # 自动事件固定事件里的提交；手动重跑固定查询时的当前 head。
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as source:
+              event = json.load(source)
+          if "pull_request" in event:
+              pr = event["pull_request"]
+          metadata = {key: pr[key] for key in ("number", "title", "user", "head", "base")}
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("metadata=" + json.dumps(metadata, ensure_ascii=False, separators=(",", ":")) + "\n")
+          print(f"Review PR #{pr['number']} at {pr['head']['sha']}")
+          PY
+
+  review:
+    needs: context
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
@@ -36,7 +95,7 @@ jobs:
     env:
       # 从 Claude 派生的子进程(gradle、pnpm 等)环境里剔除 Anthropic 与 GitHub 凭据。
       CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1'
-      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      HEAD_SHA: ${{ fromJSON(needs.context.outputs.pr).head.sha }}
     steps:
       - name: 检查 Claude 凭据
         env:
@@ -51,7 +110,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # 检出事件里的确切提交, 保证审的就是 prompt 里写的那个; 全量历史用于对比 base 分支和打包修复提交。
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ fromJSON(needs.context.outputs.pr).head.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -73,31 +132,18 @@ jobs:
         with:
           node-version: '22'
 
-      # libs/ 下的 TACZ、Champions、MCEF jar 不入库, 没有它们主工程编译不了。
-      # 配了 WOK_LIBS_ARCHIVE_URL(一个只含这三个 jar 的 zip 的私有下载地址)才能在 CI 里编译和跑 GameTest;
-      # 没配时 Claude 只做静态审查, 改 Java 的修复无法验证, 一律交给维护者。
-      - name: 还原第三方 libs
+      - name: 检出本轮工作流的依赖安装配置
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: build/ci-tools
+          persist-credentials: false
+
+      - name: 还原第三方 libs 与 Claude Code
         id: libs
-        env:
-          LIBS_URL: ${{ secrets.WOK_LIBS_ARCHIVE_URL }}
-        run: |
-          if [ -z "$LIBS_URL" ]; then
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::未配置 WOK_LIBS_ARCHIVE_URL, 主工程无法编译, 本轮只做静态审查"
-            exit 0
-          fi
-          mkdir -p libs
-          curl -fsSL "$LIBS_URL" -o "$RUNNER_TEMP/libs.zip"
-          unzip -o -q -j "$RUNNER_TEMP/libs.zip" -d libs
-          for jar in tacz-1.20.1-1.1.8-hotfix.jar champions-forge-1.20.1-2.1.10.2.jar mcef-forge-2.1.6-1.20.1.jar; do
-            if [ ! -f "libs/$jar" ]; then
-              echo "::error::libs 压缩包里缺 $jar, 与 build.gradle 的 compileOnly 声明对不上"
-              exit 1
-            fi
-          done
-          mkdir -p standalone/kivotos-armorer/libs
-          cp libs/tacz-1.20.1-1.1.8-hotfix.jar standalone/kivotos-armorer/libs/
-          echo "ready=true" >> "$GITHUB_OUTPUT"
+        uses: ./build/ci-tools/.github/actions/review-bootstrap
+        with:
+          restore-libs: 'true'
 
       # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB 依赖 bubblewrap, 没有它 Claude Code 直接拒绝启动。
       # action 只在设置了 allowed_non_write_users 时才自己装, 这里是手动开的隔离, 所以照它的做法补装:
@@ -123,8 +169,8 @@ jobs:
         id: prep
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_NUMBER: ${{ fromJSON(needs.context.outputs.pr).number }}
+          BASE_REF: ${{ fromJSON(needs.context.outputs.pr).base.ref }}
         run: |
           # Claude 的子进程拿不到 GitHub 凭据, PR 元数据提前取好; 不取评论, 公开仓库里谁都能评论, 不让它进入上下文。
           mkdir -p build/claude-review
@@ -170,7 +216,7 @@ jobs:
         id: armorer
         timeout-minutes: 35
         env:
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_REF: ${{ fromJSON(needs.context.outputs.pr).base.ref }}
         run: |
           out=build/claude-review
           report="$out/armorer-build.md"
@@ -182,7 +228,7 @@ jobs:
             echo "$summary" > "$report"
           elif [ ! -f standalone/kivotos-armorer/libs/tacz-1.20.1-1.1.8-hotfix.jar ]; then
             summary="缺 libs, 未构建"
-            echo "$summary: standalone/kivotos-armorer/libs/tacz-1.20.1-1.1.8-hotfix.jar 不存在(未配置 WOK_LIBS_ARCHIVE_URL), 子工程在本 CI 里编译不了" > "$report"
+            echo "$summary: standalone/kivotos-armorer/libs/tacz-1.20.1-1.1.8-hotfix.jar 不存在(依赖安装步骤未完成), 子工程在本 CI 里编译不了" > "$report"
             echo "::warning::PR 改动了 standalone/kivotos-armorer/, 但缺 TACZ jar, 未构建"
           else
             started=$(date +%s)
@@ -230,6 +276,7 @@ jobs:
         id: claude
         uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515 # v1.0.245
         with:
+          path_to_claude_code_executable: ${{ steps.libs.outputs.claude-path }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
           # 修复提交以 claude[bot] 署名(维护者 2026-10-22 定); 209825114 是 claude[bot] 的真实用户 id,
@@ -246,14 +293,14 @@ jobs:
               }
             }
           prompt: |
-            你在 GitHub Actions 里审查 ${{ github.repository }} 的 PR #${{ github.event.pull_request.number }}。
-            - 标题: ${{ github.event.pull_request.title }}
-            - 作者: ${{ github.event.pull_request.user.login }}
-            - base 分支: ${{ github.event.pull_request.base.ref }}; head 分支: ${{ github.event.pull_request.head.ref }}
-            - 被审提交 ${{ github.event.pull_request.head.sha }} 已检出在当前目录(detached HEAD)
+            你在 GitHub Actions 里审查 ${{ github.repository }} 的 PR #${{ fromJSON(needs.context.outputs.pr).number }}。
+            - 标题: ${{ fromJSON(needs.context.outputs.pr).title }}
+            - 作者: ${{ fromJSON(needs.context.outputs.pr).user.login }}
+            - base 分支: ${{ fromJSON(needs.context.outputs.pr).base.ref }}; head 分支: ${{ fromJSON(needs.context.outputs.pr).head.ref }}
+            - 被审提交 ${{ fromJSON(needs.context.outputs.pr).head.sha }} 已检出在当前目录(detached HEAD)
             - PR 描述与改动文件清单: build/claude-review/pr.json
             - 标签定义: build/claude-review/labels.json
-            - 第三方 libs 是否就绪(决定主工程能否编译与跑 GameTest): ${{ steps.libs.outputs.ready }}
+            - 第三方 libs 是否就绪(决定主工程能否编译与跑 GameTest): ${{ steps.libs.outputs.libs-ready }}
             - standalone/kivotos-armorer 预构建: ${{ steps.armorer.outputs.summary }}(详情与日志末尾: build/claude-review/armorer-build.md)
 
             叙述一律简体中文, 代码、标识符、命令、文件名保留原文; 任何产出都不用 emoji, 严重度写 Critical/Major/Minor。
@@ -262,7 +309,7 @@ jobs:
             评论与行内批注里不要 @ 任何人或团队; 代码里的注解(如 @Shadow)一律放进反引号。
 
             ## 一、读懂改动
-            用 git diff origin/${{ github.event.pull_request.base.ref }}...HEAD 看完整改动。仓库根目录的 分支协作.md 是硬规矩;
+            用 git diff origin/${{ fromJSON(needs.context.outputs.pr).base.ref }}...HEAD 看完整改动。仓库根目录的 分支协作.md 是硬规矩;
             改动涉及哪个子系统, 就先读 docs/README.md 索引到的对应 spec, 数值与契约以 spec 为准。
 
             ## 二、项目规矩(维护者本地的 CLAUDE.md 不入库, 要点摘在这里)
@@ -315,7 +362,7 @@ jobs:
                  中文 Conventional Commits(例: fix(market): 修复挂单撤回时余额未退回), git add 只加本次改动的精确文件;
                  提交者已由工作流配成 claude[bot], 提交信息里不要再加 Co-Authored-By、Generated with 之类的尾注。
                - 改文件时写入被权限拒绝, 视同修复无法在 CI 里验证, 按下一条处理。
-               - 质量门修不绿, 或修到一半发现需要拍板: 执行 git reset --hard ${{ github.event.pull_request.head.sha }}
+               - 质量门修不绿, 或修到一半发现需要拍板: 执行 git reset --hard ${{ fromJSON(needs.context.outputs.pr).head.sha }}
                  丢弃你的全部修复(含已做的本地提交), 改走 C, 并在表里写明原先打算怎么修、卡在哪里。
                - 评论列出每条问题、对应提交的短哈希和跑过的质量门, 结尾说明请维护者看一眼, 没问题由维护者合并。
             C. 只要有一条「需拍板」: 不改任何代码、不提交; 评论里用一张表列出全部问题(包括本来可以直接修的那些),
@@ -331,7 +378,7 @@ jobs:
             - risk_labels(0 个或多个): 只在 diff 里确实改到这一面时才打, 比如新增或改动 NBT 读写才打 risk:save-format。
             - needs_ingame_test: 正确性只能在真实客户端或服务端里确认(渲染、手感、跨 mod 运行期行为)时为 true。
             - inline_comments: 问题清单里能精确落到某一行的, 再各发一条行内批注, body 写问题与建议的简短版本(表里仍要列全)。
-              path 是仓库内相对路径, line 是被审提交 ${{ github.event.pull_request.head.sha }} 里该文件的行号(不是你修复后的行号),
+              path 是仓库内相对路径, line 是被审提交 ${{ fromJSON(needs.context.outputs.pr).head.sha }} 里该文件的行号(不是你修复后的行号),
               且必须落在本 PR diff 改到的行或其上下文里, 否则 GitHub 会拒收; 拿不准就不放行内批注。没有问题时给空数组。
             review 结论标签、ci:static-only、size 档位由工作流按 route、libs 状态和行数机械打, 不用你给。
 
@@ -344,7 +391,7 @@ jobs:
             --model opus
             --permission-mode acceptEdits
             --json-schema '${{ steps.prep.outputs.schema }}'
-            --allowedTools "Glob,Grep,LS,Read,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git reset --hard ${{ github.event.pull_request.head.sha }}),Bash(git add:*),Bash(git commit:*),Bash(bash ./gradlew:*),Bash(bash standalone/kivotos-armorer/gradlew:*),Bash(pnpm -C webui:*)"
+            --allowedTools "Glob,Grep,LS,Read,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git reset --hard ${{ fromJSON(needs.context.outputs.pr).head.sha }}),Bash(git add:*),Bash(git commit:*),Bash(bash ./gradlew:*),Bash(bash standalone/kivotos-armorer/gradlew:*),Bash(pnpm -C webui:*)"
 
       # action 默认只记录被拒次数, 不记录拒了什么; 这里把每次工具调用与被拒明细打进日志, 便于核对 Claude 做了什么。
       # 只打印工具名与参数前 300 字, 不打印工具返回内容。
@@ -369,7 +416,7 @@ jobs:
       - name: 校验并打包审查产出
         env:
           STRUCTURED: ${{ steps.claude.outputs.structured_output }}
-          LIBS_READY: ${{ steps.libs.outputs.ready }}
+          LIBS_READY: ${{ steps.libs.outputs.libs-ready }}
         run: |
           out=build/claude-review
           # 交付物走结构化输出: 写进被 .gitignore 忽略的 build/ 会被 Claude Code 的权限拒绝(第三轮冒烟实测), 由这里落盘。
@@ -434,7 +481,7 @@ jobs:
           retention-days: 7
 
   publish:
-    needs: review
+    needs: [context, review]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -443,17 +490,28 @@ jobs:
       # 组织没装 Claude GitHub App 时换不到令牌, 本 job 会在核对步骤报错。
       id-token: write
     env:
-      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      HEAD_REF: ${{ github.event.pull_request.head.ref }}
-      BASE_REF: ${{ github.event.pull_request.base.ref }}
-      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ fromJSON(needs.context.outputs.pr).head.sha }}
+      HEAD_REF: ${{ fromJSON(needs.context.outputs.pr).head.ref }}
+      BASE_REF: ${{ fromJSON(needs.context.outputs.pr).base.ref }}
+      PR_NUMBER: ${{ fromJSON(needs.context.outputs.pr).number }}
     steps:
       - name: 检出被审提交
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ fromJSON(needs.context.outputs.pr).head.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: 检出本轮工作流的依赖安装配置
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: build/ci-tools
+          persist-credentials: false
+
+      - name: 还原 Claude Code
+        id: bootstrap
+        uses: ./build/ci-tools/.github/actions/review-bootstrap
 
       - name: 下载审查产出
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -476,6 +534,7 @@ jobs:
           LABELS_FILE: ${{ runner.temp }}/labels.json
           DONE_MARKER: ${{ runner.temp }}/claude-publish.done
         with:
+          path_to_claude_code_executable: ${{ steps.bootstrap.outputs.claude-path }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
             只做一件事: 用 Bash 工具原样执行下面这条命令一次, 然后结束。

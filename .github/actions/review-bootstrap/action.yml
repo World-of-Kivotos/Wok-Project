@@ -1,0 +1,88 @@
+name: WOK review dependencies
+description: Restore verified build dependencies and the pinned Claude executable
+inputs:
+  restore-libs:
+    description: Restore the main project's local compile and development dependencies
+    default: 'false'
+outputs:
+  claude-path:
+    description: Verified Claude Code executable
+    value: ${{ steps.claude.outputs.path }}
+  libs-ready:
+    description: All pinned build dependencies are present
+    value: ${{ steps.libs.outputs.ready }}
+runs:
+  using: composite
+  steps:
+    - name: 缓存固定版本的第三方依赖
+      if: inputs.restore-libs == 'true'
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: ${{ runner.tool_cache }}/wok-review-libs/2026-10-22
+        key: wok-review-libs-${{ runner.os }}-2026-10-22-v1
+
+    - name: 下载并校验第三方依赖
+      if: inputs.restore-libs == 'true'
+      id: libs
+      shell: bash
+      env:
+        LIBS_CACHE: ${{ runner.tool_cache }}/wok-review-libs/2026-10-22
+      run: |
+        set -euo pipefail
+        mkdir -p "$LIBS_CACHE" "$GITHUB_WORKSPACE/libs"
+        # 官方 Modrinth 发布文件与维护者现有 libs 逐字节一致；缓存命中也重新校验。
+        while read -r checksum jar url; do
+          target="$LIBS_CACHE/$jar"
+          if [ ! -f "$target" ]; then
+            curl --fail --location --silent --show-error --retry 6 --retry-delay 10 \
+              --retry-max-time 600 --retry-connrefused --connect-timeout 30 --max-time 300 \
+              "$url" -o "$target.part"
+            printf '%s  %s\n' "$checksum" "$target.part" | sha256sum --check --status
+            mv "$target.part" "$target"
+          fi
+          printf '%s  %s\n' "$checksum" "$target" | sha256sum --check --status
+          cp "$target" "$GITHUB_WORKSPACE/libs/$jar"
+          echo "Verified $jar"
+        done <<'DEPS'
+        9ed8ada1283ed7a793a70cc1b51c4a340f367ce84707e1a7b8cf21ee3d288d77 tacz-1.20.1-1.1.8-hotfix.jar https://cdn.modrinth.com/data/SzzJttH8/versions/yOVIzIJR/tacz-1.20.1-1.1.8-hotfix.jar
+        34de32fabc623d23c22fa98fa49ec92cd5bf8e1b78b8e5d5e520b739e7208696 champions-forge-1.20.1-2.1.10.2.jar https://cdn.modrinth.com/data/VJZc5cJx/versions/lC2uBBu2/champions-forge-1.20.1-2.1.10.2.jar
+        5c462342264ac89597891d5d4bcdf6b8134ce4cc5dd97894dbd87ecc197f0cb3 mcef-forge-2.1.6-1.20.1.jar https://cdn.modrinth.com/data/TObQ0HxZ/versions/x91l6OKB/mcef-forge-2.1.6-1.20.1.jar
+        47aed94bb9192c4978fe199f9d3ca5895aeccfbe5b5a0869fdf3aa011c2641f7 FarmersDelight-1.20.1-1.3.2.jar https://cdn.modrinth.com/data/R2OftAxM/versions/CsjS7EkP/FarmersDelight-1.20.1-1.3.2.jar
+        DEPS
+        mkdir -p "$GITHUB_WORKSPACE/standalone/kivotos-armorer/libs"
+        cp "$GITHUB_WORKSPACE/libs/tacz-1.20.1-1.1.8-hotfix.jar" \
+          "$GITHUB_WORKSPACE/standalone/kivotos-armorer/libs/"
+        echo "ready=true" >> "$GITHUB_OUTPUT"
+
+    - name: 缓存固定版本的 Claude Code
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: ${{ runner.tool_cache }}/wok-claude/2.1.293
+        key: wok-claude-${{ runner.os }}-${{ runner.arch }}-2.1.293-8968405e
+
+    - name: 下载并校验 Claude Code
+      id: claude
+      shell: bash
+      env:
+        CLAUDE_DIR: ${{ runner.tool_cache }}/wok-claude/2.1.293
+      run: |
+        set -euo pipefail
+        test "$(uname -s)/$(uname -m)" = Linux/x86_64
+        mkdir -p "$CLAUDE_DIR"
+        binary="$CLAUDE_DIR/claude"
+        checksum=8968405e26db478af44eabc4635ab5ca557057b702a54460a59c13e1b253e978
+        # 使用锁定 Action 对应的官方原生二进制，避免每次访问被限流的 install.sh。
+        if [ ! -f "$binary" ]; then
+          curl --fail --location --silent --show-error --retry 6 --retry-delay 10 \
+            --retry-max-time 600 --retry-connrefused --connect-timeout 30 --max-time 300 \
+            https://downloads.claude.ai/claude-code-releases/2.1.293/linux-x64/claude \
+            -o "$binary.part"
+          printf '%s  %s\n' "$checksum" "$binary.part" | sha256sum --check --status
+          mv "$binary.part" "$binary"
+        fi
+        printf '%s  %s\n' "$checksum" "$binary" | sha256sum --check --status
+        chmod +x "$binary"
+        version=$("$binary" --version)
+        test "${version%% *}" = 2.1.293
+        echo "$version"
+        echo "path=$binary" >> "$GITHUB_OUTPUT"

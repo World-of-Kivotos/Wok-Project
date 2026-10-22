@@ -173,6 +173,12 @@ public final class JobAchievementGameTests {
                 new TarotPlayTrigger.TriggerInstance(ContextAwarePredicate.ANY, TarotQuality.UR, 16));
         helper.assertTrue("ur".equals(tarot.get("min_quality").getAsString()) && tarot.get("card_id").getAsInt() == 16,
                 "tarot_play 的两个字段, 实为 " + tarot);
+        for (TarotCodexTrigger.Milestone milestone : TarotCodexTrigger.Milestone.values()) {
+            JsonObject codex = roundTrip(helper, context, JobTriggers.TAROT_CODEX,
+                    TarotCodexTrigger.TriggerInstance.of(milestone));
+            helper.assertTrue(milestone.id().equals(codex.get("milestone").getAsString()),
+                    "tarot_codex must retain the declared milestone " + milestone.id());
+        }
 
         JsonObject seal = roundTrip(helper, context, JobTriggers.AGENT_SEAL,
                 new AgentSealTrigger.TriggerInstance(ContextAwarePredicate.ANY, SealCategory.MECHANIC,
@@ -194,10 +200,10 @@ public final class JobAchievementGameTests {
 
         List<ResourceLocation> ids = JobTriggers.all().stream().map(CriterionTrigger::getId).toList();
         helper.assertTrue(ids.equals(List.of(AchievementIds.id("job_level"), AchievementIds.id("chef_dish"),
-                        AchievementIds.id("brew_complete"), AchievementIds.id("tarot_play"),
+                        AchievementIds.id("brew_complete"), AchievementIds.id("tarot_play"), AchievementIds.id("tarot_codex"),
                         AchievementIds.id("agent_seal"), AchievementIds.id("nano_plate_produced"),
                         AchievementIds.id("munitions_batch"))),
-                "职业触发器应恰好是 6.2 的七个 P2 职业行, 实为 " + ids);
+                "职业触发器应包含七个 P2 职业行与塔罗图鉴收集触发器, 实为 " + ids);
         for (CriterionTrigger<?> trigger : JobTriggers.all()) {
             helper.assertTrue(CriteriaTriggers.getCriterion(trigger.getId()) == trigger,
                     trigger.getId() + " 必须已登记进原版触发器表 (FMLCommonSetup 注册)");
@@ -234,6 +240,8 @@ public final class JobAchievementGameTests {
         assertRejected(helper, context, JobTriggers.TAROT_PLAY, "{\"card_id\":22}");
         assertRejected(helper, context, JobTriggers.TAROT_PLAY, "{\"card_id\":-1}");
         assertRejected(helper, context, JobTriggers.TAROT_PLAY, "{\"min_quality\":\"lr\"}");
+        assertRejected(helper, context, JobTriggers.TAROT_CODEX, "{}");
+        assertRejected(helper, context, JobTriggers.TAROT_CODEX, "{\"milestone\":\"unknown\"}");
         assertRejected(helper, context, JobTriggers.AGENT_SEAL, "{\"category\":\"active\"}");
         assertRejected(helper, context, JobTriggers.AGENT_SEAL, "{\"affixes\":[]}");
         assertRejected(helper, context, JobTriggers.AGENT_SEAL, "{\"affixes\":[\"NO_SUCH_AFFIX\"]}");

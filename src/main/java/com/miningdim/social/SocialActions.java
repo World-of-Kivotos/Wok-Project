@@ -6,8 +6,10 @@ import com.google.gson.JsonObject;
 import com.miningdim.network.MiningNetwork;
 import com.miningdim.network.S2CWebUiEvent;
 import com.miningdim.webui.server.WebUiBusinessException;
+import com.miningdim.webui.server.WebUiErrorCodes;
 import com.miningdim.webui.server.WebUiServerDispatcher;
 import com.mojang.authlib.GameProfile;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -22,7 +24,7 @@ import java.util.function.Supplier;
  * 社交平板的 WebUI action 注册与 JSON 视图层。所有写操作以 {@link ServerPlayer} 为身份来源，
  * 前端传入的 uuid 只用于选择操作对象，绝不作为作者/发送者身份。
  *
- * <p>防刷：聊天、发说说、加好友各有一层玩家级冷却。业务拒绝转成 {@link WebUiBusinessException}，
+ * <p>防刷：聊天、发说说、加好友、点赞和评论各有一层玩家级冷却。业务拒绝转成 {@link WebUiBusinessException}，
  * 由既有 dispatcher Gateway 回执稳定 errorCode；系统故障不在这里吞。</p>
  */
 public final class SocialActions {
@@ -35,10 +37,13 @@ public final class SocialActions {
     private static final int MOMENT_PAGE_SIZE = 3;
     private static final int CHAT_HISTORY_SIZE = 60;
     private static final int WORLD_HISTORY_SIZE = 40;
+    private static final int MAX_RESPONSE_CHARS = FriendlyByteBuf.MAX_STRING_LENGTH;
 
     private static final Map<UUID, Long> LAST_CHAT = new ConcurrentHashMap<>();
     private static final Map<UUID, Long> LAST_MOMENT = new ConcurrentHashMap<>();
     private static final Map<UUID, Long> LAST_FRIEND = new ConcurrentHashMap<>();
+    private static final Map<UUID, Long> LAST_LIKE = new ConcurrentHashMap<>();
+    private static final Map<UUID, Long> LAST_COMMENT = new ConcurrentHashMap<>();
 
     private static boolean registered;
 
@@ -63,6 +68,14 @@ public final class SocialActions {
         WebUiServerDispatcher.register("social.theme.select", SocialActions::selectTheme);
         WebUiServerDispatcher.register("social.chat.history", SocialActions::chatHistory);
         WebUiServerDispatcher.register("social.chat.send", SocialActions::sendChat);
+    }
+
+    public static void clearPlayerCooldowns(UUID playerId) {
+        LAST_CHAT.remove(playerId);
+        LAST_MOMENT.remove(playerId);
+        LAST_FRIEND.remove(playerId);
+        LAST_LIKE.remove(playerId);
+        LAST_COMMENT.remove(playerId);
     }
 
     private static String bootstrap(ServerPlayer sender, JsonObject payload) {
@@ -148,23 +161,32 @@ public final class SocialActions {
                 world.add(messageJson(message));
             }
             result.add("world", world);
-            return GSON.toJson(result);
+            return fitResponseByRemovingOldest(result, world);
         });
     }
 
     private static String momentsPage(ServerPlayer sender, JsonObject payload) {
         return guard(() -> {
             long before = payload.has("before") ? payload.get("before").getAsLong() : 0L;
+            String beforeId = payload.has("beforeId") ? payload.get("beforeId").getAsString() : "";
             SocialStore store = SocialService.store();
-            List<SocialData.Moment> page = store.pageMoments(MOMENT_PAGE_SIZE, before);
+            List<SocialData.Moment> page = store.pageMoments(MOMENT_PAGE_SIZE, before, beforeId);
             JsonArray moments = new JsonArray();
-            for (SocialData.Moment moment : page) {
-                moments.add(momentJson(moment, sender.getUUID()));
-            }
             JsonObject result = new JsonObject();
             result.add("moments", moments);
             result.addProperty("hasMore", page.size() == MOMENT_PAGE_SIZE);
-            return GSON.toJson(result);
+            for (SocialData.Moment moment : page) {
+                moments.add(momentJson(moment, sender.getUUID()));
+                if (GSON.toJson(result).length() > MAX_RESPONSE_CHARS) {
+                    moments.remove(moments.size() - 1);
+                    result.addProperty("hasMore", true);
+                    if (moments.isEmpty()) {
+                        throw responseTooLarge();
+                    }
+                    break;
+                }
+            }
+            return fitResponse(result);
         });
     }
 
@@ -185,6 +207,7 @@ public final class SocialActions {
 
     private static String likeMoment(ServerPlayer sender, JsonObject payload) {
         return guard(() -> {
+            rate(LAST_LIKE, sender, CHAT_COOLDOWN_MS, "LIKE_RATE_LIMITED");
             String id = payload.get("id").getAsString();
             SocialStore store = SocialService.store();
             SocialStore.LikeResult like = store.toggleLike(id, sender.getUUID());
@@ -202,6 +225,7 @@ public final class SocialActions {
 
     private static String commentMoment(ServerPlayer sender, JsonObject payload) {
         return guard(() -> {
+            rate(LAST_COMMENT, sender, CHAT_COOLDOWN_MS, "COMMENT_RATE_LIMITED");
             String id = payload.get("id").getAsString();
             String text = payload.get("text").getAsString();
             SocialStore store = SocialService.store();
@@ -313,7 +337,7 @@ public final class SocialActions {
             }
             JsonObject result = new JsonObject();
             result.add("messages", messages);
-            return GSON.toJson(result);
+            return fitResponseByRemovingOldest(result, messages);
         });
     }
 
@@ -441,6 +465,26 @@ public final class SocialActions {
         json.addProperty("text", message.text);
         json.addProperty("createdAt", message.createdAt);
         return json;
+    }
+
+    private static String fitResponseByRemovingOldest(JsonObject result, JsonArray chronologicalItems) {
+        while (GSON.toJson(result).length() > MAX_RESPONSE_CHARS && !chronologicalItems.isEmpty()) {
+            chronologicalItems.remove(0);
+        }
+        return fitResponse(result);
+    }
+
+    private static String fitResponse(JsonObject result) {
+        String json = GSON.toJson(result);
+        if (json.length() > MAX_RESPONSE_CHARS) {
+            throw responseTooLarge();
+        }
+        return json;
+    }
+
+    private static WebUiBusinessException responseTooLarge() {
+        return new WebUiBusinessException(WebUiErrorCodes.RESPONSE_TOO_LARGE,
+                "social response cannot fit within the downstream size limit", false);
     }
 
     private static void rate(Map<UUID, Long> map, ServerPlayer sender, long cooldown, String code) {

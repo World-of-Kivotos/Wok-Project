@@ -1547,10 +1547,12 @@ async function refreshAll(showToast) {
     toast(e.message || '加载失败', 'x');
   }
 }
-async function loadMoments(before) {
+async function loadMoments(before, beforeId) {
   if (!bridgeAvailable) return;
   try {
-    const page = await call('social.moments.page', { before: before || 0 });
+    const payload = { before: before || 0 };
+    if (beforeId) payload.beforeId = beforeId;
+    const page = await call('social.moments.page', payload);
     const list = page.moments || [];
     if (before) state.moments = state.moments.concat(list); else state.moments = list;
     state.hasMore = !!page.hasMore;
@@ -2735,7 +2737,7 @@ $('#publishBtn').addEventListener('click', postMoment);
 $('#focusComposer').addEventListener('click', () => $('#composerText').focus());
 $('#composerPhoto').addEventListener('click', () => { if (state.lastThumb) { state.pendingImage = state.lastThumb; toast('已附上最近照片'); } else toast('先去拍一张照片', 'x'); });
 $('#composerEmoji').addEventListener('click', () => toast('表情面板将在后续版本加入', 'smile'));
-$('#loadMoreMoments').addEventListener('click', () => { const oldest = state.moments[state.moments.length - 1]; loadMoments(oldest ? oldest.createdAt : 0); });
+$('#loadMoreMoments').addEventListener('click', () => { const oldest = state.moments[state.moments.length - 1]; loadMoments(oldest ? oldest.createdAt : 0, oldest ? oldest.id : ''); });
 $('#shutter').addEventListener('click', openCamera);
 $('#photoShare').addEventListener('click', sharePhoto);
 $('#photoDelete').addEventListener('click', () => { state.lastFullPhoto = ''; state.lastThumb = ''; state.photos.shift(); renderAll(); });

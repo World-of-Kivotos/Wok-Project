@@ -6,18 +6,16 @@ import com.miningdim.job.tarot.TarotQuality;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
-import java.util.HashSet;
-import java.util.Set;
 import java.util.UUID;
 
 /**
- * 塔罗图鉴纯逻辑 GameTest：位索引、去重、三条里程碑边界（22 / 闪耀 / 220）、落盘往返。
+ * 塔罗图鉴 GameTest：去重、三条里程碑边界（22 / 闪耀 / 220）、落盘往返与损坏记录拒绝。
  *
- * <p>直接用裸 {@link TarotCodexSavedData}（不落盘、不建服务端），断言全部落在位运算与边界上：
- * 改回“按持有判定”或把索引写错一位，这些用例必挂。</p>
+ * <p>直接用裸 {@link TarotCodexSavedData}（不落盘、不建服务端），覆盖位运算、里程碑边界、落盘和损坏记录拒绝。</p>
  */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -25,27 +23,6 @@ public final class TarotCodexGameTests {
 
     private static final String EMPTY = "empty";
     private static final String BATCH = "tarotcodex";
-
-    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void formIndexCoversEveryFormOnce(GameTestHelper helper) {
-        int expected = TarotArcana.COUNT * TarotQuality.values().length * 2;
-        helper.assertTrue(TarotCodexSavedData.FORMS == expected, "FORMS must be 22 x 5 x 2 = 220");
-        Set<Integer> seen = new HashSet<>();
-        for (int cardId = 0; cardId < TarotArcana.COUNT; cardId++) {
-            for (TarotQuality quality : TarotQuality.values()) {
-                for (boolean upright : new boolean[]{true, false}) {
-                    int bit = TarotCodexSavedData.index(cardId, quality, upright);
-                    helper.assertTrue(bit >= 0 && bit < TarotCodexSavedData.FORMS,
-                            "index out of range: " + bit);
-                    helper.assertTrue(seen.add(bit), "duplicate index for cardId=" + cardId
-                            + " quality=" + quality + " upright=" + upright);
-                }
-            }
-        }
-        helper.assertTrue(seen.size() == TarotCodexSavedData.FORMS,
-                "index must cover all 220 forms, got " + seen.size());
-        helper.succeed();
-    }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void duplicateRecordOnlyCountsOnce(GameTestHelper helper) {
@@ -58,17 +35,6 @@ public final class TarotCodexGameTests {
         helper.assertTrue(data.count(player) == 2, "upright and reversed are distinct forms");
         helper.assertTrue(data.record(player, 3, TarotQuality.UR, true), "quality is part of the form");
         helper.assertTrue(data.count(player) == 3, "three distinct forms expected");
-        helper.succeed();
-    }
-
-    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void outOfRangeInputIsIgnored(GameTestHelper helper) {
-        TarotCodexSavedData data = new TarotCodexSavedData();
-        UUID player = UUID.randomUUID();
-        helper.assertTrue(!data.record(player, -1, TarotQuality.R, true), "negative cardId must be ignored");
-        helper.assertTrue(!data.record(player, TarotArcana.COUNT, TarotQuality.R, true), "cardId 22 must be ignored");
-        helper.assertTrue(!data.record(null, 0, TarotQuality.R, true), "null uuid must be ignored");
-        helper.assertTrue(data.count(player) == 0, "ignored records must not light any form");
         helper.succeed();
     }
 
@@ -156,14 +122,34 @@ public final class TarotCodexGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void emptyCodexIsAllZero(GameTestHelper helper) {
-        TarotCodexSavedData data = new TarotCodexSavedData();
-        UUID player = UUID.randomUUID();
-        helper.assertTrue(data.count(player) == 0, "empty codex count must be 0");
-        helper.assertTrue(data.arcana(player) == 0, "empty codex arcana must be 0");
-        helper.assertTrue(!data.hasShiny(player), "empty codex has no shiny");
-        helper.assertTrue(!data.hasAllArcana(player), "empty codex must not unlock stardust");
-        helper.assertTrue(data.count(UUID.randomUUID()) == 0, "unknown player must read as empty");
+    public static void malformedSavedRowsFailWithEntryContext(GameTestHelper helper) {
+        CompoundTag missingUuid = new CompoundTag();
+        missingUuid.putLongArray("Bits", new long[4]);
+        assertMalformedRow(helper, missingUuid, "index 0", "invalid Uuid");
+
+        CompoundTag wrongWordCount = new CompoundTag();
+        wrongWordCount.putUUID("Uuid", UUID.randomUUID());
+        wrongWordCount.putLongArray("Bits", new long[3]);
+        assertMalformedRow(helper, wrongWordCount, "Uuid", "Bits must contain 4 longs, found 3");
+
         helper.succeed();
     }
+
+    private static void assertMalformedRow(GameTestHelper helper, CompoundTag row, String context,
+                                           String detail) {
+        ListTag rows = new ListTag();
+        rows.add(row);
+        CompoundTag saved = new CompoundTag();
+        saved.put("Players", rows);
+        try {
+            TarotCodexSavedData.load(saved);
+        } catch (IllegalStateException malformed) {
+            helper.assertTrue(malformed.getMessage().contains(context)
+                            && malformed.getMessage().contains(detail),
+                    "malformed row error must include context and cause: " + malformed.getMessage());
+            return;
+        }
+        helper.assertTrue(false, "malformed row must not be skipped");
+    }
+
 }

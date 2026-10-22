@@ -39,8 +39,11 @@ public final class SocialSystem implements Subsystem {
     }
 
     private void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
-        if (event.getEntity() instanceof ServerPlayer player && SocialService.isLoaded()) {
-            SocialService.store().touch(player.getUUID(), player.getName().getString());
+        if (event.getEntity() instanceof ServerPlayer player) {
+            SocialActions.clearPlayerCooldowns(player.getUUID());
+            if (SocialService.isLoaded()) {
+                SocialService.store().touch(player.getUUID(), player.getName().getString());
+            }
         }
     }
 }

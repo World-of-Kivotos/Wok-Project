@@ -1,8 +1,8 @@
 package com.miningdim.social;
 
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
+import com.google.gson.JsonParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,28 +11,23 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
 
 /**
- * 社交数据仓库。服务端单写者：所有公开方法都在对象锁内完成读改写，再做一次原子落盘。
- *
- * <p>落盘格式是 JSON 而不是 SQLite：v0.1 的社交数据量（好友、几百条动态、私聊）远低于 SQLite 的收益门槛，
- * 而 JSON 让存档可读、可手工修复。写入使用同目录临时文件 + 原子替换，避免半截文件。</p>
+ * 社交数据仓库。对象锁保护业务状态；每次只提交变动记录，由 SQLite 后台单写者分批落盘。
+ * 历史通过有索引的限量查询读取，不全量加载进内存；未提交记录由后台队列提供即时可见性。
  *
  * <p>业务拒绝用 {@link SocialException} 携带稳定错误码；文件损坏、写盘失败等真实故障自然抛出，
  * 不静默重置存档。</p>
  */
-public final class SocialStore {
+public final class SocialStore implements AutoCloseable {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/social");
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final Gson GSON = new Gson();
 
-    private static final int MAX_MOMENTS = 300;
-    private static final int MAX_CHAT_MESSAGES_PER_THREAD = 200;
-    private static final int MAX_WORLD_MESSAGES = 100;
     private static final int MAX_TEXT = 500;
     private static final int MAX_CHAT_TEXT = 300;
     private static final int MAX_COMMENT_TEXT = 200;
@@ -42,36 +37,78 @@ public final class SocialStore {
 
     private final Path file;
     private SocialData data;
+    private SocialDatabase database;
 
     public SocialStore(Path file) {
         this.file = file;
     }
 
-    /** 读取存档；文件不存在时创建空存档。损坏文件先备份再抛出，避免静默丢档。 */
+    /** 参数仍是旧 JSON 路径；首次启动将其迁到同名 .db，并保留原件及独立备份。 */
     public synchronized void load() {
-        if (!Files.exists(file)) {
-            data = new SocialData();
-            saveLocked();
-            return;
+        if (database != null) throw new IllegalStateException("social store is already loaded");
+        try {
+            if (file.getParent() != null) Files.createDirectories(file.getParent());
+        } catch (IOException error) {
+            throw new UncheckedIOException("无法创建社交存档目录: " + file, error);
         }
+        Path dbFile = file.resolveSibling(file.getFileName().toString().replaceFirst("\\.json$", "") + ".db");
+        SocialDatabase opened = new SocialDatabase(dbFile);
+        try {
+            if (!opened.initialized()) {
+                data = readLegacy();
+                if (Files.exists(file)) {
+                    Path backup = file.resolveSibling(file.getFileName() + ".migration-backup-" + System.currentTimeMillis());
+                    Files.copy(file, backup);
+                    LOGGER.info("迁移社交 JSON 前已备份到 {}，原文件保持不变", backup);
+                }
+                opened.initialize(migrationRows());
+            }
+            data = new SocialData();
+            for (SocialDatabase.Row row : opened.permanent("profile")) {
+                data.profiles.put(row.id(), decode(row, SocialData.Profile.class));
+            }
+            for (SocialDatabase.Row row : opened.permanent("relations")) {
+                Relations relations = decode(row, Relations.class);
+                data.friends.put(row.id(), relations.friends());
+                data.incoming.put(row.id(), relations.incoming());
+                data.outgoing.put(row.id(), relations.outgoing());
+            }
+            database = opened;
+            database.start();
+        } catch (IOException | RuntimeException error) {
+            data = null;
+            database = null;
+            try {
+                opened.close();
+            } catch (RuntimeException closeError) {
+                error.addSuppressed(closeError);
+            }
+            throw new IllegalStateException("社交存档加载失败，未使用空档覆盖原数据: " + file, error);
+        }
+    }
+
+    private SocialData readLegacy() {
+        if (!Files.exists(file)) return new SocialData();
         try {
             String json = Files.readString(file, StandardCharsets.UTF_8);
-            SocialData parsed = GSON.fromJson(json, SocialData.class);
-            if (parsed == null) {
-                throw new JsonParseException("social data root is null");
+            var root = JsonParser.parseString(json).getAsJsonObject();
+            for (String key : List.of("profiles", "friends", "incoming", "outgoing", "moments", "chats", "world")) {
+                if (!root.has(key) || root.get(key).isJsonNull()) throw new JsonParseException("social data is missing " + key);
             }
+            SocialData parsed = GSON.fromJson(json, SocialData.class);
+            if (parsed == null) throw new JsonParseException("social data root is null");
             normalize(parsed);
-            data = parsed;
-        } catch (IOException | JsonParseException e) {
+            return parsed;
+        } catch (IOException | RuntimeException e) {
             Path backup = file.resolveSibling(file.getFileName() + ".corrupt-" + System.currentTimeMillis());
             try {
-                Files.move(file, backup, StandardCopyOption.REPLACE_EXISTING);
+                Files.copy(file, backup);
+                LOGGER.error("社交 JSON 损坏，原件及备份 {} 均保留，停止加载", backup, e);
             } catch (IOException backupError) {
                 e.addSuppressed(backupError);
+                LOGGER.error("社交 JSON 损坏且备份失败，原文件 {} 保持不变，停止加载", file, e);
             }
-            LOGGER.error("社交存档无法读取，已备份到 {}，将使用空存档启动", backup, e);
-            data = new SocialData();
-            saveLocked();
+            throw new IllegalStateException("无法迁移社交 JSON: " + file, e);
         }
     }
 
@@ -81,13 +118,13 @@ public final class SocialStore {
     }
 
     public synchronized SocialData.Profile touch(UUID uuid, String name) {
-        requireLoaded();
+        requireWritable();
         String key = uuid.toString();
         SocialData.Profile profile = data.profiles.get(key);
         if (profile == null) {
             profile = new SocialData.Profile(key, name, System.currentTimeMillis());
             data.profiles.put(key, profile);
-            saveLocked();
+            saveProfilesLocked(uuid);
             return profile;
         }
         boolean changed = false;
@@ -101,7 +138,7 @@ public final class SocialStore {
             changed = true;
         }
         if (changed) {
-            saveLocked();
+            saveProfilesLocked(uuid);
         }
         return profile;
     }
@@ -143,7 +180,7 @@ public final class SocialStore {
      * 返回 true 表示已直接成为好友，false 表示请求已发出。
      */
     public synchronized boolean requestFriend(UUID from, String fromName, UUID to, String toName) {
-        requireLoaded();
+        requireWritable();
         if (from.equals(to)) {
             throw new SocialException("SELF_REQUEST", "不能添加自己为好友");
         }
@@ -163,13 +200,13 @@ public final class SocialStore {
         touchLocked(to, toName);
         addUnique(list(data.outgoing, fromKey), toKey);
         addUnique(list(data.incoming, toKey), fromKey);
-        saveLocked();
+        savePlayersLocked(from, to);
         return false;
     }
 
     /** {@code requester} 是先前发起请求的一方，{@code accepter} 是当前操作者。 */
     public synchronized void acceptFriend(UUID requester, UUID accepter) {
-        requireLoaded();
+        requireWritable();
         String requesterKey = requester.toString();
         String accepterKey = accepter.toString();
         List<String> incoming = list(data.incoming, accepterKey);
@@ -179,29 +216,29 @@ public final class SocialStore {
         list(data.outgoing, requesterKey).remove(accepterKey);
         addUnique(list(data.friends, requesterKey), accepterKey);
         addUnique(list(data.friends, accepterKey), requesterKey);
-        saveLocked();
+        savePlayersLocked(requester, accepter);
     }
 
     public synchronized void declineFriend(UUID requester, UUID accepter) {
-        requireLoaded();
+        requireWritable();
         String requesterKey = requester.toString();
         String accepterKey = accepter.toString();
         if (!list(data.incoming, accepterKey).remove(requesterKey)) {
             throw new SocialException("NOT_REQUESTED", "没有来自该玩家的好友请求");
         }
         list(data.outgoing, requesterKey).remove(accepterKey);
-        saveLocked();
+        savePlayersLocked(requester, accepter);
     }
 
     public synchronized void removeFriend(UUID a, UUID b) {
-        requireLoaded();
+        requireWritable();
         String aKey = a.toString();
         String bKey = b.toString();
         if (!list(data.friends, aKey).remove(bKey)) {
             throw new SocialException("NOT_FRIENDS", "你们不是好友");
         }
         list(data.friends, bKey).remove(aKey);
-        saveLocked();
+        savePlayersLocked(a, b);
     }
 
     /** 当前主题 id；档案缺失时返回默认主题。 */
@@ -216,7 +253,7 @@ public final class SocialStore {
 
     /** 已装备主题必须在目录内且已解锁；锁定主题由服务端拒绝，前端只做展示。 */
     public synchronized SocialThemes.Theme selectTheme(UUID uuid, String themeId) {
-        requireLoaded();
+        requireWritable();
         SocialData.Profile profile = data.profiles.get(uuid.toString());
         if (profile == null) {
             throw new SocialException("PROFILE_MISSING", "玩家档案尚未建立");
@@ -226,16 +263,16 @@ public final class SocialStore {
             throw new SocialException("THEME_LOCKED", "该主题尚未解锁");
         }
         profile.theme = theme.id();
-        saveLocked();
+        saveProfilesLocked(uuid);
         return theme;
     }
 
     /**
      * 成就系统的唯一接入口：把某个主题记为已解锁。重复调用幂等。
-     * 当前没有调用方；成就系统上线后由服务端成就结算调用，客户端不能直接触发。
+     * 由正式成就完成与登录补发调用，客户端不能直接触发。
      */
     public synchronized void unlockTheme(UUID uuid, String themeId) {
-        requireLoaded();
+        requireWritable();
         SocialThemes.Theme theme = SocialThemes.require(themeId);
         SocialData.Profile profile = data.profiles.get(uuid.toString());
         if (profile == null) {
@@ -243,12 +280,12 @@ public final class SocialStore {
         }
         if (!profile.unlockedThemes.contains(theme.id())) {
             profile.unlockedThemes.add(theme.id());
-            saveLocked();
+            saveProfilesLocked(uuid);
         }
     }
 
     public synchronized void updateProfile(UUID uuid, String signature, String academy) {
-        requireLoaded();
+        requireWritable();
         String cleanSignature = clean(signature, MAX_SIGNATURE, "签名");
         String cleanAcademy = clean(academy, MAX_ACADEMY, "学院");
         SocialData.Profile profile = data.profiles.get(uuid.toString());
@@ -257,11 +294,11 @@ public final class SocialStore {
         }
         profile.signature = cleanSignature;
         profile.academy = cleanAcademy;
-        saveLocked();
+        saveProfilesLocked(uuid);
     }
 
     public synchronized SocialData.Moment postMoment(UUID author, String authorName, String text, String image) {
-        requireLoaded();
+        requireWritable();
         String cleanText = clean(text, MAX_TEXT, "说说");
         if (cleanText.isBlank()) {
             throw new SocialException("EMPTY_TEXT", "说说内容不能为空");
@@ -283,14 +320,14 @@ public final class SocialStore {
         moment.text = cleanText;
         moment.image = cleanImage;
         moment.createdAt = System.currentTimeMillis();
-        data.moments.add(0, moment);
-        trimNewestAtFront(data.moments, MAX_MOMENTS);
-        saveLocked();
+        List<SocialDatabase.Row> rows = profileRows(author);
+        rows.add(momentRow(moment));
+        database.enqueue(rows);
         return moment;
     }
 
     public synchronized LikeResult toggleLike(String momentId, UUID player) {
-        requireLoaded();
+        requireWritable();
         SocialData.Moment moment = findMoment(momentId);
         String key = player.toString();
         boolean liked;
@@ -300,12 +337,12 @@ public final class SocialStore {
             moment.likes.add(key);
             liked = true;
         }
-        saveLocked();
+        database.enqueue(List.of(momentRow(moment)));
         return new LikeResult(liked, moment.likes.size());
     }
 
     public synchronized SocialData.Comment comment(String momentId, UUID author, String authorName, String text) {
-        requireLoaded();
+        requireWritable();
         SocialData.Moment moment = findMoment(momentId);
         String cleanText = clean(text, MAX_COMMENT_TEXT, "评论");
         if (cleanText.isBlank()) {
@@ -314,14 +351,14 @@ public final class SocialStore {
         touchLocked(author, authorName);
         SocialData.Comment comment = new SocialData.Comment(
                 author.toString(), authorName, cleanText, System.currentTimeMillis());
-        moment.comments.add(comment);
-        trimOldestAtFront(moment.comments, 100);
-        saveLocked();
+        List<SocialDatabase.Row> rows = profileRows(author);
+        rows.add(commentRow(moment.id, comment));
+        database.enqueue(rows);
         return comment;
     }
 
     public synchronized SocialData.ChatMessage sendWorld(UUID sender, String senderName, String text) {
-        requireLoaded();
+        requireWritable();
         String cleanText = clean(text, MAX_CHAT_TEXT, "消息");
         if (cleanText.isBlank()) {
             throw new SocialException("EMPTY_TEXT", "消息不能为空");
@@ -330,14 +367,12 @@ public final class SocialStore {
         SocialData.ChatMessage message = new SocialData.ChatMessage(
                 UUID.randomUUID().toString(), "world", sender.toString(), senderName,
                 cleanText, System.currentTimeMillis());
-        data.world.add(message);
-        trimOldestAtFront(data.world, MAX_WORLD_MESSAGES);
-        saveLocked();
+        saveMessageLocked(message);
         return message;
     }
 
     public synchronized SocialData.ChatMessage sendDirect(UUID sender, String senderName, UUID target, String text) {
-        requireLoaded();
+        requireWritable();
         if (!areFriends(sender, target)) {
             throw new SocialException("NOT_FRIENDS", "只能给好友发送私聊");
         }
@@ -350,81 +385,170 @@ public final class SocialStore {
         SocialData.ChatMessage message = new SocialData.ChatMessage(
                 UUID.randomUUID().toString(), thread, sender.toString(), senderName,
                 cleanText, System.currentTimeMillis());
-        List<SocialData.ChatMessage> messages =
-                data.chats.computeIfAbsent(thread, ignored -> new ArrayList<>());
-        messages.add(message);
-        trimOldestAtFront(messages, MAX_CHAT_MESSAGES_PER_THREAD);
-        saveLocked();
+        saveMessageLocked(message);
         return message;
     }
 
     public synchronized List<SocialData.ChatMessage> worldHistory(int limit) {
         requireLoaded();
-        int from = Math.max(0, data.world.size() - Math.max(0, limit));
-        return new ArrayList<>(data.world.subList(from, data.world.size()));
+        return messageHistory("world", "world", limit);
     }
 
     public synchronized List<SocialData.ChatMessage> directHistory(UUID a, UUID b, int limit) {
         requireLoaded();
-        List<SocialData.ChatMessage> messages = data.chats.get(threadKey(a, b));
-        if (messages == null) {
-            return List.of();
-        }
-        int from = Math.max(0, messages.size() - Math.max(0, limit));
-        return new ArrayList<>(messages.subList(from, messages.size()));
+        return messageHistory("direct", threadKey(a, b), limit);
     }
 
     /** 按时间倒序取一页动态；before=0 表示从最新开始。 */
     public synchronized List<SocialData.Moment> pageMoments(int limit, long before) {
+        return pageMoments(limit, before, "");
+    }
+
+    public synchronized List<SocialData.Moment> pageMoments(int limit, long before, String beforeId) {
         requireLoaded();
         List<SocialData.Moment> result = new ArrayList<>();
         int cap = Math.max(0, Math.min(limit, 20));
-        for (SocialData.Moment moment : data.moments) {
-            if (before > 0L && moment.createdAt >= before) {
-                continue;
-            }
-            result.add(moment);
-            if (result.size() >= cap) {
-                break;
-            }
+        for (SocialDatabase.Row row : database.history("moment", "", before, beforeId, cap, System.currentTimeMillis())) {
+            result.add(readMoment(row));
         }
         return result;
     }
 
     public synchronized SocialData.Moment findMoment(String id) {
         requireLoaded();
-        for (SocialData.Moment moment : data.moments) {
-            if (moment.id.equals(id)) {
-                return moment;
-            }
-        }
+        SocialDatabase.Row row = database.moment(id, System.currentTimeMillis());
+        if (row != null) return readMoment(row);
         throw new SocialException("MOMENT_NOT_FOUND", "该说说不存在或已被删除");
     }
 
     public synchronized void save() {
         requireLoaded();
-        saveLocked();
+        database.flush();
     }
 
-    private void saveLocked() {
-        requireLoaded();
+    @Override
+    public synchronized void close() {
+        if (database == null) return;
         try {
-            Path parent = file.getParent();
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
-            Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
-            Files.writeString(tmp, GSON.toJson(data), StandardCharsets.UTF_8);
-            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (IOException e) {
-            throw new UncheckedIOException("无法保存社交存档: " + file, e);
+            database.close();
+        } finally {
+            database = null;
+            data = null;
         }
+    }
+
+    private List<SocialData.ChatMessage> messageHistory(String kind, String thread, int limit) {
+        List<SocialData.ChatMessage> result = new ArrayList<>();
+        for (SocialDatabase.Row row : database.history(kind, thread, 0L, limit, System.currentTimeMillis())) {
+            result.add(decode(row, SocialData.ChatMessage.class));
+        }
+        java.util.Collections.reverse(result);
+        return result;
+    }
+
+    private SocialData.Moment readMoment(SocialDatabase.Row row) {
+        SocialData.Moment moment = decode(row, SocialData.Moment.class);
+        List<SocialDatabase.Row> comments = database.history("comment", moment.id, 0L, 100, System.currentTimeMillis());
+        for (int index = comments.size() - 1; index >= 0; index--) {
+            moment.comments.add(decode(comments.get(index), SocialData.Comment.class));
+        }
+        return moment;
+    }
+
+    private void savePlayersLocked(UUID... players) {
+        database.enqueue(playerRows(players));
+    }
+
+    private List<SocialDatabase.Row> playerRows(UUID... players) {
+        List<SocialDatabase.Row> rows = profileRows(players);
+        for (UUID uuid : players) rows.add(relationsRow(uuid.toString()));
+        return rows;
+    }
+
+    private void saveProfilesLocked(UUID... players) {
+        database.enqueue(profileRows(players));
+    }
+
+    private List<SocialDatabase.Row> profileRows(UUID... players) {
+        List<SocialDatabase.Row> rows = new ArrayList<>();
+        for (UUID uuid : players) {
+            String key = uuid.toString();
+            SocialData.Profile profile = data.profiles.get(key);
+            rows.add(new SocialDatabase.Row("profile", profile.uuid, "", 0L, GSON.toJson(profile)));
+        }
+        return rows;
+    }
+
+    private SocialDatabase.Row relationsRow(String player) {
+        // 无记录表示尚未添加好友或请求，是该集合的初始态。
+        Relations relations = new Relations(data.friends.getOrDefault(player, List.of()),
+                data.incoming.getOrDefault(player, List.of()), data.outgoing.getOrDefault(player, List.of()));
+        return new SocialDatabase.Row("relations", player, "", 0L, GSON.toJson(relations));
+    }
+
+    private void saveMessageLocked(SocialData.ChatMessage message) {
+        List<SocialDatabase.Row> rows = profileRows(UUID.fromString(message.sender));
+        rows.add(messageRow(message));
+        database.enqueue(rows);
+    }
+
+    private static SocialDatabase.Row messageRow(SocialData.ChatMessage message) {
+        return new SocialDatabase.Row("world".equals(message.thread) ? "world" : "direct",
+                message.id, message.thread, message.createdAt, GSON.toJson(message));
+    }
+
+    private static SocialDatabase.Row momentRow(SocialData.Moment moment) {
+        // 评论单独存储、按自身创建时间过期；点赞只改当前动态，不重写其他动态或历史聊天。
+        MomentBody body = new MomentBody(moment.id, moment.author, moment.authorName, moment.text,
+                moment.image, moment.createdAt, moment.likes);
+        return new SocialDatabase.Row("moment", moment.id, "", moment.createdAt, GSON.toJson(body));
+    }
+
+    private static SocialDatabase.Row commentRow(String momentId, SocialData.Comment comment) {
+        return new SocialDatabase.Row("comment", comment.id, momentId, comment.createdAt, GSON.toJson(comment));
+    }
+
+    private List<SocialDatabase.Row> migrationRows() {
+        List<SocialDatabase.Row> rows = new ArrayList<>();
+        for (SocialData.Profile profile : data.profiles.values()) {
+            rows.add(new SocialDatabase.Row("profile", profile.uuid, "", 0L, GSON.toJson(profile)));
+        }
+        var owners = new LinkedHashSet<>(data.friends.keySet());
+        owners.addAll(data.incoming.keySet());
+        owners.addAll(data.outgoing.keySet());
+        for (String owner : owners) rows.add(relationsRow(owner));
+        for (SocialData.Moment moment : data.moments) {
+            rows.add(momentRow(moment));
+            for (SocialData.Comment comment : moment.comments) rows.add(commentRow(moment.id, comment));
+        }
+        for (SocialData.ChatMessage message : data.world) rows.add(messageRow(message));
+        for (List<SocialData.ChatMessage> messages : data.chats.values()) {
+            for (SocialData.ChatMessage message : messages) rows.add(messageRow(message));
+        }
+        return rows;
+    }
+
+    private static <T> T decode(SocialDatabase.Row row, Class<T> type) {
+        T parsed = GSON.fromJson(row.json(), type);
+        if (parsed == null) throw new IllegalStateException("社交记录损坏: " + row.kind() + "/" + row.id());
+        return parsed;
+    }
+
+    private record Relations(List<String> friends, List<String> incoming, List<String> outgoing) {}
+
+    private record MomentBody(String id, String author, String authorName, String text, String image,
+                              long createdAt, List<String> likes) {}
+
+    private void requireWritable() {
+        requireLoaded();
+        database.checkWritable();
     }
 
     private void requireLoaded() {
         if (data == null) {
             throw new IllegalStateException("social store not loaded: " + file);
         }
+        database.checkHealthy();
     }
 
     private void touchLocked(UUID uuid, String name) {
@@ -468,18 +592,6 @@ public final class SocialStore {
     private static void addUnique(List<String> list, String value) {
         if (!list.contains(value)) {
             list.add(value);
-        }
-    }
-
-    private static void trimNewestAtFront(List<?> list, int max) {
-        while (list.size() > max) {
-            list.remove(list.size() - 1);
-        }
-    }
-
-    private static void trimOldestAtFront(List<?> list, int max) {
-        while (list.size() > max) {
-            list.remove(0);
         }
     }
 

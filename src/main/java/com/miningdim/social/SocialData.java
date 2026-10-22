@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 社交平板的持久化根对象。字段全部使用 String UUID 键，避免 Gson 对 UUID 的隐式适配差异，
@@ -74,6 +75,8 @@ public final class SocialData {
     }
 
     public static final class Comment {
+        /** v0.1 JSON 未保存评论 ID；迁移时为每条旧评论生成一次稳定标识。 */
+        public String id = UUID.randomUUID().toString();
         public String author;
         public String authorName;
         public String text;

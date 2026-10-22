@@ -43,7 +43,7 @@
 
 塔罗职业代码不反向依赖成就或展示层。图鉴里程碑先进入 WOK 本体成就目录，再由社交侧读取已完成的正式成就状态：
 
-- `TarotCodex.addListener(MilestoneListener)`：点亮新形态 / 补扫结束后回调，异常只记日志。
+- `TarotCodex.addListener(MilestoneListener)`：点亮新形态 / 补扫结束后回调，异常向调用方传播，由入口边界记录，避免联动故障被吞。
 - `JobHooks` 订阅 `TarotCodex`，按 `milestone` 必填且仅允许 `stardust` / `shining` / `starmaster` 的 `JobTriggers.TAROT_CODEX` 触发对应 advancement。三条正式 id 分别为 `miningdim:profession/tarot_stardust`、`miningdim:profession/tarot_shining`、`miningdim:profession/tarot_starmaster`。
 - 原版 advancement 完成后由 `AdvancementEarnEvent` 接入 `AchievementRewardSystem`，按成就系统的快照和去重规则生成待领取奖励；成就点仍需玩家手动领取。
 - 社交侧通过完成状态同步解锁皮肤，调用 `SocialStore.unlockTheme`（内部 `contains` 判重，幂等）；玩家档案不存在时跳过，不代建档案。`SocialThemes.unlockKey` 保存完整 advancement id。
@@ -57,6 +57,8 @@
 | `miningdim:profession/tarot_starmaster` | 星辰之主 | 传说 | 800 | `starmaster` |
 
 三条声明与配套元数据由本体 `AchievementDeclarations` 同时生成。皮肤达成即解锁，无需先领取积分；积分沿用本体手动领取规则。前两条各自挂在职业根节点，第三条挂在星屑之下，获得闪耀不要求先集齐 22 张。
+
+2026-10-21 审查修复确认：维护者明确保留以上条件、档位、50/100/800 点和默认开启主题解锁。社交数据库迁移与七天保留规则见 [SocialTablet_Storage](SocialTablet_Storage.md)，不清理这些永久解锁。
 
 ### 2.4 下发（`social.bootstrap`）
 
@@ -113,7 +115,8 @@
 
 | 项 | 结果 |
 |---|---|
-| 图鉴位索引 / 去重 / 22·闪耀·220 边界 / 落盘往返 | `TarotCodexGameTests` 8 项，GameTest 全绿 |
+| 图鉴去重 / 22·闪耀·220 边界 / 落盘往返 | `TarotCodexGameTests` 保留 5 项业务用例；移除位索引实现、空档和上游已排除的非法入参用例 |
+| 图鉴损坏记录拒绝 | 单独覆盖缺 UUID、Bits 长度异常，错误包含条目上下文 |
 | 三档主题在册、默认锁定、`unlockTheme` 幂等、进度边界 | `SocialGameTests` 新增 2 项 |
 | 真实记录触发三档解锁、21/22 与 219/220 门槛、重复记录 | `SocialGameTests.codexRecordsUnlockAllThreeTabletThemes` 通过 |
 | 创造模式直接获取、产物记录和背包补扫 | `SocialGameTests.creativeAcquisitionDoesNotRecordCodex` 通过，图鉴保持 0 |
@@ -126,7 +129,7 @@
 | 三档 + 选择器 + 翻牌/洗牌/点星座的视觉 | Chromium 116 渲染截图（`_tarot_skins/prod/shots/`） |
 | 解锁链路 | 服务端权威：图鉴触发正式成就，成就完成事件及登录/开机同步解锁；客户端无写入口 |
 
-本轮重新验证了正式成就定义、元数据、条件 JSON 往返与非法条件拒收，以及成就到皮肤奖励的完整链路。实机 MCEF 画面不在本轮服务端回归结论内。
+PR #80 审查修复后的完整回归日志明确出现 `All 2126 required tests passed`，包含正式成就定义、元数据、条件 JSON 往返与非法条件拒收，以及成就到皮肤奖励的完整链路。图鉴内部信任已校验的牌身份与在线玩家；NBT 读档仍在反序列化边界拒绝损坏记录。SQLite 存储、七天清理与编码后回执预算的验证见 [SocialTablet_Storage](SocialTablet_Storage.md)。实机 MCEF 画面不在本轮服务端回归结论内。
 
 ## 5. 未完成 / 风险
 

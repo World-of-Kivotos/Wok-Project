@@ -21,7 +21,7 @@ import java.util.Set;
  * 社交平板的“掏出/收起”动画控制器（步战 0.5.0-beta.4 的完整版时间轴，外观换成 Slate 11 +
  * 可切换的手：白手套 / 玩家皮肤）。
  *
- * <p>整个客户端只有一个 {@link TabletMotion}。开场：P 键 → 浏览器先在后台准备好（页面照常加载），
+ * <p>整个客户端只有一个 {@link TabletMotion}。开场：~ 键 → 浏览器先在后台准备好（页面照常加载），
  * 世界继续渲染，3D 平板与手在 {@link RenderHandEvent} 里画出，推进到 p = 1 的那一帧把
  * {@link WebUiScreen} 显示出来——此时页面平面正好铺满视口，机身边框刚好移出屏幕，和 2D 界面无缝接上。
  * 收起：界面关闭后按 p → 0 播放同一套时间轴（浏览器画面仍在贴图上），结束后回到世界。</p>
@@ -92,7 +92,7 @@ public final class SocialTabletAnimation {
         return MOTION.state() == TabletMotion.State.SHOWN;
     }
 
-    /** 开场动画还在播（P 键此时应跳到结尾，而不是再开一个界面）。 */
+    /** 开场动画还在播（~ 键此时应跳到结尾，而不是再开一个界面）。 */
     public static boolean isOpening() {
         return MOTION.state() == TabletMotion.State.OPENING;
     }
@@ -382,7 +382,7 @@ public final class SocialTabletAnimation {
         }
         if (MOTION.state() == TabletMotion.State.IDLE) {
             if (!meshPreloaded && minecraft.player != null) {
-                // 资源已就绪：把机身的挤出网格先建好，别等第一次按 P 才卡一下。
+                // 资源已就绪：把机身的挤出网格先建好，别等第一次按 ~ 才卡一下。
                 meshPreloaded = true;
                 SocialDeviceArt.mesh();
             }

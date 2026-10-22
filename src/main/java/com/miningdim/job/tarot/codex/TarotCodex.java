@@ -6,8 +6,6 @@ import com.miningdim.job.tarot.TarotQuality;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -17,11 +15,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
  *
  * <p>本包不依赖社交模块（职业代码不得反向依赖展示层）。需要“图鉴里程碑 → 平板主题解锁”的一方，
  * 用 {@link #addListener(MilestoneListener)} 注册回调，由本类在点亮新形态后统一通知；回调异常
- * 只记日志，绝不影响发牌/合成主流程。</p>
+ * 向调用方传播，避免图鉴联动失败被静默掩盖。</p>
  */
 public final class TarotCodex {
-    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/tarot/codex");
-
     /** 图鉴变化回调（服务端线程；player 一定在线）。 */
     public interface MilestoneListener {
         void onCodexChanged(ServerPlayer player);
@@ -41,13 +37,10 @@ public final class TarotCodex {
     /** 发牌/合成/兑换之后调用；返回是否点亮了新形态（重复牌转碎片时不会重复点亮）。 */
     public static boolean record(ServerPlayer player, int cardId, TarotQuality quality, boolean upright) {
         // 所有发牌入口共用此处，创造模式开包和合成也不能计入收集成就。
-        if (player == null || player.isCreative()) {
+        if (player.isCreative()) {
             return false;
         }
         MinecraftServer server = player.getServer();
-        if (server == null) {
-            return false;
-        }
         boolean fresh = TarotCodexSavedData.get(server).record(player.getUUID(), cardId, quality, upright);
         if (fresh) {
             notifyChanged(player);
@@ -67,9 +60,6 @@ public final class TarotCodex {
 
     /** 登录补扫：背包 + 副手（只能补“当前还看得到”的牌，已合成消耗掉的历史追不回）。 */
     public static void scan(ServerPlayer player) {
-        if (player == null) {
-            return;
-        }
         // 创造模式给物会污染图鉴（规格 v0.1 §2.1）：创造玩家不补扫，回生存后自然按新获得记录。
         if (player.isCreative()) {
             return;
@@ -86,25 +76,14 @@ public final class TarotCodex {
 
     /** 手动触发一次回调（客户端请求开机数据、配置开关变更后重算等）。 */
     public static void notifyChanged(ServerPlayer player) {
-        if (player == null || LISTENERS.isEmpty()) {
-            return;
-        }
         for (MilestoneListener listener : LISTENERS) {
-            try {
-                listener.onCodexChanged(player);
-            } catch (RuntimeException error) {
-                LOGGER.warn("tarot codex listener failed: {}", error.toString());
-            }
+            listener.onCodexChanged(player);
         }
     }
 
     /** 进度摘要；无数据时返回全零。 */
     public static Summary summary(ServerPlayer player) {
-        MinecraftServer server = player == null ? null : player.getServer();
-        if (server == null) {
-            return new Summary(0, 0, 0, TarotCodexSavedData.FORMS);
-        }
-        TarotCodexSavedData data = TarotCodexSavedData.get(server);
+        TarotCodexSavedData data = TarotCodexSavedData.get(player.getServer());
         return new Summary(data.arcana(player.getUUID()), data.shinyForms(player.getUUID()),
                 data.count(player.getUUID()), TarotCodexSavedData.FORMS);
     }

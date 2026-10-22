@@ -103,12 +103,13 @@ public final class SocialGameTests {
             store.comment(moment.id, b, "Beta", "很好看");
             store.save();
 
-            SocialStore reloaded = new SocialStore(dir.resolve("social.json"));
-            reloaded.load();
-            SocialData.Moment loaded = reloaded.findMoment(moment.id);
-            helper.assertTrue(loaded.text.equals("今天的晚霞"), "moment text must survive reload");
-            helper.assertTrue(loaded.comments.size() == 1, "comment must survive reload");
-            helper.assertTrue(loaded.comments.get(0).text.equals("很好看"), "comment text must survive reload");
+            try (SocialStore reloaded = new SocialStore(dir.resolve("social.json"))) {
+                reloaded.load();
+                SocialData.Moment loaded = reloaded.findMoment(moment.id);
+                helper.assertTrue(loaded.text.equals("今天的晚霞"), "moment text must survive reload");
+                helper.assertTrue(loaded.comments.size() == 1, "comment must survive reload");
+                helper.assertTrue(loaded.comments.get(0).text.equals("很好看"), "comment text must survive reload");
+            }
         });
     }
 
@@ -148,10 +149,11 @@ public final class SocialGameTests {
 
             store.selectTheme(a, "abydos");
             store.save();
-            SocialStore reloaded = new SocialStore(dir.resolve("social.json"));
-            reloaded.load();
-            helper.assertTrue("abydos".equals(reloaded.theme(a)),
-                    "selected theme must survive a reload");
+            try (SocialStore reloaded = new SocialStore(dir.resolve("social.json"))) {
+                reloaded.load();
+                helper.assertTrue("abydos".equals(reloaded.theme(a)),
+                        "selected theme must survive a reload");
+            }
 
             assertCode(helper, "THEME_LOCKED", () -> store.selectTheme(a, "starlight"));
             store.unlockTheme(a, "starlight");
@@ -179,13 +181,14 @@ public final class SocialGameTests {
             store.selectTheme(a, SocialThemes.STARMASTER);
             helper.assertTrue(SocialThemes.STARMASTER.equals(store.theme(a)), "starmaster must be selectable");
             store.save();
-            SocialStore reloaded = new SocialStore(dir.resolve("social.json"));
-            reloaded.load();
-            SocialData.Profile profile = reloaded.profile(a);
-            helper.assertTrue(profile != null && profile.unlockedThemes.containsAll(tiers),
-                    "unlocked tarot themes must survive a reload");
-            helper.assertTrue(SocialThemes.STARMASTER.equals(reloaded.theme(a)),
-                    "equipped tarot theme must survive a reload");
+            try (SocialStore reloaded = new SocialStore(dir.resolve("social.json"))) {
+                reloaded.load();
+                SocialData.Profile profile = reloaded.profile(a);
+                helper.assertTrue(profile != null && profile.unlockedThemes.containsAll(tiers),
+                        "unlocked tarot themes must survive a reload");
+                helper.assertTrue(SocialThemes.STARMASTER.equals(reloaded.theme(a)),
+                        "equipped tarot theme must survive a reload");
+            }
         });
     }
 
@@ -410,10 +413,11 @@ public final class SocialGameTests {
         Path dir = null;
         try {
             dir = Files.createTempDirectory("wok-social-test-");
-            SocialStore store = new SocialStore(dir.resolve("social.json"));
-            store.load();
-            action.run(store, dir);
-            helper.succeed();
+            try (SocialStore store = new SocialStore(dir.resolve("social.json"))) {
+                store.load();
+                action.run(store, dir);
+                helper.succeed();
+            }
         } catch (IOException e) {
             helper.fail("failed to create social test store: " + e.getMessage());
         } finally {

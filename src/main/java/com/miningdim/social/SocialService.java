@@ -38,7 +38,7 @@ public final class SocialService {
     public static void stop() {
         SocialStore current = store;
         if (current != null) {
-            current.save();
+            current.close();
             store = null;
         }
     }

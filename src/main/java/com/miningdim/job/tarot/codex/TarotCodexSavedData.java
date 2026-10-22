@@ -50,12 +50,17 @@ public final class TarotCodexSavedData extends SavedData {
         for (int i = 0; i < players.size(); i++) {
             CompoundTag entry = players.getCompound(i);
             if (!entry.hasUUID("Uuid")) {
-                continue;
+                throw new IllegalStateException("Malformed tarot codex player entry at index " + i
+                        + ": missing or invalid Uuid");
             }
+            UUID uuid = entry.getUUID("Uuid");
             long[] words = entry.getLongArray("Bits");
-            if (words.length == WORDS) {
-                data.bits.put(entry.getUUID("Uuid"), words);
+            if (words.length != WORDS) {
+                throw new IllegalStateException("Malformed tarot codex player entry at index " + i
+                        + " for Uuid " + uuid + ": Bits must contain " + WORDS
+                        + " longs, found " + words.length);
             }
+            data.bits.put(uuid, words);
         }
         return data;
     }
@@ -80,9 +85,6 @@ public final class TarotCodexSavedData extends SavedData {
 
     /** 记一个形态；返回是否为首次点亮。 */
     public boolean record(UUID uuid, int cardId, TarotQuality quality, boolean upright) {
-        if (uuid == null || cardId < 0 || cardId >= TarotArcana.COUNT || quality == null) {
-            return false;
-        }
         long[] words = bits.computeIfAbsent(uuid, key -> new long[WORDS]);
         int bit = index(cardId, quality, upright);
         int word = bit >>> 6;

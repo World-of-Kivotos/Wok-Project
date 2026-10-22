@@ -100,12 +100,12 @@ SocialTabletAnimation（编排，≈380 行）
   与三个宿主钩子；3D 期间页面先加载，p = 1 才 `setScreen`。
 - 浏览器贴图以原生 GL id 绑进自定义 RenderType（预乘 alpha 混合，与 `WebBrowser#render` 一致）。
 - 开场前把浏览器尺寸/CEF zoom 调成全屏 layout 的同一档，3D→2D 不跳。
-- 输入：P 开（`/social` 同路径）、Esc 关；关界面后由动画接管收起。
+- 输入：默认按 `~` 开（`/social` 同路径），Esc 关；关界面后由动画接管收起。开机键可在控制设置中改绑。
 
 ### M4 · 完整行为（完成，scheme B 为简化兜底）
 - 已实现：HUD 让位（保留聊天/标题/玩家列表/调试）、死亡/维度/载具/快捷栏/相机/开火/瞄准打断、
   12 个声音 cue、`social.tabletAnimation` 与 `social.tabletSounds` 配置、
-  P 键在开场中跳到结尾、左键点击跳到全屏、第三人称直接开界面、
+  `~` 键在开场中跳到结尾、左键点击跳到全屏、第三人称直接开界面、
   手部 pass 缺席时直接显示（简化 scheme B）、`/socialanim` 固定姿态验收命令。
 - 未实现：完整 scheme B 的 2D 滑入动画（现在是直接显示）。
 - 真客户端验收已完成（§6.4）：生产映射客户端 + MCEF，READ / p=1 / 收起三帧均验证。

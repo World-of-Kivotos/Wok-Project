@@ -20,7 +20,7 @@ import net.minecraftforge.fml.ModList;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * 社交平板的客户端入口：P 键与 /social 客户端命令。掏平板动画由页面自己播 (与预览定稿同一套
+ * 社交平板的客户端入口：~ 键与 /social 客户端命令。掏平板动画由页面自己播 (与预览定稿同一套
  * 时间轴), 因此这里只做 MCEF 前置守卫, 然后把界面交给 {@link WebUiClient}。
  */
 public final class SocialClient {
@@ -38,7 +38,7 @@ public final class SocialClient {
                 "key." + MiningConstants.MODID + ".social.open",
                 KeyConflictContext.IN_GAME,
                 InputConstants.Type.KEYSYM,
-                GLFW.GLFW_KEY_P,
+                GLFW.GLFW_KEY_GRAVE_ACCENT,
                 CATEGORY);
         shutterKey = new KeyMapping(
                 "key." + MiningConstants.MODID + ".social.shutter",
@@ -125,7 +125,7 @@ public final class SocialClient {
             hint("[MiningDim] 社交平板需要前置 mod MCEF。");
             return;
         }
-        // 开场动画期间再按 P：跳到结尾（步战的 KEY finish，100ms 收尾），不重复开界面。
+        // 开场动画期间再按 ~：跳到结尾（步战的 KEY finish，100ms 收尾），不重复开界面。
         if (SocialTabletAnimation.isOpening()) {
             SocialTabletAnimation.finishOpening();
             return;

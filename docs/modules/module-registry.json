@@ -435,16 +435,29 @@
         "job/farmer"
       ],
       "resourcePaths": [
-        "data/miningdim/recipes/farmer"
+        "data/miningdim/recipes/farmer",
+        "assets/miningdim/textures/block/granary",
+        "assets/miningdim/models/block/granary"
       ],
       "resourceNamePrefixes": [
         "farmer_",
-        "granary_"
+        "granary_",
+        "acacia_granary_",
+        "bamboo_granary_",
+        "birch_granary_",
+        "cherry_granary_",
+        "crimson_granary_",
+        "dark_oak_granary_",
+        "jungle_granary_",
+        "mangrove_granary_",
+        "spruce_granary_",
+        "warped_granary_"
       ],
       "dependencies": [
         "wok-core",
         "wok-experience",
         "wok-job-core",
+        "wok-job-chef",
         "wok-economy",
         "wok-webui",
         "wok-freshness"

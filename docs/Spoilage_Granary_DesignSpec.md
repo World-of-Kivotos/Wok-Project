@@ -1016,7 +1016,9 @@ P1 是开服关卡前的全部工作；P1b 不卡开服，跟厨师重构同一�
 ### 当前 FD 1.3.2 复核记录
 
 - 当前代码与开发依赖以 Farmer's Delight 1.20.1-1.3.2 为准；缺少本地开发 JAR 时 Gradle 会明确失败。
-- **2026-10-21 PR #81 本轮验证**：JDK 17 下 `compileJava --offline` 成功；完整 `runGameTestServer --offline` 日志明确显示 `All 2348 required tests passed :)`。离线构建使用本机已缓存依赖，未关闭 Forge Maven 证书校验。历史 1.2.9 日志保留为历史证据，不代替本轮结果。
+- **2026-10-21 PR #81 本轮验证**：JDK 17 下 `compileJava --offline` 成功；完整 `runGameTestServer --offline` 日志明确显示 `All 2351 required tests passed :)`。离线构建使用本机已缓存依赖，未关闭 Forge Maven 证书校验。历史 1.2.9 日志保留为历史证据，不代替本轮结果。
+
+- 最新全量包含 `ae66e105` 的多木材粮仓增量，`verifyModuleBoundaries` 通过。厨锅夹具在复用测试世界时先重建方块实体，防止旧成品混入；真实加工、原料消耗与新鲜度继承断言保持不变并通过。
 
 ### 三、本机已核实的模组在位情况
 

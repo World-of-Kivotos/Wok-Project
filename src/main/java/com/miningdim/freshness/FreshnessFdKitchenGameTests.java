@@ -76,6 +76,8 @@ public final class FreshnessFdKitchenGameTests {
     public static void cookingPotMealIsStampedBeforeItMoves(GameTestHelper helper) throws Exception {
         ServerLevel level = helper.getLevel();
         BlockPos rel = new BlockPos(SLOT + 1, 2, 1);
+        // 重跑同一测试世界时重建方块实体，避免旧成品参与本次合并。
+        helper.setBlock(rel, Blocks.AIR);
         helper.setBlock(rel, ModBlocks.COOKING_POT.get());
         CookingPotBlockEntity pot = (CookingPotBlockEntity) helper.getBlockEntity(rel);
         helper.assertTrue(pot != null, "厨锅方块实体要放得出来");

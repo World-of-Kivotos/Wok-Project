@@ -16,7 +16,6 @@ import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
 import net.minecraftforge.client.settings.KeyConflictContext;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
-import net.minecraftforge.fml.ModList;
 import org.lwjgl.glfw.GLFW;
 
 /**
@@ -121,10 +120,6 @@ public final class SocialClient {
         if (SocialCameraMode.isActive() || mc.screen != null) {
             return;
         }
-        if (!ModList.get().isLoaded("mcef")) {
-            hint("[MiningDim] 社交平板需要前置 mod MCEF。");
-            return;
-        }
         // 开场动画期间再按 ~：跳到结尾（步战的 KEY finish，100ms 收尾），不重复开界面。
         if (SocialTabletAnimation.isOpening()) {
             SocialTabletAnimation.finishOpening();
@@ -137,10 +132,4 @@ public final class SocialClient {
         WebUiClient.openSocialScreen();
     }
 
-    private static void hint(String message) {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player != null) {
-            mc.player.displayClientMessage(Component.literal(message), false);
-        }
-    }
 }

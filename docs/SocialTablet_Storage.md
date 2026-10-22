@@ -36,6 +36,10 @@
 
 回执按实际 JSON 编码后的长度遵守原网络上限；聊天优先保留最新消息，动态保留可继续翻页的前缀。固定档案/好友字段过大时明确报错，不静默隐藏好友。
 
-`SocialDatabaseGameTests` 的五项用例覆盖迁移、坏关系 UUID 拒绝与损坏保护、七天边界与分批清理、超旧数量上限的持久化与即时读取；`SocialActionsResponseSizeGameTests` 的四项用例覆盖编码膨胀与同毫秒分页。
+`SocialDatabaseGameTests` 的五项用例覆盖迁移、坏关系 UUID 拒绝与损坏保护、七天边界与分批清理、超旧数量上限的持久化与即时读取；`SocialActionsResponseSizeGameTests` 的四项回执用例覆盖编码膨胀与同毫秒分页，另有一项好友解析回归验证原样离线 UUID 与不存在的名字拒绝。
 
-本轮审查修复使用 JDK 17 和工程 Gradle Wrapper，通过 `compileJava`、`verifyModuleBoundaries`；完整 Forge GameTest 日志明确出现 `All 2127 required tests passed`。此前内联 JS 语法解析通过，本轮未改页面。这些结果不能替代 MCEF 实机与大型服负载验收。
+离线服加好友优先使用通过登录门的在线玩家身份；离线目标按输入名字的原样大小写派生 UUID，只有对应玩家存档存在时才接受。离线服不调用会创建虚构档案并访问 Mojang 的用户名缓存。正版模式保持既有缓存查询。
+
+本轮删除无真实来源的好友统计、推荐及演示数据；starlight 主题默认解锁，已有主题选择与解锁存档保留。
+
+本轮审查修复使用 JDK 17 和工程 Gradle Wrapper，通过 `compileJava`、`verifyModuleBoundaries`；完整 Forge GameTest 日志明确出现 `All 2123 required tests passed`。内联 JS 语法解析及直接 DOM ID 引用检查通过，七张大型内嵌图片保持一致。这些结果不能替代 MCEF 实机与大型服负载验收。

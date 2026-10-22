@@ -10,7 +10,7 @@ import java.util.Optional;
  *
  * <p>{@code unlockKey} 是成就系统的绑定键：为空表示默认主题；非空表示需要对应成就解锁。
  * 服务端始终是解锁状态的权威：三档塔罗皮肤在本体对应成就完成后解锁，客户端没有任何写入入口。
- * {@code starlight} 仍保留给社交成就位。</p>
+ * {@code starlight} 保留原有 id 与主题资源，并默认解锁。</p>
  */
 public final class SocialThemes {
 
@@ -41,7 +41,7 @@ public final class SocialThemes {
             new Theme("abydos", "阿拜多斯 · 黄昏", "暖橙与沙丘的放学后", ""),
             new Theme("millennium", "千年 · 薄荷", "冷青与实验白", ""),
             new Theme("trinity", "圣三一 · 茶会", "奶油、玫瑰与金色边", ""),
-            new Theme("starlight", "星光 · 夜航", "完成社交成就后解锁", "achievement.social.starlight"),
+            new Theme("starlight", "星光 · 夜航", "默认解锁 · 星光主题", ""),
             new Theme(STARDUST, "星屑", "静态星尘 · 烫金卡框", Milestone.STARDUST.advancementId().toString()),
             new Theme(SHINING, "闪耀星辰", "星点呼吸 · 扫光 · 全息卡边", Milestone.SHINING.advancementId().toString()),
             new Theme(STARMASTER, "星辰之主", "视差星图 · 翻牌 · 洗牌", Milestone.STARMASTER.advancementId().toString()));

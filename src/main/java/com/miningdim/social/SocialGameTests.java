@@ -147,48 +147,15 @@ public final class SocialGameTests {
             helper.assertTrue(SocialThemes.DEFAULT_THEME.equals(store.theme(a)),
                     "new profile must default to the halolink theme");
 
-            store.selectTheme(a, "abydos");
+            store.selectTheme(a, "starlight");
             store.save();
             try (SocialStore reloaded = new SocialStore(dir.resolve("social.json"))) {
                 reloaded.load();
-                helper.assertTrue("abydos".equals(reloaded.theme(a)),
+                helper.assertTrue("starlight".equals(reloaded.theme(a)),
                         "selected theme must survive a reload");
             }
 
-            assertCode(helper, "THEME_LOCKED", () -> store.selectTheme(a, "starlight"));
-            store.unlockTheme(a, "starlight");
-            store.selectTheme(a, "starlight");
-            helper.assertTrue("starlight".equals(store.theme(a)),
-                    "an achievement-unlocked theme must become selectable");
-        });
-    }
-
-    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void tarotThemesStartLockedAndUnlockIdempotently(GameTestHelper helper) {
-        withStore(helper, (store, dir) -> {
-            UUID a = UUID.randomUUID();
-            store.touch(a, "Alpha");
-            List<String> tiers = List.of(SocialThemes.STARDUST, SocialThemes.SHINING, SocialThemes.STARMASTER);
-            for (String id : tiers) {
-                helper.assertTrue(SocialThemes.byId(id).isPresent(), "tarot theme must be in the catalogue: " + id);
-                assertCode(helper, "THEME_LOCKED", () -> store.selectTheme(a, id));
-            }
-            // 里程碑可以重复触发：unlockTheme 幂等，且只有已解锁的主题可选。
-            for (String id : tiers) {
-                store.unlockTheme(a, id);
-                store.unlockTheme(a, id);
-            }
-            store.selectTheme(a, SocialThemes.STARMASTER);
-            helper.assertTrue(SocialThemes.STARMASTER.equals(store.theme(a)), "starmaster must be selectable");
-            store.save();
-            try (SocialStore reloaded = new SocialStore(dir.resolve("social.json"))) {
-                reloaded.load();
-                SocialData.Profile profile = reloaded.profile(a);
-                helper.assertTrue(profile != null && profile.unlockedThemes.containsAll(tiers),
-                        "unlocked tarot themes must survive a reload");
-                helper.assertTrue(SocialThemes.STARMASTER.equals(reloaded.theme(a)),
-                        "equipped tarot theme must survive a reload");
-            }
+            assertCode(helper, "THEME_LOCKED", () -> store.selectTheme(a, SocialThemes.STARDUST));
         });
     }
 
@@ -202,19 +169,45 @@ public final class SocialGameTests {
                 UUID id = player.getUUID();
                 store.touch(id, player.getName().getString());
                 int countBefore = AchievementServices.catalog().countEarned(player.getAdvancements());
+                TarotCodex.Summary emptyCodex = TarotCodex.summary(player);
+                SocialCodexMilestones.Progress emptyProgress = SocialCodexMilestones.progress(
+                        SocialThemes.require(SocialThemes.STARMASTER), emptyCodex);
+                helper.assertTrue(emptyProgress.now() == 0 && emptyProgress.max() == 220,
+                        "an empty codex must show 0/220 starmaster progress");
+                helper.assertTrue(SocialCodexMilestones.progress(
+                                SocialThemes.require(SocialThemes.DEFAULT_THEME), emptyCodex) == null,
+                        "the default non-tarot theme must not carry codex progress");
                 for (int cardId = 0; cardId < TarotArcana.COUNT - 1; cardId++) {
                     TarotCodex.record(player, cardId, TarotQuality.R, true);
                 }
+                TarotCodex.Summary beforeStardust = TarotCodex.summary(player);
+                SocialCodexMilestones.Progress stardustProgress = SocialCodexMilestones.progress(
+                        SocialThemes.require(SocialThemes.STARDUST), beforeStardust);
+                helper.assertTrue(beforeStardust.arcana() == 21 && stardustProgress.now() == 21
+                                && stardustProgress.max() == 22,
+                        "stardust progress must show 21/22 before the final arcana");
                 assertCode(helper, "THEME_LOCKED", () -> store.selectTheme(id, SocialThemes.STARDUST));
                 helper.assertTrue(!earned(player, Milestone.STARDUST), "21 arcana must not earn the formal achievement");
                 TarotCodex.record(player, TarotArcana.COUNT - 1, TarotQuality.R, true);
+                stardustProgress = SocialCodexMilestones.progress(SocialThemes.require(SocialThemes.STARDUST),
+                        TarotCodex.summary(player));
+                helper.assertTrue(stardustProgress.now() == 22 && stardustProgress.percent() == 100,
+                        "stardust progress must reach 22/22 with the final arcana");
                 helper.assertTrue(earned(player, Milestone.STARDUST), "22 arcana must earn the formal achievement");
                 store.selectTheme(id, SocialThemes.STARDUST);
                 helper.assertTrue(SocialThemes.STARDUST.equals(store.theme(id)),
                         "the 22nd arcana must unlock stardust through the registered listener");
 
+                SocialCodexMilestones.Progress shiningProgress = SocialCodexMilestones.progress(
+                        SocialThemes.require(SocialThemes.SHINING), TarotCodex.summary(player));
+                helper.assertTrue(shiningProgress.now() == 0 && shiningProgress.max() == 1,
+                        "shining progress must remain 0/1 until a shiny form is lit");
                 assertCode(helper, "THEME_LOCKED", () -> store.selectTheme(id, SocialThemes.SHINING));
                 TarotCodex.record(player, 0, TarotQuality.SHINY, true);
+                shiningProgress = SocialCodexMilestones.progress(SocialThemes.require(SocialThemes.SHINING),
+                        TarotCodex.summary(player));
+                helper.assertTrue(shiningProgress.now() == 1 && shiningProgress.max() == 1,
+                        "shining progress must reach 1/1 with a shiny form");
                 helper.assertTrue(earned(player, Milestone.SHINING), "a shiny form must earn the formal achievement");
                 store.selectTheme(id, SocialThemes.SHINING);
                 helper.assertTrue(SocialThemes.SHINING.equals(store.theme(id)),
@@ -230,10 +223,19 @@ public final class SocialGameTests {
                         }
                     }
                 }
-                helper.assertTrue(TarotCodex.summary(player).count() == 219, "one final form must remain");
+                TarotCodex.Summary beforeStarmaster = TarotCodex.summary(player);
+                SocialCodexMilestones.Progress starmasterProgress = SocialCodexMilestones.progress(
+                        SocialThemes.require(SocialThemes.STARMASTER), beforeStarmaster);
+                helper.assertTrue(beforeStarmaster.count() == 219 && starmasterProgress.now() == 219
+                                && starmasterProgress.max() == 220,
+                        "starmaster progress must show 219/220 before the final form");
                 helper.assertTrue(!earned(player, Milestone.STARMASTER), "219 forms must not earn the formal achievement");
                 assertCode(helper, "THEME_LOCKED", () -> store.selectTheme(id, SocialThemes.STARMASTER));
                 TarotCodex.record(player, TarotArcana.COUNT - 1, TarotQuality.SHINY, false);
+                starmasterProgress = SocialCodexMilestones.progress(SocialThemes.require(SocialThemes.STARMASTER),
+                        TarotCodex.summary(player));
+                helper.assertTrue(starmasterProgress.now() == 220 && starmasterProgress.percent() == 100,
+                        "starmaster progress must reach 220/220 with the final form");
                 helper.assertTrue(earned(player, Milestone.STARMASTER), "220 forms must earn the formal achievement");
                 store.selectTheme(id, SocialThemes.STARMASTER);
                 helper.assertTrue(SocialThemes.STARMASTER.equals(store.theme(id)),
@@ -251,6 +253,16 @@ public final class SocialGameTests {
                         "skins unlock on completion while points remain pending manual claim");
                 helper.assertTrue(AchievementServices.catalog().countEarned(player.getAdvancements()) == countBefore + 3,
                         "all three tarot achievements must count in the main achievement catalogue");
+                helper.assertTrue(store.profile(id).unlockedThemes.size() == 3,
+                        "repeated achievement reconciliation must not duplicate tarot theme unlocks");
+                store.save();
+                try (SocialStore reloaded = new SocialStore(dir.resolve("social.json"))) {
+                    reloaded.load();
+                    helper.assertTrue(reloaded.profile(id).unlockedThemes.containsAll(List.of(
+                                    SocialThemes.STARDUST, SocialThemes.SHINING, SocialThemes.STARMASTER))
+                                    && SocialThemes.STARMASTER.equals(reloaded.theme(id)),
+                            "earned themes and the selected theme must survive reopening the database");
+                }
             });
         } finally {
             SocialService.installForTests(previous);
@@ -353,38 +365,6 @@ public final class SocialGameTests {
             SocialService.installForTests(previous);
             MockGameTestPlayers.logout(player);
         }
-    }
-
-    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void codexProgressFollowsTierBoundaries(GameTestHelper helper) {
-        TarotCodex.Summary empty = new TarotCodex.Summary(0, 0, 0, 220);
-        TarotCodex.Summary partial = new TarotCodex.Summary(21, 0, 137, 220);
-        TarotCodex.Summary full = new TarotCodex.Summary(22, 3, 220, 220);
-
-        SocialCodexMilestones.Progress stardust = SocialCodexMilestones.progress(
-                SocialThemes.require(SocialThemes.STARDUST), partial);
-        helper.assertTrue(stardust != null && stardust.now() == 21 && stardust.max() == 22,
-                "stardust progress must be arcana/22");
-        helper.assertTrue(SocialCodexMilestones.progress(SocialThemes.require(SocialThemes.STARDUST), full).percent() == 100,
-                "22/22 must read as 100%");
-
-        SocialCodexMilestones.Progress shining = SocialCodexMilestones.progress(
-                SocialThemes.require(SocialThemes.SHINING), partial);
-        helper.assertTrue(shining != null && shining.now() == 0 && shining.max() == 1,
-                "shining progress must be 0/1 while no shiny form is lit");
-        helper.assertTrue(SocialCodexMilestones.progress(SocialThemes.require(SocialThemes.SHINING), full).now() == 1,
-                "shining progress must reach 1/1 with a shiny form");
-
-        SocialCodexMilestones.Progress starmaster = SocialCodexMilestones.progress(
-                SocialThemes.require(SocialThemes.STARMASTER), partial);
-        helper.assertTrue(starmaster != null && starmaster.now() == 137 && starmaster.max() == 220,
-                "starmaster progress must be codex/220");
-        helper.assertTrue(SocialCodexMilestones.progress(
-                        SocialThemes.require(SocialThemes.STARMASTER), empty).now() == 0,
-                "empty codex must read 0/220");
-        helper.assertTrue(SocialCodexMilestones.progress(SocialThemes.require("halolink"), empty) == null,
-                "non-tarot themes must not carry codex progress");
-        helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)

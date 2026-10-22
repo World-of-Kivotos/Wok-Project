@@ -3,16 +3,20 @@ package com.miningdim.social;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.miningdim.core.auth.PlayerLoginGate;
 import com.miningdim.network.MiningNetwork;
 import com.miningdim.network.S2CWebUiEvent;
 import com.miningdim.webui.server.WebUiBusinessException;
 import com.miningdim.webui.server.WebUiErrorCodes;
 import com.miningdim.webui.server.WebUiServerDispatcher;
 import com.mojang.authlib.GameProfile;
+import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.storage.LevelResource;
 
+import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -407,14 +411,22 @@ public final class SocialActions {
 
     private static ResolvedTarget resolve(MinecraftServer server, String name) {
         ServerPlayer online = server.getPlayerList().getPlayerByName(name);
-        if (online != null) {
+        if (online != null && PlayerLoginGate.allows(online)) {
             return new ResolvedTarget(online.getUUID(), online.getName().getString());
         }
-        Optional<GameProfile> cached = server.getProfileCache().get(name);
-        if (cached.isEmpty() || cached.get().getId() == null) {
-            throw new SocialException("PLAYER_NOT_FOUND", "找不到该玩家");
+        if (server.usesAuthentication()) {
+            Optional<GameProfile> cached = server.getProfileCache().get(name);
+            if (cached.isPresent() && cached.get().getId() != null) {
+                return new ResolvedTarget(cached.get().getId(), cached.get().getName());
+            }
+        } else {
+            // 离线 UUID 区分名字大小写；缓存会转小写并为未进服名字虚构档案。
+            UUID uuid = UUIDUtil.createOfflinePlayerUUID(name);
+            if (Files.isRegularFile(server.getWorldPath(LevelResource.PLAYER_DATA_DIR).resolve(uuid + ".dat"))) {
+                return new ResolvedTarget(uuid, name);
+            }
         }
-        return new ResolvedTarget(cached.get().getId(), cached.get().getName());
+        throw new SocialException("PLAYER_NOT_FOUND", "找不到该玩家");
     }
 
     private static JsonObject profileJson(SocialData.Profile profile, boolean online) {
@@ -503,7 +515,7 @@ public final class SocialActions {
         }
     }
 
-    /** 目标玩家解析结果；离线时从 GameProfileCache 取 UUID 与最新名字。 */
+    /** 目标玩家解析结果；离线服只接受原样名字对应的既有玩家存档。 */
     private record ResolvedTarget(UUID uuid, String name) {
     }
 }

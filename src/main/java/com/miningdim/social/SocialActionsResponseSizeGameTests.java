@@ -6,10 +6,13 @@ import com.google.gson.JsonParser;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.testutil.MockGameTestPlayers;
 import com.miningdim.webui.server.WebUiServerDispatcher;
+import com.miningdim.webui.server.WebUiBusinessException;
+import net.minecraft.core.UUIDUtil;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.storage.LevelResource;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -20,8 +23,10 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
 
-/** Social WebUI 回执编码体积与分页游标的 GameTest。 */
+/** Social WebUI 回执体积、分页游标和好友目标解析的 GameTest。 */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
 public final class SocialActionsResponseSizeGameTests {
@@ -174,6 +179,43 @@ public final class SocialActionsResponseSizeGameTests {
         });
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void friendRequestUsesExactOfflineNameAndRejectsUnknownNames(GameTestHelper helper) {
+        withStore(helper, (store, player) -> {
+            helper.assertTrue(!player.server.usesAuthentication(), "GameTest must exercise offline identity resolution");
+            String name = "Social" + UUID.randomUUID().toString().substring(0, 8);
+            UUID target = UUIDUtil.createOfflinePlayerUUID(name);
+            Path file = player.server.getWorldPath(LevelResource.PLAYER_DATA_DIR).resolve(target + ".dat");
+            Files.createDirectories(file.getParent());
+            Files.createFile(file);
+            try {
+                JsonObject payload = new JsonObject();
+                payload.addProperty("name", name);
+                handle("social.friend.request", player, payload);
+                helper.assertTrue(store.outgoingIds(player.getUUID()).equals(List.of(target))
+                                && store.incomingIds(target).equals(List.of(player.getUUID()))
+                                && name.equals(store.profile(target).name),
+                        "an uncached former player must receive the request at the exact-case offline UUID");
+                for (String unknown : List.of(name.toLowerCase(Locale.ROOT), name + "x")) {
+                    SocialActions.clearPlayerCooldowns(player.getUUID());
+                    payload.addProperty("name", unknown);
+                    try {
+                        handle("social.friend.request", player, payload);
+                        helper.fail("a name without player data must be rejected: " + unknown);
+                    } catch (WebUiBusinessException expected) {
+                        helper.assertTrue("PLAYER_NOT_FOUND".equals(expected.errorCode()),
+                                "unknown names must return PLAYER_NOT_FOUND");
+                    }
+                    helper.assertTrue(store.profile(UUIDUtil.createOfflinePlayerUUID(unknown)) == null
+                                    && store.outgoingIds(player.getUUID()).equals(List.of(target)),
+                            "rejected names must not create ghost profiles or friend requests");
+                }
+            } finally {
+                Files.delete(file);
+            }
+        });
+    }
+
     private static String momentId(long sequence) {
         return new java.util.UUID(0L, sequence).toString();
     }
@@ -231,6 +273,6 @@ public final class SocialActionsResponseSizeGameTests {
 
     @FunctionalInterface
     private interface StoreAction {
-        void run(SocialStore store, ServerPlayer player);
+        void run(SocialStore store, ServerPlayer player) throws IOException;
     }
 }

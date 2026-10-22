@@ -43,14 +43,6 @@ public final class SocialService {
         }
     }
 
-    /**
-     * 成就系统接入点：解锁一个非默认主题。只允许服务端成就结算调用，不暴露成 WebUI action；
-     * 重复调用幂等。
-     */
-    public static void unlockTheme(java.util.UUID player, String themeId) {
-        store().unlockTheme(player, themeId);
-    }
-
     /** GameTest / 离线验收入口；传 null 清除。 */
     public static void installForTests(SocialStore testStore) {
         store = testStore;

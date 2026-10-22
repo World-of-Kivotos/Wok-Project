@@ -197,7 +197,7 @@ public final class SocialDatabaseGameTests {
         helper.assertTrue(store.areFriends(ALPHA, BETA) && store.areFriends(BETA, ALPHA),
                 "migration must preserve both directions of the friendship");
         helper.assertTrue(store.theme(ALPHA).equals("abydos"), "migration must preserve the selected theme");
-        List<SocialData.Moment> moments = store.pageMoments(10, 0L);
+        List<SocialData.Moment> moments = store.pageMoments(10, 0L, "");
         helper.assertTrue(moments.size() == 1 && moments.get(0).comments.size() == 1
                         && moments.get(0).comments.get(0).text.equals("legacy comment"),
                 "migration must preserve the moment and its comment");

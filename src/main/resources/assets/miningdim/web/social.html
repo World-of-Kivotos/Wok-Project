@@ -85,7 +85,7 @@ body[data-theme="starlight"] .chat-pinned,body[data-theme="starlight"] .chat-tab
 body[data-theme="starlight"] .chat-tabs,body[data-theme="starlight"] .tabs{background:rgba(110,168,255,.08)}
 body[data-theme="starlight"] .statusbar .sb-brand,body[data-theme="starlight"] .sb-left b{color:#e8f2ff}
 body[data-theme="starlight"] .chat-dock .bubble,body[data-theme="starlight"] .thread-messages .bubble{box-shadow:none}
-body[data-theme="starlight"] .memory-grid .memory-empty,body[data-theme="starlight"] .profile-groups .group-chips span{background:rgba(110,168,255,.1)}
+body[data-theme="starlight"] .memory-grid .memory-empty{background:rgba(110,168,255,.1)}
 body[data-theme="starlight"] .theme-card{background:rgba(255,255,255,.06);border-color:rgba(110,168,255,.14)}
 body[data-theme="starlight"] .theme-card:hover{background:rgba(255,255,255,.11);border-color:rgba(110,168,255,.3)}
 body[data-theme="starlight"] .theme-card.active{border-color:var(--blue);box-shadow:0 0 0 2px rgba(110,168,255,.16)}
@@ -156,7 +156,7 @@ body[data-theme="starmaster"] .stage{background:
   linear-gradient(140deg,#02030a,#060a18 46%,#010206)}
 
 /* 面板 / 卡片：夜色玻璃，描金或描紫（不用 backdrop-filter，MCEF 里代价不可控） */
-body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) :is(.panel,.composer-card,.post-card,.mini-post,.chat-dock,.friend-chip,.home-gallery,.chat-peek,.profile-post,.memory-block,.recent-mini,.bond-card,.thread-panel,.channel-panel){
+body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) :is(.panel,.composer-card,.post-card,.mini-post,.chat-dock,.friend-chip,.home-gallery,.chat-peek,.profile-post,.thread-panel,.channel-panel){
   background:var(--sk-panel);border-color:var(--sk-line);color:var(--ink);
   box-shadow:0 18px 42px var(--sk-glow),inset 0 1px 0 rgba(255,255,255,.05)}
 body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) .rail{
@@ -195,7 +195,7 @@ body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]
 body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) .btn.primary{
   background:linear-gradient(180deg,var(--blue2),var(--blue));color:#120d24;box-shadow:0 8px 20px rgba(0,0,0,.45)}
 body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) .eyebrow{color:var(--muted)}
-body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) :is(.handle,.page-head .sub,.mini-body p,.friend-row-main small,.channel-copy small,.info-label,.bond-num,.birthday-copy,.stat-row,.trend-list,.suggest-list,.recent-row,.req-item,.list-foot){color:var(--ink2)}
+body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) :is(.handle,.page-head .sub,.mini-body p,.friend-row-main small,.channel-copy small,.info-label,.req-item,.list-foot){color:var(--ink2)}
 
 /* 聊天 / 说说 / 好友：气泡、输入框、标签页、列表选中态 */
 body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) :is(.chat-dock .bubble,.thread-messages .bubble,.chat-dock .chat-msg .bubble){
@@ -210,7 +210,7 @@ body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]
 body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) :is(.chat-tabs button,.tabs button,.channel-tabs button){color:var(--ink2)}
 body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) :is(.chat-tabs button.active,.tabs button.active,.channel-tabs button.active){background:rgba(255,255,255,.13);color:#fff;box-shadow:none}
 body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) :is(.chat-pinned,.channel-row.active,.friend-row.active){background:rgba(255,255,255,.09);color:var(--ink)}
-body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) :is(.channel-row,.friend-row,.suggest-item,.recent-row):hover{background:rgba(255,255,255,.06)}
+body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) :is(.channel-row,.friend-row):hover{background:rgba(255,255,255,.06)}
 body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) .thread-head{border-bottom-color:rgba(255,255,255,.08)}
 body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) .chat-pinned{border-color:var(--sk-line)}
 body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) .quote{border-left-color:var(--sk-rim);color:var(--ink2)}
@@ -226,10 +226,7 @@ body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]
 body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) .profile-art{
   background:radial-gradient(250px 180px at 48% 38%,rgba(130,110,230,.26),transparent 70%),linear-gradient(145deg,#141b36,#0a0f22)}
 body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) .profile-art::after{background:linear-gradient(90deg,transparent 58%,rgba(10,14,30,.94))}
-body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) .bond-card{background:linear-gradient(90deg,rgba(255,255,255,.06),rgba(255,255,255,.02))}
-body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) .bond-bar{background:rgba(255,255,255,.1)}
 body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) .memory-grid .memory-empty{background:rgba(255,255,255,.04);color:var(--faint)}
-body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) .group-chips span{color:var(--blue2);background:rgba(255,255,255,.06);border-color:var(--sk-line)}
 
 /* 拍照页：相机 UI 本来就是深色，只补文字与按钮 */
 body:is([data-theme="stardust"],[data-theme="shining"],[data-theme="starmaster"]) :is(.cam-title,.cam-pill,.camera-chips){color:var(--ink2)}
@@ -754,49 +751,27 @@ h1 em{font-style:normal;color:var(--blue)}
 .online-text{display:inline-flex;align-items:center;gap:4px;font-size:8px;color:#1ca87e;font-weight:600;background:rgba(85,214,176,.12);padding:3px 6px;border-radius:5px}
 .handle{font-size:8.5px;color:var(--muted);margin-top:6px}
 .quote{font-size:10.5px;line-height:1.55;color:var(--ink2);margin-top:10px;padding-left:9px;border-left:2px solid rgba(47,128,237,.28)}
-.stat-row{display:flex;gap:22px;margin-top:13px}
-.stat-row div{display:flex;flex-direction:column;gap:2px}
-.stat-row b{font-size:16px;line-height:1}
-.stat-row span{font-size:7px;color:var(--muted)}
 .profile-actions{display:flex;align-items:center;gap:7px;margin-top:auto;padding-top:11px}
 .profile-actions .btn{height:34px;font-size:10.5px;padding:0 14px}
-.profile-tabs{margin:0 18px;flex:none;height:42px}
 .profile-content{flex:1;min-height:0;overflow-y:auto;padding:10px 18px 16px;display:grid;grid-template-columns:1fr 1fr;gap:8px;align-content:start}
 .profile-post{display:flex;gap:8px;padding:8px;border-radius:12px;background:rgba(255,255,255,.6);border:1px solid rgba(255,255,255,.8);min-width:0}
 .profile-post .avatar{width:40px;height:40px;font-size:13px}
 .profile-post b{font-size:9px;display:block}
 .profile-post p{font-size:8px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .profile-post span{font-size:7px;color:var(--faint);display:block;margin-top:5px}
-.memory-block{grid-column:1/-1;border-radius:14px;background:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.8);padding:9px 10px 10px}
-.memory-head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:7px}
-.memory-head b{font-size:10px}
-.memory-head span{font-size:7px;color:var(--faint)}
 .memory-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
 .memory-grid div{height:74px;border-radius:8px;background:linear-gradient(145deg,#d8efff,#9bd2f8);display:grid;place-items:center;color:#fff;font-size:12px;font-weight:700;overflow:hidden}
 .memory-grid .memory-empty{grid-column:1/-1;height:64px;background:rgba(47,128,237,.045);color:var(--faint);font-size:8px;font-weight:500}
-.profile-groups{grid-column:1/-1;display:flex;align-items:center;gap:9px;margin-top:2px}
-.group-chips{display:flex;gap:4px;flex-wrap:wrap}
-.group-chips span{font-size:7px;color:var(--blue);background:rgba(47,128,237,.06);border:1px solid rgba(47,128,237,.07);border-radius:6px;padding:3px 6px;white-space:nowrap}
-.recent-mini{grid-column:1/-1;display:flex;flex-direction:column;gap:6px;padding:10px;border-radius:14px;background:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.8)}
-.recent-mini .recent-row{display:flex;align-items:center;gap:8px;font-size:8px;color:var(--ink2)}
-.recent-mini .recent-row b{font-size:9px;margin-right:auto}
-.bond-card{grid-column:1/-1;display:flex;align-items:center;gap:12px;border-radius:14px;padding:9px 12px;background:linear-gradient(90deg,rgba(47,128,237,.07),rgba(255,255,255,.35));border:1px solid rgba(47,128,237,.08)}
-.bond-copy{display:flex;flex-direction:column;gap:1px;width:150px;flex:none}
-.bond-copy b{font-size:10px}
-.bond-copy small{font-size:7px;color:var(--muted)}
-.bond-bar{flex:1;height:5px;border-radius:3px;background:rgba(47,128,237,.1);overflow:hidden}
-.bond-bar i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#5ab5ff,#2f80ed)}
-.bond-num{font-size:11px;color:var(--blue)}
-.side-stack{min-height:0;display:grid;grid-template-rows:auto auto minmax(0,1fr);gap:11px;padding-bottom:76px}
+.side-stack{min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr);gap:11px;padding-bottom:76px}
 .side-stack .panel{padding:12px 13px;min-height:0}
 .panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .panel-head h3{font-size:12px}
-.req-list,.suggest-list{display:flex;flex-direction:column;gap:7px}
-.req-item,.suggest-item{display:flex;align-items:center;gap:7px}
-.req-item .avatar,.suggest-item .avatar{width:30px;height:30px;font-size:11px}
-.req-item div,.suggest-item div{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
-.req-item b,.suggest-item b{font-size:9px}
-.req-item span,.suggest-item span{font-size:7px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.req-list{display:flex;flex-direction:column;gap:7px}
+.req-item{display:flex;align-items:center;gap:7px}
+.req-item .avatar{width:30px;height:30px;font-size:11px}
+.req-item div{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.req-item b{font-size:9px}
+.req-item span{font-size:7px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mini-btn{height:22px;padding:0 9px;border-radius:7px;font-size:7.5px;font-weight:700;background:rgba(47,128,237,.09);color:var(--blue);flex:none}
 .mini-btn.accept{background:var(--blue);color:#fff}
 .online-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px 4px}
@@ -807,7 +782,6 @@ h1 em{font-style:normal;color:var(--blue)}
 /* moments */
 .moments-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:16px;height:calc(100% - 78px);min-height:0}
 .feed-list{min-height:0;overflow-y:auto;padding-right:1px}
-.head-tabs{width:232px;height:34px;padding:3px;background:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.8);box-shadow:var(--soft)}
 .composer-card{width:100%;display:flex;align-items:center;gap:10px;min-height:78px;padding:12px 16px;margin-bottom:12px;border-radius:18px;background:rgba(255,255,255,.74);border:1px solid rgba(255,255,255,.92);box-shadow:var(--soft);text-align:left}
 .composer-copy{display:flex;flex-direction:column;gap:3px;flex:1;min-width:0}
 .composer-copy b{font-size:11px;color:var(--ink2)}
@@ -832,18 +806,8 @@ h1 em{font-style:normal;color:var(--blue)}
 .post-time{margin-left:auto;font-size:7px;color:var(--faint)}
 .post-comments{margin-top:8px;padding-top:8px;border-top:1px solid rgba(20,43,68,.055);display:flex;flex-direction:column;gap:3px;font-size:7.5px;color:var(--muted)}
 .post-comments b{color:var(--blue);font-weight:600}
-.moments-side{min-height:0;display:grid;grid-template-rows:auto auto auto minmax(0,1fr);gap:11px;padding-bottom:76px}
+.moments-side{min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr);gap:11px;padding-bottom:76px}
 .moments-side .panel{padding:12px 13px;min-height:0}
-.trend-list{display:flex;flex-direction:column;gap:2px}
-.trend-list button{display:grid;grid-template-columns:1fr auto;gap:2px 8px;padding:7px 6px;border-radius:8px;text-align:left}
-.trend-list b{font-size:8.5px;grid-column:1}
-.trend-list span{font-size:7px;color:var(--faint);grid-column:1}
-.trend-list em{grid-row:1/3;grid-column:2;align-self:center;font-style:normal;font-size:10px;color:rgba(47,128,237,.28)}
-.birthday-card{display:flex;gap:9px;align-items:center}
-.birthday-card .avatar{width:58px;height:78px;border-radius:10px;font-size:20px}
-.birthday-copy{display:flex;flex-direction:column;gap:2px}
-.birthday-copy b{font-size:11px}
-.birthday-copy small{font-size:7px;color:var(--muted)}
 
 /* photos */
 .screen-photos{padding:0}
@@ -1277,7 +1241,6 @@ body.opening-on{background:#061521}
           <div class="panel friend-profile" id="friendProfile"></div>
           <div class="side-stack">
             <div class="panel"><div class="panel-head"><h3>好友请求</h3><span class="mini-btn" id="requestRefresh">刷新</span></div><div class="req-list" id="incomingList"></div></div>
-            <div class="panel"><div class="panel-head"><h3>可能认识</h3><span class="mini-btn" id="suggestRefresh">换一批</span></div><div class="suggest-list" id="suggestList"></div></div>
             <div class="panel"><div class="panel-head"><h3>在线好友</h3><span style="font-size:8px;color:var(--muted)"><i class="live-dot"></i><span id="onlineCount2">0</span></span></div><div class="online-grid" id="onlineGrid"></div></div>
           </div>
         </div>
@@ -1286,7 +1249,7 @@ body.opening-on{background:#061521}
       <section class="screen" id="screen-moments">
         <header class="page-head">
           <div><div class="eyebrow">KIVOTOS <span style="color:var(--faint);margin:0 4px">/</span> MOMENTS</div><h1>说说</h1><p class="sub">把今天的心情，留在基沃托斯的某个角落。</p></div>
-          <div class="head-actions"><div class="tabs head-tabs"><button class="active">关注</button><button>推荐</button><button>同校</button></div><button class="btn primary" id="focusComposer"><svg class="icon"><use href="#i-sparkles"/></svg>发布说说</button></div>
+          <div class="head-actions"><button class="btn primary" id="focusComposer"><svg class="icon"><use href="#i-sparkles"/></svg>发布说说</button></div>
         </header>
         <div class="moments-layout">
           <div class="feed-list">
@@ -1303,8 +1266,6 @@ body.opening-on{background:#061521}
             <button class="btn ghost sm" id="loadMoreMoments" style="margin:12px auto 4px">加载更多</button>
           </div>
           <aside class="moments-side">
-            <div class="panel"><div class="panel-head"><h3>正在发生</h3><span style="font-size:6.5px;color:var(--coral)">LIVE</span></div><div class="trend-list"><button><b>#今日份的基沃托斯</b><span>今天的晚霞</span><em>01</em></button><button><b>#老师今天也很忙</b><span>又错过了饭点</span><em>02</em></button><button><b>#茶会时间</b><span>圣三一的午后</span><em>03</em></button></div></div>
-            <div class="panel"><div class="panel-head"><h3>今日寿星</h3></div><div class="birthday-card"><span class="avatar" style="--a:#ffc6dc;--b:#ff8fb1">S</span><div class="birthday-copy"><b>圣娅</b><small>圣三一 · 茶会主办者</small><span class="mini-btn" style="margin-top:4px">送祝福</span></div></div></div>
             <div class="panel"><div class="panel-head"><h3>相册</h3><span style="font-size:7px;color:var(--muted)" id="sidePhotoCount">0 张</span></div><div class="memory-grid" id="sidePhotos"></div></div>
             <div class="panel"><div class="panel-head"><h3>在线好友</h3><span style="font-size:8px;color:var(--muted)"><i class="live-dot"></i><span id="onlineCount3">0</span></span></div><div class="online-grid" id="momentsOnline"></div></div>
           </aside>
@@ -1379,7 +1340,7 @@ const DEFAULT_THEMES = [
   { id: 'abydos', name: '阿拜多斯 · 黄昏', subtitle: '暖橙与沙丘的放学后', unlockKey: '', unlocked: true, sw1: '#ffe4cf', sw2: '#dd7a4c' },
   { id: 'millennium', name: '千年 · 薄荷', subtitle: '冷青与实验白', unlockKey: '', unlocked: true, sw1: '#d8fff6', sw2: '#119e91' },
   { id: 'trinity', name: '圣三一 · 茶会', subtitle: '奶油、玫瑰与金色边', unlockKey: '', unlocked: true, sw1: '#ffeaf1', sw2: '#bd6388' },
-  { id: 'starlight', name: '星光 · 夜航', subtitle: '完成社交成就后解锁', unlockKey: 'achievement.social.starlight', unlocked: false, sw1: '#12314d', sw2: '#6ea8ff' },
+  { id: 'starlight', name: '星光 · 夜航', subtitle: '默认解锁 · 星光主题', unlockKey: '', unlocked: true, sw1: '#12314d', sw2: '#6ea8ff' },
   { id: 'stardust', name: '星屑', subtitle: '静态星尘 · 烫金卡框', unlockKey: 'miningdim:profession/tarot_stardust', unlocked: false, sw1: '#1a2148', sw2: '#c3b1ff', progress: { now: 0, max: 22, percent: 0, label: '0 / 22 张' } },
   { id: 'shining', name: '闪耀星辰', subtitle: '星点呼吸 · 扫光 · 全息卡边', unlockKey: 'miningdim:profession/tarot_shining', unlocked: false, sw1: '#12314d', sw2: '#ffcf76', progress: { now: 0, max: 1, percent: 0, label: '尚未获得闪耀' } },
   { id: 'starmaster', name: '星辰之主', subtitle: '视差星图 · 翻牌 · 洗牌', unlockKey: 'miningdim:profession/tarot_starmaster', unlocked: false, sw1: '#0a0d22', sw2: '#b79dff', progress: { now: 0, max: 220, percent: 0, label: '0 / 220' } }
@@ -1469,51 +1430,6 @@ function show(screen) {
 $$('[data-screen]').forEach((el) => el.addEventListener('click', () => show(el.dataset.screen)));
 $$('.rail-btn').forEach((el) => el.addEventListener('click', () => show(el.dataset.screen)));
 
-/* ---------- demo data for browser preview ---------- */
-function demoPhoto(a, b, accent, label) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450">
-  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs>
-  <rect width="800" height="450" fill="url(#g)"/>
-  <circle cx="620" cy="120" r="58" fill="${accent}" opacity=".85"/>
-  <rect x="0" y="300" width="800" height="150" fill="#234b62" opacity=".35"/>
-  <path d="M0 330 L120 280 L230 315 L340 265 L460 320 L590 270 L720 305 L800 290 L800 450 L0 450 Z" fill="#183f55" opacity=".75"/>
-  <path d="M0 370 L100 330 L190 360 L300 320 L420 365 L540 325 L650 355 L800 338 L800 450 L0 450 Z" fill="#0f2e41" opacity=".8"/>
-  <text x="34" y="54" fill="#ffffff" font-family="Segoe UI, sans-serif" font-size="18" letter-spacing="4" opacity=".85">KIVOTOS</text>
-  <text x="34" y="82" fill="#ffffff" font-family="Segoe UI, sans-serif" font-size="11" letter-spacing="2" opacity=".6">${label}</text>
-  <text x="34" y="410" fill="#ffffff" font-family="Segoe UI, sans-serif" font-size="10" letter-spacing="2" opacity=".55">18:42 / ABYDOS</text>
-  </svg>`;
-  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-}
-const DEMO = {
-  self: { uuid: 'demo-self', name: 'Sensei', signature: '今天也在基沃托斯。', academy: '联邦学生会' },
-  friends: [
-    { uuid: 'u1', name: '星野', online: true, academy: '阿拜多斯', signature: '大叔今天也很困。', lastMessage: '老师，布丁要化了哦。', lastTime: Date.now() - 120000, thread: 'dm:u1' },
-    { uuid: 'u2', name: '白子', online: true, academy: '阿拜多斯', signature: '晚霞……要一起去看吗？', lastMessage: '晚霞……要一起去看吗？', lastTime: Date.now() - 300000, thread: 'dm:u2' },
-    { uuid: 'u3', name: '优香', online: true, academy: '千年', signature: '请提交本月的预算表。', lastMessage: '预算表已经发到你邮箱了。', lastTime: Date.now() - 900000, thread: 'dm:u3' },
-    { uuid: 'u4', name: '未花', online: false, academy: '圣三一', signature: '茶会时间到。', lastMessage: '下次茶会，老师一定要来哦。', lastTime: Date.now() - 3600000, thread: 'dm:u4' },
-    { uuid: 'u5', name: '阿罗娜', online: true, academy: '联邦学生会', signature: '老师今天也要加油。', lastMessage: '照片整理好了！', lastTime: Date.now() - 600000, thread: 'dm:u5' },
-    { uuid: 'u6', name: '阿露', online: false, academy: '格黑娜', signature: '便利屋 68 正常营业。', lastMessage: '便利屋 68 今天也正常营业！', lastTime: Date.now() - 86400000, thread: 'dm:u6' }
-  ],
-  incoming: [{ uuid: 'u7', name: '圣娅', academy: '圣三一' }, { uuid: 'u8', name: '日富美', academy: '圣三一' }],
-  outgoing: [],
-  theme: 'halolink',
-  themes: DEFAULT_THEMES,
-  world: [
-    { id: 'm1', sender: 'u2', senderName: '白子', text: '有人一起去天台看晚霞吗？', createdAt: Date.now() - 400000 },
-    { id: 'm2', sender: 'u3', senderName: '优香', text: '提醒：今晚 19:00 预算会议。', createdAt: Date.now() - 300000 },
-    { id: 'm3', sender: 'u5', senderName: '阿罗娜', text: '老师，照片整理好了！', createdAt: Date.now() - 120000 }
-  ],
-  moments: [
-    { id: 'd1', author: 'u1', authorName: '星野', text: '今天的晚霞是橘子汽水味的。老师，要来天台吗？我带了两个布丁。', image: demoPhoto('#9ed8ff', '#f9c9d7', '#fff2c7', 'ABYDOS / SUNSET'), createdAt: Date.now() - 480000, likes: 12, liked: false, comments: [{ authorName: '白子', text: '布丁要化了。' }] },
-    { id: 'd2', author: 'u3', authorName: '优香', text: '重新算了一遍社团预算。结论：这个月谁再买没用的东西，就请自己向会计说明。', image: '', createdAt: Date.now() - 1500000, likes: 8, liked: false, comments: [] },
-    { id: 'd3', author: 'u5', authorName: '阿罗娜', text: '老师！今天的基沃托斯也很和平！我把今天的照片都整理好了。', image: demoPhoto('#b9e3ff', '#ffe0b8', '#fff6d8', 'KIVOTOS / EVENING'), createdAt: Date.now() - 3600000, likes: 21, liked: false, comments: [] }
-  ],
-  photos: [
-    { full: demoPhoto('#9ed8ff', '#f9c9d7', '#fff2c7', 'ABYDOS / SUNSET'), thumb: demoPhoto('#9ed8ff', '#f9c9d7', '#fff2c7', 'ABYDOS / SUNSET'), name: 'social-demo-01.png' },
-    { full: demoPhoto('#b9e3ff', '#ffe0b8', '#fff6d8', 'KIVOTOS / EVENING'), thumb: demoPhoto('#b9e3ff', '#ffe0b8', '#fff6d8', 'KIVOTOS / EVENING'), name: 'social-demo-02.png' }
-  ]
-};
-
 /* ---------- data ---------- */
 function applyBootstrap(data) {
   state.self = data.self || state.self;
@@ -1527,12 +1443,12 @@ function applyBootstrap(data) {
 }
 async function refreshAll(showToast) {
   if (!bridgeAvailable) {
-    applyBootstrap(DEMO);
-    state.moments = DEMO.moments.slice();
-    state.world = DEMO.world.slice();
-    state.photos = DEMO.photos.slice();
+    applyBootstrap({});
+    state.moments = [];
+    state.thread = [];
+    state.hasMore = false;
     renderAll();
-    if (showToast) toast('预览数据已刷新');
+    if (showToast) toast('浏览器预览没有服务器社交数据', 'x');
     return;
   }
   try {
@@ -1607,7 +1523,7 @@ function renderHomeChat() {
       <div class="bubble-wrap"><div class="msg-meta"><b>${esc(m.senderName)}</b><span>${timeText(m.createdAt)}</span></div><div class="bubble">${esc(m.text)}</div></div>
     </div>`).join('') || `<div style="font-size:9px;color:var(--faint);text-align:center;padding:20px">世界很安静。</div>`;
   $('#homeChat').scrollTop = $('#homeChat').scrollHeight;
-  $('#worldOnline').textContent = `${state.world.length} 条世界消息`;
+  $('#worldOnline').textContent = state.world.length ? `${state.world.length} 条已加载消息` : '世界频道';
 }
 function renderFriends() {
   const list = state.friendTab === 'request' ? [] : state.friends.filter((f) => state.friendTab === 'online' ? f.online : true);
@@ -1627,8 +1543,6 @@ function renderFriends() {
   $('#incomingList').innerHTML = state.incoming.map((f) => `
     <div class="req-item">${avatar(f.name, f.uuid)}<div><b>${esc(f.name)}</b><span>${esc(f.academy || '基沃托斯')}</span></div><button class="mini-btn accept" data-accept="${esc(f.uuid)}">接受</button></div>`).join('') || `<div style="font-size:8px;color:var(--faint)">暂无新的好友请求。</div>`;
   $$('#incomingList [data-accept]').forEach((el) => el.addEventListener('click', () => acceptFriend(el.dataset.accept)));
-  $('#suggestList').innerHTML = state.friends.slice(0, 3).map((f) => `
-    <div class="suggest-item">${avatar(f.name, f.uuid)}<div><b>${esc(f.name)}</b><span>${esc(f.academy || '基沃托斯')} · 已经是好友</span></div></div>`).join('') || `<div style="font-size:8px;color:var(--faint)">暂无更多推荐。</div>`;
   const online = state.friends.filter((f) => f.online);
   $('#onlineGrid').innerHTML = online.map((f) => `<div>${avatar(f.name, f.uuid, 'sm')}<span>${esc(f.name)}</span></div>`).join('') || `<div style="font-size:8px;color:var(--faint)">没有在线好友。</div>`;
   $('#momentsOnline').innerHTML = $('#onlineGrid').innerHTML;
@@ -1641,18 +1555,12 @@ function renderProfile() {
   $('#friendProfile').innerHTML = `
     <div class="profile-hero">
       <div class="profile-art">${avatar(f.name, f.uuid, 'xl')}</div>
-      <div class="profile-info"><div style="display:flex;gap:5px;margin-bottom:9px"><span class="chip blue">好友</span><span class="chip">${esc(f.academy || '基沃托斯')}</span></div><h2>${esc(f.name)} <span class="online-text"><i></i>${f.online ? '在线' : '离线'}</span></h2><p class="handle">@${esc((f.name || '').toLowerCase())} · ${esc(f.academy || '基沃托斯')}</p><p class="quote">“${esc(f.signature || '今天也在基沃托斯。')}”</p><div class="stat-row"><div><b>12</b><span>羁绊等级</span></div><div><b>${state.moments.filter((m) => m.author === f.uuid).length}</b><span>共同说说</span></div><div><b>${(f.lastMessage || '—').length}</b><span>最近消息</span></div></div><div class="profile-actions"><button class="btn primary" data-dm="${esc(f.uuid)}"><svg class="icon"><use href="#i-chat"/></svg>发消息</button><button class="btn ghost" data-photo-friend="${esc(f.uuid)}"><svg class="icon"><use href="#i-camera"/></svg>邀请拍照</button><button class="btn ghost" data-remove="${esc(f.uuid)}">删除好友</button></div></div>
+      <div class="profile-info"><div style="display:flex;gap:5px;margin-bottom:9px"><span class="chip blue">好友</span><span class="chip">${esc(f.academy || '基沃托斯')}</span></div><h2>${esc(f.name)} <span class="online-text"><i></i>${f.online ? '在线' : '离线'}</span></h2><p class="handle">@${esc((f.name || '').toLowerCase())} · ${esc(f.academy || '基沃托斯')}</p><p class="quote">“${esc(f.signature || '今天也在基沃托斯。')}”</p><div class="profile-actions"><button class="btn primary" data-dm="${esc(f.uuid)}"><svg class="icon"><use href="#i-chat"/></svg>发消息</button><button class="btn ghost" data-remove="${esc(f.uuid)}">删除好友</button></div></div>
     </div>
-    <div class="tabs profile-tabs"><button class="active">动态</button><button>相册</button><button>共同好友</button></div>
     <div class="profile-content">
-      ${(state.moments.filter((m) => m.author === f.uuid).slice(0, 4).map((m) => `<article class="profile-post">${avatar(f.name, f.uuid)}<div><b>${esc(m.text.slice(0, 20))}</b><p>${esc(m.text)}</p><span>${timeText(m.createdAt)} · ${m.likes || 0} 赞</span></div></article>`).join('')) || `<div style="grid-column:1/-1;font-size:9px;color:var(--faint);padding:10px">还没有共同说说。</div>`}
-      <div class="memory-block"><div class="memory-head"><b>共同回忆</b><span>${state.photos.length} 张照片</span></div><div class="memory-grid">${state.photos.length ? state.photos.slice(0, 5).map((p) => `<div style="background-image:url('${p.full}');background-size:cover;background-position:center"></div>`).join('') : `<div class="memory-empty">还没有共同照片，去拍一张吧。</div>`}</div></div>
-      <div class="bond-card"><div class="bond-copy"><b>羁绊等级 12</b><small>距离下一级还差 320 点</small></div><div class="bond-bar"><i style="width:68%"></i></div><b class="bond-num">68%</b></div>
-      <div class="profile-groups"><span class="eyebrow" style="font-size:6.5px">共同群组</span><div class="group-chips"><span># 阿拜多斯</span><span># 千年</span><span># 联邦学生会</span></div></div>
-      <div class="recent-mini"><div class="recent-row"><b>最近一起玩</b><span>${state.photos.length} 张照片 · ${timeText(f.lastTime)}</span></div><div class="recent-row"><b>最近私聊</b><span>${esc(f.lastMessage || '还没有消息')}</span></div><div class="recent-row"><b>共同好友</b><span>4 位在线</span></div></div>
+      ${(state.moments.filter((m) => m.author === f.uuid).slice(0, 4).map((m) => `<article class="profile-post">${avatar(f.name, f.uuid)}<div><b>${esc(m.text.slice(0, 20))}</b><p>${esc(m.text)}</p><span>${timeText(m.createdAt)} · ${m.likes || 0} 赞</span></div></article>`).join('')) || `<div style="grid-column:1/-1;font-size:9px;color:var(--faint);padding:10px">还没有动态。</div>`}
     </div>`;
   $$('#friendProfile [data-dm]').forEach((el) => el.addEventListener('click', () => { selectFriend(el.dataset.dm); show('chat'); }));
-  $$('#friendProfile [data-photo-friend]').forEach((el) => el.addEventListener('click', () => show('photos')));
   $$('#friendProfile [data-remove]').forEach((el) => el.addEventListener('click', () => removeFriend(el.dataset.remove)));
 }
 function renderMoments() {
@@ -1720,9 +1628,9 @@ function emptyThread(text) {
 function renderChatInfo() {
   const friend = state.friends.find((f) => f.uuid === state.activeFriend);
   if (state.activeThread === 'world' || !friend) {
-    $('#chatInfo').innerHTML = `<span class="avatar xl" style="--a:#5ab5ff;--b:#2f80ed">W</span><h3>世界频道</h3><p>基沃托斯所有玩家都能看到的公共频道。请保持友善。</p><div class="info-stats"><div><b>${state.world.length}</b><span>消息</span></div><div><b>${state.friends.filter((f) => f.online).length}</b><span>在线好友</span></div><div><b>24</b><span>今日活跃</span></div></div><div class="info-section"><div class="info-label">提示</div><div class="info-hint">中文输入会自动打开原生输入框，避免 MCEF 无法组字。Enter 发送，Esc 取消。</div></div>`;
+    $('#chatInfo').innerHTML = `<span class="avatar xl" style="--a:#5ab5ff;--b:#2f80ed">W</span><h3>世界频道</h3><p>基沃托斯所有玩家都能看到的公共频道。请保持友善。</p><div class="info-stats"><div><b>${state.world.length}</b><span>已加载消息</span></div><div><b>${state.friends.filter((f) => f.online).length}</b><span>在线好友</span></div></div><div class="info-section"><div class="info-label">提示</div><div class="info-hint">中文输入会自动打开原生输入框，避免 MCEF 无法组字。Enter 发送，Esc 取消。</div></div>`;
   } else {
-    $('#chatInfo').innerHTML = `${avatar(friend.name, friend.uuid, 'xl')}<h3>${esc(friend.name)}</h3><p>${esc(friend.academy || '基沃托斯')}<br>${esc(friend.signature || '今天也在基沃托斯。')}</p><div class="info-stats"><div><b>${friend.online ? '在线' : '离线'}</b><span>状态</span></div><div><b>${state.moments.filter((m) => m.author === friend.uuid).length}</b><span>说说</span></div><div><b>${state.photos.length}</b><span>照片</span></div></div><div class="info-section"><div class="info-label">操作</div><div class="info-hint">好友私聊只在双方是好友时开放。世界频道与私聊都会持久化到服务端存档。</div></div>`;
+    $('#chatInfo').innerHTML = `${avatar(friend.name, friend.uuid, 'xl')}<h3>${esc(friend.name)}</h3><p>${esc(friend.academy || '基沃托斯')}<br>${esc(friend.signature || '今天也在基沃托斯。')}</p><div class="info-stats"><div><b>${friend.online ? '在线' : '离线'}</b><span>当前状态</span></div></div><div class="info-section"><div class="info-label">操作</div><div class="info-hint">好友私聊只在双方是好友时开放。世界频道与私聊都会持久化到服务端存档。</div></div>`;
   }
 }
 function selectFriend(uuid) {
@@ -1742,7 +1650,6 @@ function selectWorld() {
 async function loadThread(friend) {
   state.thread = [];
   if (!bridgeAvailable) {
-    state.thread = [{ id: 't1', sender: friend.uuid, senderName: friend.name, text: '老师，今天也辛苦了。', createdAt: Date.now() - 600000 }];
     renderThread();
     return;
   }
@@ -1839,9 +1746,8 @@ async function sendChat() {
   const text = (input.value || '').trim();
   if (!text) return;
   if (!bridgeAvailable) {
-    const message = { id: 'local' + Date.now(), sender: state.self.uuid, senderName: state.self.name, text, createdAt: Date.now() };
-    if (state.activeThread === 'world') state.world.push(message); else state.thread.push(message);
-    input.value = ''; renderHome(); renderThread(); return;
+    toast('浏览器预览无法发送聊天消息', 'x');
+    return;
   }
   try {
     const payload = state.activeThread === 'world'
@@ -1973,8 +1879,8 @@ function sendHomeChat() {
   const text = (input.value || '').trim();
   if (!text) return;
   if (!bridgeAvailable) {
-    state.world.push({ id: 'local' + Date.now(), sender: state.self.uuid, senderName: state.self.name, text, createdAt: Date.now() });
-    input.value = ''; renderHomeChat(); return;
+    toast('浏览器预览无法发送聊天消息', 'x');
+    return;
   }
   call('social.chat.send', { thread: 'world', text }).then((result) => {
     input.value = '';
@@ -2750,7 +2656,6 @@ $('#settingsBtn').addEventListener('click', () => toast('设置面板将在后�
 $('#addFriendBtn').addEventListener('click', openAddFriendModal);
 $('#addFriendBtn2').addEventListener('click', openAddFriendModal);
 $('#requestRefresh').addEventListener('click', () => refreshAll(false));
-$('#suggestRefresh').addEventListener('click', () => toast('推荐将在后续版本加入', 'users'));
 $('#chatRefresh').addEventListener('click', () => { if (state.activeThread === 'world') selectWorldHistory(); else { const f = state.friends.find((x) => x.uuid === state.activeFriend); if (f) loadThread(f); } });
 $('#threadRefresh').addEventListener('click', () => { if (state.activeThread === 'world') selectWorldHistory(); else { const f = state.friends.find((x) => x.uuid === state.activeFriend); if (f) loadThread(f); } });
 $('#requestBadge').addEventListener('click', () => show('friends'));
@@ -2869,10 +2774,7 @@ function fit() {
 }
 fit(); window.addEventListener('resize', fit);
 updateClock(); setInterval(updateClock, 30000);
-applyBootstrap(DEMO);
-state.moments = DEMO.moments.slice();
-state.world = DEMO.world.slice();
-state.photos = bridgeAvailable ? [] : DEMO.photos.slice();
+applyBootstrap({});
 renderAll();
 const bootParams = new URLSearchParams(location.search);
 const startScreen = bootParams.get('screen');

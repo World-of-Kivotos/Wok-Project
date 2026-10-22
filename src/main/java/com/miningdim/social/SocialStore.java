@@ -388,11 +388,6 @@ public final class SocialStore implements AutoCloseable {
         return messageHistory("direct", threadKey(a, b), limit);
     }
 
-    /** 按时间倒序取一页动态；before=0 表示从最新开始。 */
-    public synchronized List<SocialData.Moment> pageMoments(int limit, long before) {
-        return pageMoments(limit, before, "");
-    }
-
     public synchronized List<SocialData.Moment> pageMoments(int limit, long before, String beforeId) {
         requireLoaded();
         List<SocialData.Moment> result = new ArrayList<>();

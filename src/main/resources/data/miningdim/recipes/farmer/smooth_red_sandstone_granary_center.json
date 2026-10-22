@@ -1,0 +1,36 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "minecraft:chest"
+    },
+    {
+      "item": "minecraft:book"
+    },
+    {
+      "item": "minecraft:smooth_red_sandstone"
+    },
+    {
+      "item": "minecraft:smooth_red_sandstone"
+    },
+    {
+      "item": "minecraft:smooth_red_sandstone"
+    },
+    {
+      "item": "minecraft:smooth_red_sandstone"
+    },
+    {
+      "item": "minecraft:wheat"
+    },
+    {
+      "item": "minecraft:wheat"
+    },
+    {
+      "item": "minecraft:wheat"
+    }
+  ],
+  "result": {
+    "item": "miningdim:smooth_red_sandstone_granary_center"
+  }
+}

@@ -1,0 +1,322 @@
+[
+  {
+    "id": "oak",
+    "kind": "wood",
+    "zh": "橡木",
+    "en": "Oak",
+    "ingredient": "minecraft:oak_planks",
+    "wood": "minecraft:block/oak_planks",
+    "trim": "minecraft:block/stripped_oak_log",
+    "trim_top": "minecraft:block/stripped_oak_log_top"
+  },
+  {
+    "id": "spruce",
+    "kind": "wood",
+    "zh": "云杉木",
+    "en": "Spruce",
+    "ingredient": "minecraft:spruce_planks",
+    "wood": "minecraft:block/spruce_planks",
+    "trim": "minecraft:block/stripped_spruce_log",
+    "trim_top": "minecraft:block/stripped_spruce_log_top"
+  },
+  {
+    "id": "birch",
+    "kind": "wood",
+    "zh": "白桦木",
+    "en": "Birch",
+    "ingredient": "minecraft:birch_planks",
+    "wood": "minecraft:block/birch_planks",
+    "trim": "minecraft:block/stripped_birch_log",
+    "trim_top": "minecraft:block/stripped_birch_log_top"
+  },
+  {
+    "id": "jungle",
+    "kind": "wood",
+    "zh": "丛林木",
+    "en": "Jungle",
+    "ingredient": "minecraft:jungle_planks",
+    "wood": "minecraft:block/jungle_planks",
+    "trim": "minecraft:block/stripped_jungle_log",
+    "trim_top": "minecraft:block/stripped_jungle_log_top"
+  },
+  {
+    "id": "acacia",
+    "kind": "wood",
+    "zh": "金合欢木",
+    "en": "Acacia",
+    "ingredient": "minecraft:acacia_planks",
+    "wood": "minecraft:block/acacia_planks",
+    "trim": "minecraft:block/stripped_acacia_log",
+    "trim_top": "minecraft:block/stripped_acacia_log_top"
+  },
+  {
+    "id": "dark_oak",
+    "kind": "wood",
+    "zh": "深色橡木",
+    "en": "Dark Oak",
+    "ingredient": "minecraft:dark_oak_planks",
+    "wood": "minecraft:block/dark_oak_planks",
+    "trim": "minecraft:block/stripped_dark_oak_log",
+    "trim_top": "minecraft:block/stripped_dark_oak_log_top"
+  },
+  {
+    "id": "mangrove",
+    "kind": "wood",
+    "zh": "红树木",
+    "en": "Mangrove",
+    "ingredient": "minecraft:mangrove_planks",
+    "wood": "minecraft:block/mangrove_planks",
+    "trim": "minecraft:block/stripped_mangrove_log",
+    "trim_top": "minecraft:block/stripped_mangrove_log_top"
+  },
+  {
+    "id": "cherry",
+    "kind": "wood",
+    "zh": "樱花木",
+    "en": "Cherry",
+    "ingredient": "minecraft:cherry_planks",
+    "wood": "minecraft:block/cherry_planks",
+    "trim": "minecraft:block/stripped_cherry_log",
+    "trim_top": "minecraft:block/stripped_cherry_log_top"
+  },
+  {
+    "id": "bamboo",
+    "kind": "wood",
+    "zh": "竹",
+    "en": "Bamboo",
+    "ingredient": "minecraft:bamboo_planks",
+    "wood": "minecraft:block/bamboo_planks",
+    "trim": "minecraft:block/stripped_bamboo_block",
+    "trim_top": "minecraft:block/stripped_bamboo_block_top"
+  },
+  {
+    "id": "crimson",
+    "kind": "wood",
+    "zh": "绯红木",
+    "en": "Crimson",
+    "ingredient": "minecraft:crimson_planks",
+    "wood": "minecraft:block/crimson_planks",
+    "trim": "minecraft:block/stripped_crimson_stem",
+    "trim_top": "minecraft:block/stripped_crimson_stem_top"
+  },
+  {
+    "id": "warped",
+    "kind": "wood",
+    "zh": "诡异木",
+    "en": "Warped",
+    "ingredient": "minecraft:warped_planks",
+    "wood": "minecraft:block/warped_planks",
+    "trim": "minecraft:block/stripped_warped_stem",
+    "trim_top": "minecraft:block/stripped_warped_stem_top"
+  },
+  {
+    "id": "quartz",
+    "kind": "stone",
+    "zh": "石英",
+    "en": "Quartz",
+    "ingredient": "minecraft:quartz_block",
+    "wood": "minecraft:block/quartz_block_side",
+    "trim": "minecraft:block/quartz_block_side",
+    "trim_top": "minecraft:block/quartz_block_top",
+    "wood_top": "minecraft:block/quartz_block_top",
+    "wood_bottom": "minecraft:block/quartz_block_bottom"
+  },
+  {
+    "id": "smooth_quartz",
+    "kind": "stone",
+    "zh": "平滑石英",
+    "en": "Smooth Quartz",
+    "ingredient": "minecraft:smooth_quartz",
+    "wood": "minecraft:block/quartz_block_bottom",
+    "trim": "minecraft:block/quartz_block_bottom",
+    "trim_top": "minecraft:block/quartz_block_bottom"
+  },
+  {
+    "id": "stone",
+    "kind": "stone",
+    "zh": "石头",
+    "en": "Stone",
+    "ingredient": "minecraft:stone",
+    "wood": "minecraft:block/stone",
+    "trim": "minecraft:block/stone",
+    "trim_top": "minecraft:block/stone"
+  },
+  {
+    "id": "smooth_stone",
+    "kind": "stone",
+    "zh": "平滑石头",
+    "en": "Smooth Stone",
+    "ingredient": "minecraft:smooth_stone",
+    "wood": "minecraft:block/smooth_stone",
+    "trim": "minecraft:block/smooth_stone",
+    "trim_top": "minecraft:block/smooth_stone"
+  },
+  {
+    "id": "cobblestone",
+    "kind": "stone",
+    "zh": "圆石",
+    "en": "Cobblestone",
+    "ingredient": "minecraft:cobblestone",
+    "wood": "minecraft:block/cobblestone",
+    "trim": "minecraft:block/cobblestone",
+    "trim_top": "minecraft:block/cobblestone"
+  },
+  {
+    "id": "mossy_cobblestone",
+    "kind": "stone",
+    "zh": "苔石",
+    "en": "Mossy Cobblestone",
+    "ingredient": "minecraft:mossy_cobblestone",
+    "wood": "minecraft:block/mossy_cobblestone",
+    "trim": "minecraft:block/mossy_cobblestone",
+    "trim_top": "minecraft:block/mossy_cobblestone"
+  },
+  {
+    "id": "stone_bricks",
+    "kind": "stone",
+    "zh": "石砖",
+    "en": "Stone Bricks",
+    "ingredient": "minecraft:stone_bricks",
+    "wood": "minecraft:block/stone_bricks",
+    "trim": "minecraft:block/stone_bricks",
+    "trim_top": "minecraft:block/stone_bricks"
+  },
+  {
+    "id": "mossy_stone_bricks",
+    "kind": "stone",
+    "zh": "苔石砖",
+    "en": "Mossy Stone Bricks",
+    "ingredient": "minecraft:mossy_stone_bricks",
+    "wood": "minecraft:block/mossy_stone_bricks",
+    "trim": "minecraft:block/mossy_stone_bricks",
+    "trim_top": "minecraft:block/mossy_stone_bricks"
+  },
+  {
+    "id": "bricks",
+    "kind": "stone",
+    "zh": "砖块",
+    "en": "Bricks",
+    "ingredient": "minecraft:bricks",
+    "wood": "minecraft:block/bricks",
+    "trim": "minecraft:block/bricks",
+    "trim_top": "minecraft:block/bricks"
+  },
+  {
+    "id": "deepslate",
+    "kind": "stone",
+    "zh": "深板岩",
+    "en": "Deepslate",
+    "ingredient": "minecraft:deepslate",
+    "wood": "minecraft:block/deepslate",
+    "trim": "minecraft:block/deepslate",
+    "trim_top": "minecraft:block/deepslate_top",
+    "wood_top": "minecraft:block/deepslate_top",
+    "wood_bottom": "minecraft:block/deepslate_top"
+  },
+  {
+    "id": "cobbled_deepslate",
+    "kind": "stone",
+    "zh": "深板岩圆石",
+    "en": "Cobbled Deepslate",
+    "ingredient": "minecraft:cobbled_deepslate",
+    "wood": "minecraft:block/cobbled_deepslate",
+    "trim": "minecraft:block/cobbled_deepslate",
+    "trim_top": "minecraft:block/cobbled_deepslate"
+  },
+  {
+    "id": "deepslate_bricks",
+    "kind": "stone",
+    "zh": "深板岩砖",
+    "en": "Deepslate Bricks",
+    "ingredient": "minecraft:deepslate_bricks",
+    "wood": "minecraft:block/deepslate_bricks",
+    "trim": "minecraft:block/deepslate_bricks",
+    "trim_top": "minecraft:block/deepslate_bricks"
+  },
+  {
+    "id": "deepslate_tiles",
+    "kind": "stone",
+    "zh": "深板岩瓦",
+    "en": "Deepslate Tiles",
+    "ingredient": "minecraft:deepslate_tiles",
+    "wood": "minecraft:block/deepslate_tiles",
+    "trim": "minecraft:block/deepslate_tiles",
+    "trim_top": "minecraft:block/deepslate_tiles"
+  },
+  {
+    "id": "blackstone",
+    "kind": "stone",
+    "zh": "黑石",
+    "en": "Blackstone",
+    "ingredient": "minecraft:blackstone",
+    "wood": "minecraft:block/blackstone",
+    "trim": "minecraft:block/blackstone",
+    "trim_top": "minecraft:block/blackstone_top",
+    "wood_top": "minecraft:block/blackstone_top",
+    "wood_bottom": "minecraft:block/blackstone_top"
+  },
+  {
+    "id": "polished_blackstone",
+    "kind": "stone",
+    "zh": "磨制黑石",
+    "en": "Polished Blackstone",
+    "ingredient": "minecraft:polished_blackstone",
+    "wood": "minecraft:block/polished_blackstone",
+    "trim": "minecraft:block/polished_blackstone",
+    "trim_top": "minecraft:block/polished_blackstone"
+  },
+  {
+    "id": "polished_blackstone_bricks",
+    "kind": "stone",
+    "zh": "磨制黑石砖",
+    "en": "Polished Blackstone Bricks",
+    "ingredient": "minecraft:polished_blackstone_bricks",
+    "wood": "minecraft:block/polished_blackstone_bricks",
+    "trim": "minecraft:block/polished_blackstone_bricks",
+    "trim_top": "minecraft:block/polished_blackstone_bricks"
+  },
+  {
+    "id": "sandstone",
+    "kind": "stone",
+    "zh": "砂岩",
+    "en": "Sandstone",
+    "ingredient": "minecraft:sandstone",
+    "wood": "minecraft:block/sandstone",
+    "trim": "minecraft:block/sandstone",
+    "trim_top": "minecraft:block/sandstone_top",
+    "wood_top": "minecraft:block/sandstone_top",
+    "wood_bottom": "minecraft:block/sandstone_bottom"
+  },
+  {
+    "id": "smooth_sandstone",
+    "kind": "stone",
+    "zh": "平滑砂岩",
+    "en": "Smooth Sandstone",
+    "ingredient": "minecraft:smooth_sandstone",
+    "wood": "minecraft:block/sandstone_top",
+    "trim": "minecraft:block/sandstone_top",
+    "trim_top": "minecraft:block/sandstone_top"
+  },
+  {
+    "id": "red_sandstone",
+    "kind": "stone",
+    "zh": "红砂岩",
+    "en": "Red Sandstone",
+    "ingredient": "minecraft:red_sandstone",
+    "wood": "minecraft:block/red_sandstone",
+    "trim": "minecraft:block/red_sandstone",
+    "trim_top": "minecraft:block/red_sandstone_top",
+    "wood_top": "minecraft:block/red_sandstone_top",
+    "wood_bottom": "minecraft:block/red_sandstone_bottom"
+  },
+  {
+    "id": "smooth_red_sandstone",
+    "kind": "stone",
+    "zh": "平滑红砂岩",
+    "en": "Smooth Red Sandstone",
+    "ingredient": "minecraft:smooth_red_sandstone",
+    "wood": "minecraft:block/red_sandstone_top",
+    "trim": "minecraft:block/red_sandstone_top",
+    "trim_top": "minecraft:block/red_sandstone_top"
+  }
+]

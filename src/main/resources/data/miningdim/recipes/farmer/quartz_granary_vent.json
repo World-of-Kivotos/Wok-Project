@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "S",
+    "S"
+  ],
+  "key": {
+    "S": {
+      "item": "minecraft:quartz_block"
+    }
+  },
+  "result": {
+    "item": "miningdim:quartz_granary_vent",
+    "count": 2
+  }
+}

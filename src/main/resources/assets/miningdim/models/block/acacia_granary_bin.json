@@ -1,9 +1,5 @@
 {
-  "parent": "miningdim:block/granary/template_bin",
   "textures": {
-    "wood": "minecraft:block/acacia_planks",
-    "trim": "minecraft:block/stripped_acacia_log",
-    "trim_top": "minecraft:block/stripped_acacia_log_top",
     "particle": "minecraft:block/acacia_planks"
   }
 }

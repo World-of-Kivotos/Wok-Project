@@ -35,16 +35,16 @@ public final class GranaryWoodVariantGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void everyWoodVariantHasBothEntityTypesAndKeepsInventoryOnSave(GameTestHelper helper) {
         for (int index = 0; index < GranaryBlocks.WOOD_VARIANTS.size(); index++) {
-            GranaryBlocks.WoodVariant variant = GranaryBlocks.WOOD_VARIANTS.get(index);
+            GranaryBlocks.MaterialVariant variant = GranaryBlocks.WOOD_VARIANTS.get(index);
             BlockPos binPos = new BlockPos(index * 3, 1, 32);
             BlockPos centerPos = new BlockPos(index * 3, 1, 34);
             helper.setBlock(binPos, variant.bin().get());
             helper.setBlock(centerPos, variant.center().get());
 
             helper.assertTrue(helper.getLevel().getBlockEntity(helper.absolutePos(binPos))
-                    instanceof GranaryBinBlockEntity, variant.wood() + " 储粮囤创建了方块实体");
+                    instanceof GranaryBinBlockEntity, variant.material() + " 储粮囤创建了方块实体");
             helper.assertTrue(helper.getLevel().getBlockEntity(helper.absolutePos(centerPos))
-                    instanceof GranaryCenterBlockEntity, variant.wood() + " 账台创建了方块实体");
+                    instanceof GranaryCenterBlockEntity, variant.material() + " 账台创建了方块实体");
             GranaryBinBlockEntity bin = (GranaryBinBlockEntity) helper.getLevel()
                     .getBlockEntity(helper.absolutePos(binPos));
             bin.setItem(0, new ItemStack(Items.WHEAT, index + 1));
@@ -53,7 +53,7 @@ public final class GranaryWoodVariantGameTests {
             reloaded.load(saved);
             helper.assertTrue(reloaded.getItem(0).is(Items.WHEAT)
                             && reloaded.getItem(0).getCount() == index + 1,
-                    variant.wood() + " 方块实体库存存读一致");
+                    variant.material() + " 方块实体库存存读一致");
         }
         helper.assertTrue(GranaryBlocks.WOOD_VARIANTS.size() == 11, "登记了 11 种木材");
         helper.succeed();
@@ -63,7 +63,7 @@ public final class GranaryWoodVariantGameTests {
     public static void mixedWoodBinsAreCountedAsOneGranaryStructure(GameTestHelper helper) {
         int slot = 0;
         buildRoom(helper, slot);
-        List<GranaryBlocks.WoodVariant> woods = GranaryBlocks.WOOD_VARIANTS;
+        List<GranaryBlocks.MaterialVariant> woods = GranaryBlocks.WOOD_VARIANTS;
         helper.setBlock(center(slot), woods.get(0).center().get());
         helper.setBlock(bin(slot, LOW, LOW), woods.get(0).bin().get());
         helper.setBlock(bin(slot, HIGH, HIGH), woods.get(2).bin().get());
@@ -82,7 +82,7 @@ public final class GranaryWoodVariantGameTests {
     public static void packedWoodVariantKeepsItsItemAndQuotaAccounting(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         GranarySavedData data = GranarySavedData.get(level);
-        GranaryBlocks.WoodVariant variant = GranaryBlocks.WOOD_VARIANTS.get(10);
+        GranaryBlocks.MaterialVariant variant = GranaryBlocks.WOOD_VARIANTS.get(10);
         BlockPos relative = new BlockPos(65, 1, 1);
         BlockPos pos = helper.absolutePos(relative);
         helper.setBlock(relative, variant.bin().get());

@@ -178,7 +178,10 @@ public final class MiningDim {
         //      排在 WebUiServerSubsystem (第 25) 之后、任何称号调用方之前 (Title_System_DesignSpec 第二章):
         //      "我的称号"页签 (P2) 将在 register 期向派发器登记 title.* action。
         subsystems.add(new com.miningdim.title.TitleSystem());
-        // 25b. CS2 式开箱服务端: 双货币幂等扣款 + SQLite Saga/皮肤归属 + case.* WebUI action + TaCZ 主手授权。
+        // 25b. 社交平板服务端: 好友/说说/聊天 SQLite 增量存储 + social.* WebUI action (服务端权威, 无 MCEF)。
+        //      须在 WebUiServerSubsystem 之后 (复用其建立的动作注册表), 生命周期事件在其 register 内订阅。
+        subsystems.add(new com.miningdim.social.SocialSystem());
+        // 25c. CS2 式开箱服务端: 双货币幂等扣款 + SQLite Saga/皮肤归属 + case.* WebUI action + TaCZ 主手授权。
         //      须排在 EconomySystem 与 WebUiServerSubsystem 之后, 运行期只经两者公开门面协作。
         subsystems.add(new com.miningdim.caseopening.CaseOpeningSystem());
         // 26. 跳蚤市场服务端 (服务端权威 P2P 交易通道, 纯服务端无 MCEF): SQLite 托管挂单/流水/离线待结 +

@@ -923,7 +923,9 @@
       "currentPaths": [
         "social"
       ],
-      "resourcePaths": [],
+      "resourcePaths": [
+        "assets/miningdim/web/social.html"
+      ],
       "resourceNamePrefixes": [],
       "dependencies": [
         "wok-core",
@@ -934,8 +936,8 @@
       "optionalIntegrations": [
         "mcef"
       ],
-      "publicEntry": "com.miningdim.social.SocialStore",
-      "scope": "Server-authoritative social data model and SQLite storage with seven-day history retention; lifecycle and client entry points follow in the stack."
+      "publicEntry": "com.miningdim.social.SocialSystem",
+      "scope": "HaloLink social tablet: server-authoritative friends and themes, background incremental SQLite persistence with seven-day chat/moment/comment retention, bounded social.* WebUI responses and composite moment cursors, plus the client-side take-out tablet 3D animation, camera mode and the embedded social.html page"
     }
   ],
   "boundaryExceptions": [

@@ -73,31 +73,72 @@ jobs:
         with:
           node-version: '22'
 
-      # libs/ 下的 TACZ、Champions、MCEF jar 不入库, 没有它们主工程编译不了。
-      # 配了 WOK_LIBS_ARCHIVE_URL(一个只含这三个 jar 的 zip 的私有下载地址)才能在 CI 里编译和跑 GameTest;
-      # 没配时 Claude 只做静态审查, 改 Java 的修复无法验证, 一律交给维护者。
-      - name: 还原第三方 libs
-        id: libs
-        env:
-          LIBS_URL: ${{ secrets.WOK_LIBS_ARCHIVE_URL }}
+      # libs/ 下的 jar 不入库, 没有它们主工程编译不了。这里按固定的 SHA256 从 Modrinth 官方 CDN 补全并缓存:
+      # TACZ、Champions 与维护者本机 libs 里的逐字节一致; Farmer's Delight 1.3.2 是开发期依赖, build.gradle 在它存在时加载。
+      # MCEF 维护者本机用的是自编的 2.1.6-1.20.1-wok.1, 网上没有, 这里用上游 2.1.6: 两者公开 API 只差 wok.1 新增的共享纹理、
+      # 渲染模式与音频回调, 主工程目前没用到; 用到这些接口的改动合入前, 要把这一行换成自托管的 wok.1, 否则这里编译不过。
+      # 缓存在任何 PR 代码运行之前保存, 存进去的都是校验过的原件; 命中缓存也逐个重新校验。
+      - name: 列出固定版本的第三方 libs
+        id: libs-pins
         run: |
-          if [ -z "$LIBS_URL" ]; then
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::未配置 WOK_LIBS_ARCHIVE_URL, 主工程无法编译, 本轮只做静态审查"
-            exit 0
-          fi
-          mkdir -p libs
-          curl -fsSL "$LIBS_URL" -o "$RUNNER_TEMP/libs.zip"
-          unzip -o -q -j "$RUNNER_TEMP/libs.zip" -d libs
-          for jar in tacz-1.20.1-1.1.8-hotfix.jar champions-forge-1.20.1-2.1.10.2.jar mcef-forge-2.1.6-1.20.1.jar; do
-            if [ ! -f "libs/$jar" ]; then
-              echo "::error::libs 压缩包里缺 $jar, 与 build.gradle 的 compileOnly 声明对不上"
-              exit 1
+          # 每行: SHA256 文件名 下载地址
+          cat > "$RUNNER_TEMP/wok-libs.txt" <<'PINS'
+          9ed8ada1283ed7a793a70cc1b51c4a340f367ce84707e1a7b8cf21ee3d288d77 tacz-1.20.1-1.1.8-hotfix.jar https://cdn.modrinth.com/data/SzzJttH8/versions/yOVIzIJR/tacz-1.20.1-1.1.8-hotfix.jar
+          34de32fabc623d23c22fa98fa49ec92cd5bf8e1b78b8e5d5e520b739e7208696 champions-forge-1.20.1-2.1.10.2.jar https://cdn.modrinth.com/data/VJZc5cJx/versions/lC2uBBu2/champions-forge-1.20.1-2.1.10.2.jar
+          5c462342264ac89597891d5d4bcdf6b8134ce4cc5dd97894dbd87ecc197f0cb3 mcef-forge-2.1.6-1.20.1.jar https://cdn.modrinth.com/data/TObQ0HxZ/versions/x91l6OKB/mcef-forge-2.1.6-1.20.1.jar
+          47aed94bb9192c4978fe199f9d3ca5895aeccfbe5b5a0869fdf3aa011c2641f7 FarmersDelight-1.20.1-1.3.2.jar https://cdn.modrinth.com/data/R2OftAxM/versions/CsjS7EkP/FarmersDelight-1.20.1-1.3.2.jar
+          PINS
+          echo "key=wok-libs-$(sha256sum "$RUNNER_TEMP/wok-libs.txt" | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+      - name: 还原第三方 libs 缓存
+        id: libs-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.cache/wok-ci/libs
+          key: ${{ steps.libs-pins.outputs.key }}
+
+      # 下载重试后仍失败(CDN 故障)时降级为静态审查并打 ci:static-only; 哈希对不上则直接判红, 不拿来路不明的 jar 编译。
+      - name: 补全第三方 libs
+        id: libs
+        run: |
+          cache="$HOME/.cache/wok-ci/libs"
+          mkdir -p "$cache" libs
+          ready=true
+          while read -r checksum jar url; do
+            target="$cache/$jar"
+            if [ -f "$target" ] && ! printf '%s  %s\n' "$checksum" "$target" | sha256sum --check --status; then
+              echo "::warning::缓存里的 $jar 与固定的 SHA256 不符, 删掉重新下载"
+              rm -f "$target"
             fi
-          done
-          mkdir -p standalone/kivotos-armorer/libs
-          cp libs/tacz-1.20.1-1.1.8-hotfix.jar standalone/kivotos-armorer/libs/
-          echo "ready=true" >> "$GITHUB_OUTPUT"
+            if [ ! -f "$target" ]; then
+              # 不设 --retry-delay: curl 按指数退避重试, 遇到 429/503 照服务端给的 Retry-After 等。
+              if ! curl --fail --location --silent --show-error --retry 8 --retry-max-time 600 --connect-timeout 30 \
+                  "$url" -o "$target.part"; then
+                rm -f "$target.part"
+                echo "::warning::$jar 重试后仍下载失败, 主工程无法编译, 本轮只做静态审查"
+                ready=false
+                continue
+              fi
+              if ! printf '%s  %s\n' "$checksum" "$target.part" | sha256sum --check --status; then
+                echo "::error::下载的 $jar 与固定的 SHA256 不符: 来源文件被替换, 或固定的哈希写错了"
+                exit 1
+              fi
+              mv "$target.part" "$target"
+            fi
+            cp "$target" "libs/$jar"
+          done < "$RUNNER_TEMP/wok-libs.txt"
+          if [ "$ready" = true ]; then
+            mkdir -p standalone/kivotos-armorer/libs
+            cp libs/tacz-1.20.1-1.1.8-hotfix.jar standalone/kivotos-armorer/libs/
+          fi
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+
+      - name: 保存第三方 libs 缓存
+        if: steps.libs-cache.outputs.cache-hit != 'true' && steps.libs.outputs.ready == 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.cache/wok-ci/libs
+          key: ${{ steps.libs-pins.outputs.key }}
 
       # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB 依赖 bubblewrap, 没有它 Claude Code 直接拒绝启动。
       # action 只在设置了 allowed_non_write_users 时才自己装, 这里是手动开的隔离, 所以照它的做法补装:
@@ -182,7 +223,7 @@ jobs:
             echo "$summary" > "$report"
           elif [ ! -f standalone/kivotos-armorer/libs/tacz-1.20.1-1.1.8-hotfix.jar ]; then
             summary="缺 libs, 未构建"
-            echo "$summary: standalone/kivotos-armorer/libs/tacz-1.20.1-1.1.8-hotfix.jar 不存在(未配置 WOK_LIBS_ARCHIVE_URL), 子工程在本 CI 里编译不了" > "$report"
+            echo "$summary: standalone/kivotos-armorer/libs/tacz-1.20.1-1.1.8-hotfix.jar 不存在(第三方 libs 下载失败), 子工程在本 CI 里编译不了" > "$report"
             echo "::warning::PR 改动了 standalone/kivotos-armorer/, 但缺 TACZ jar, 未构建"
           else
             started=$(date +%s)

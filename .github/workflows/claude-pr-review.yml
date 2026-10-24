@@ -8,12 +8,20 @@ name: Claude PR 审查
 #
 # 拆成两个 job 是为了让 Claude 碰不到可写凭据: review 只拿只读 token, 跑 PR 代码、本地提交、产出结构化结论;
 # publish 不检出 PR 代码执行, 由 claude-code-action 换到 Claude GitHub App 的令牌, 再让 Claude 原样执行
-# base 分支上的 .github/scripts/claude_publish.py, 所以推送、评论、标签都以 claude[bot] 身份出现。
+# 默认分支上的 .github/scripts/claude_publish.py, 所以推送、评论、标签都以 claude[bot] 身份出现。
 # App 令牌的推送会再触发本工作流, review 只认真人触发, 不会循环。
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+
+# claude-code-action 自带的安装脚本在短时间连开多个 PR 时会被限流(429), 重试三次仍失败就整轮作废(PR #84-#86)。
+# 两个 job 都改为自己从官方直链装固定版本, 经 path_to_claude_code_executable 交给 action, review 装完即存缓存, publish 直接取。
+# 版本是 action v1.0.245 默认安装的那一版; SHA256 取自官方 manifest
+# (downloads.claude.ai/claude-code-releases/<版本>/manifest.json 的 linux-x64 条目), 升级 action 时两项一并核对。
+env:
+  WOK_CLAUDE_CODE_VERSION: 2.1.293
+  WOK_CLAUDE_CODE_SHA256: 8968405e26db478af44eabc4635ab5ca557057b702a54460a59c13e1b253e978
 
 concurrency:
   group: claude-pr-review-${{ github.event.pull_request.number }}
@@ -73,31 +81,109 @@ jobs:
         with:
           node-version: '22'
 
-      # libs/ 下的 TACZ、Champions、MCEF jar 不入库, 没有它们主工程编译不了。
-      # 配了 WOK_LIBS_ARCHIVE_URL(一个只含这三个 jar 的 zip 的私有下载地址)才能在 CI 里编译和跑 GameTest;
-      # 没配时 Claude 只做静态审查, 改 Java 的修复无法验证, 一律交给维护者。
-      - name: 还原第三方 libs
-        id: libs
-        env:
-          LIBS_URL: ${{ secrets.WOK_LIBS_ARCHIVE_URL }}
+      # libs/ 下的 jar 不入库, 没有它们主工程编译不了。这里按固定的 SHA256 从 Modrinth 官方 CDN 补全并缓存:
+      # TACZ、Champions 与维护者本机 libs 里的逐字节一致; Farmer's Delight 1.3.2 是开发期依赖, build.gradle 在它存在时加载。
+      # MCEF 维护者本机用的是自编的 2.1.6-1.20.1-wok.1, 网上没有, 这里用上游 2.1.6: 两者公开 API 只差 wok.1 新增的共享纹理、
+      # 渲染模式与音频回调, 主工程目前没用到; 用到这些接口的改动合入前, 要把这一行换成自托管的 wok.1, 否则这里编译不过。
+      # 缓存在任何 PR 代码运行之前保存, 存进去的都是校验过的原件; 命中缓存也逐个重新校验。
+      - name: 列出固定版本的第三方 libs
+        id: libs-pins
         run: |
-          if [ -z "$LIBS_URL" ]; then
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::未配置 WOK_LIBS_ARCHIVE_URL, 主工程无法编译, 本轮只做静态审查"
-            exit 0
+          # 每行: SHA256 文件名 下载地址
+          cat > "$RUNNER_TEMP/wok-libs.txt" <<'PINS'
+          9ed8ada1283ed7a793a70cc1b51c4a340f367ce84707e1a7b8cf21ee3d288d77 tacz-1.20.1-1.1.8-hotfix.jar https://cdn.modrinth.com/data/SzzJttH8/versions/yOVIzIJR/tacz-1.20.1-1.1.8-hotfix.jar
+          34de32fabc623d23c22fa98fa49ec92cd5bf8e1b78b8e5d5e520b739e7208696 champions-forge-1.20.1-2.1.10.2.jar https://cdn.modrinth.com/data/VJZc5cJx/versions/lC2uBBu2/champions-forge-1.20.1-2.1.10.2.jar
+          5c462342264ac89597891d5d4bcdf6b8134ce4cc5dd97894dbd87ecc197f0cb3 mcef-forge-2.1.6-1.20.1.jar https://cdn.modrinth.com/data/TObQ0HxZ/versions/x91l6OKB/mcef-forge-2.1.6-1.20.1.jar
+          47aed94bb9192c4978fe199f9d3ca5895aeccfbe5b5a0869fdf3aa011c2641f7 FarmersDelight-1.20.1-1.3.2.jar https://cdn.modrinth.com/data/R2OftAxM/versions/CsjS7EkP/FarmersDelight-1.20.1-1.3.2.jar
+          PINS
+          echo "key=wok-libs-$(sha256sum "$RUNNER_TEMP/wok-libs.txt" | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+      - name: 还原第三方 libs 缓存
+        id: libs-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.cache/wok-ci/libs
+          key: ${{ steps.libs-pins.outputs.key }}
+
+      # 下载重试后仍失败(CDN 故障)时降级为静态审查并打 ci:static-only; 哈希对不上则直接判红, 不拿来路不明的 jar 编译。
+      - name: 补全第三方 libs
+        id: libs
+        run: |
+          cache="$HOME/.cache/wok-ci/libs"
+          mkdir -p "$cache" libs
+          ready=true
+          while read -r checksum jar url; do
+            target="$cache/$jar"
+            if [ -f "$target" ] && ! printf '%s  %s\n' "$checksum" "$target" | sha256sum --check --status; then
+              echo "::warning::缓存里的 $jar 与固定的 SHA256 不符, 删掉重新下载"
+              rm -f "$target"
+            fi
+            if [ ! -f "$target" ]; then
+              # 不设 --retry-delay: curl 按指数退避重试, 遇到 429/503 照服务端给的 Retry-After 等。
+              if ! curl --fail --location --silent --show-error --retry 8 --retry-max-time 600 --connect-timeout 30 \
+                  "$url" -o "$target.part"; then
+                rm -f "$target.part"
+                echo "::warning::$jar 重试后仍下载失败, 主工程无法编译, 本轮只做静态审查"
+                ready=false
+                continue
+              fi
+              if ! printf '%s  %s\n' "$checksum" "$target.part" | sha256sum --check --status; then
+                echo "::error::下载的 $jar 与固定的 SHA256 不符: 来源文件被替换, 或固定的哈希写错了"
+                exit 1
+              fi
+              mv "$target.part" "$target"
+            fi
+            cp "$target" "libs/$jar"
+          done < "$RUNNER_TEMP/wok-libs.txt"
+          if [ "$ready" = true ]; then
+            mkdir -p standalone/kivotos-armorer/libs
+            cp libs/tacz-1.20.1-1.1.8-hotfix.jar standalone/kivotos-armorer/libs/
           fi
-          mkdir -p libs
-          curl -fsSL "$LIBS_URL" -o "$RUNNER_TEMP/libs.zip"
-          unzip -o -q -j "$RUNNER_TEMP/libs.zip" -d libs
-          for jar in tacz-1.20.1-1.1.8-hotfix.jar champions-forge-1.20.1-2.1.10.2.jar mcef-forge-2.1.6-1.20.1.jar; do
-            if [ ! -f "libs/$jar" ]; then
-              echo "::error::libs 压缩包里缺 $jar, 与 build.gradle 的 compileOnly 声明对不上"
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+
+      - name: 保存第三方 libs 缓存
+        if: steps.libs-cache.outputs.cache-hit != 'true' && steps.libs.outputs.ready == 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.cache/wok-ci/libs
+          key: ${{ steps.libs-pins.outputs.key }}
+
+      # 与 libs 一样在 PR 代码运行之前装好并存缓存, publish 取到的就是这里校验过的原件。
+      - name: 还原 Claude Code 缓存
+        id: claude-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.cache/wok-ci/claude-code
+          key: claude-code-${{ env.WOK_CLAUDE_CODE_VERSION }}-linux-x64-${{ env.WOK_CLAUDE_CODE_SHA256 }}
+
+      - name: 安装 Claude Code
+        id: claude-bin
+        run: |
+          bin="$HOME/.cache/wok-ci/claude-code/claude"
+          mkdir -p "$(dirname "$bin")"
+          if [ -f "$bin" ] && ! printf '%s  %s\n' "$WOK_CLAUDE_CODE_SHA256" "$bin" | sha256sum --check --status; then
+            echo "::warning::缓存里的 Claude Code 与固定的 SHA256 不符, 删掉重新下载"
+            rm -f "$bin"
+          fi
+          if [ ! -f "$bin" ]; then
+            # 不设 --retry-delay: curl 按指数退避重试, 遇到 429/503 照服务端给的 Retry-After 等。
+            curl --fail --location --silent --show-error --retry 8 --retry-max-time 900 --connect-timeout 30 \
+              "https://downloads.claude.ai/claude-code-releases/$WOK_CLAUDE_CODE_VERSION/linux-x64/claude" -o "$bin.part"
+            if ! printf '%s  %s\n' "$WOK_CLAUDE_CODE_SHA256" "$bin.part" | sha256sum --check --status; then
+              echo "::error::下载的 Claude Code $WOK_CLAUDE_CODE_VERSION 与固定的 SHA256 不符"
               exit 1
             fi
-          done
-          mkdir -p standalone/kivotos-armorer/libs
-          cp libs/tacz-1.20.1-1.1.8-hotfix.jar standalone/kivotos-armorer/libs/
-          echo "ready=true" >> "$GITHUB_OUTPUT"
+            mv "$bin.part" "$bin"
+          fi
+          chmod +x "$bin"
+          echo "path=$bin" >> "$GITHUB_OUTPUT"
+
+      - name: 保存 Claude Code 缓存
+        if: steps.claude-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.cache/wok-ci/claude-code
+          key: claude-code-${{ env.WOK_CLAUDE_CODE_VERSION }}-linux-x64-${{ env.WOK_CLAUDE_CODE_SHA256 }}
 
       # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB 依赖 bubblewrap, 没有它 Claude Code 直接拒绝启动。
       # action 只在设置了 allowed_non_write_users 时才自己装, 这里是手动开的隔离, 所以照它的做法补装:
@@ -124,15 +210,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           # Claude 的子进程拿不到 GitHub 凭据, PR 元数据提前取好; 不取评论, 公开仓库里谁都能评论, 不让它进入上下文。
           mkdir -p build/claude-review
           gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json number,title,body,author,baseRefName,headRefName,files \
             > build/claude-review/pr.json
-          # 标签定义取 base 分支的版本, 和 publish 用的同一份; 结构化输出的枚举由它生成, Claude 打不出未定义的标签。
-          if ! git show "origin/$BASE_REF:.github/labels.json" > build/claude-review/labels.json; then
-            echo "::error::base 分支 $BASE_REF 上没有 .github/labels.json(引入这套标签的 PR 本身会这样, 合入后的 PR 才能审)"
+          # 标签定义取默认分支的版本, 和 publish 用的同一份(理由见 publish 取发布脚本那一步);
+          # 结构化输出的枚举由它生成, Claude 打不出未定义的标签。
+          if ! git show "origin/$DEFAULT_BRANCH:.github/labels.json" > build/claude-review/labels.json; then
+            echo "::error::默认分支 $DEFAULT_BRANCH 上没有 .github/labels.json"
             exit 1
           fi
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
@@ -182,7 +269,7 @@ jobs:
             echo "$summary" > "$report"
           elif [ ! -f standalone/kivotos-armorer/libs/tacz-1.20.1-1.1.8-hotfix.jar ]; then
             summary="缺 libs, 未构建"
-            echo "$summary: standalone/kivotos-armorer/libs/tacz-1.20.1-1.1.8-hotfix.jar 不存在(未配置 WOK_LIBS_ARCHIVE_URL), 子工程在本 CI 里编译不了" > "$report"
+            echo "$summary: standalone/kivotos-armorer/libs/tacz-1.20.1-1.1.8-hotfix.jar 不存在(第三方 libs 下载失败), 子工程在本 CI 里编译不了" > "$report"
             echo "::warning::PR 改动了 standalone/kivotos-armorer/, 但缺 TACZ jar, 未构建"
           else
             started=$(date +%s)
@@ -230,6 +317,7 @@ jobs:
         id: claude
         uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515 # v1.0.245
         with:
+          path_to_claude_code_executable: ${{ steps.claude-bin.outputs.path }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
           # 修复提交以 claude[bot] 署名(维护者 2026-10-22 定); 209825114 是 claude[bot] 的真实用户 id,
@@ -445,7 +533,6 @@ jobs:
     env:
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       HEAD_REF: ${{ github.event.pull_request.head.ref }}
-      BASE_REF: ${{ github.event.pull_request.base.ref }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
     steps:
       - name: 检出被审提交
@@ -455,17 +542,57 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # 通常命中 review 刚存的缓存; 取出后照样校验, 不符就重新下载。
+      - name: 还原 Claude Code 缓存
+        id: claude-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.cache/wok-ci/claude-code
+          key: claude-code-${{ env.WOK_CLAUDE_CODE_VERSION }}-linux-x64-${{ env.WOK_CLAUDE_CODE_SHA256 }}
+
+      - name: 安装 Claude Code
+        id: claude-bin
+        run: |
+          bin="$HOME/.cache/wok-ci/claude-code/claude"
+          mkdir -p "$(dirname "$bin")"
+          if [ -f "$bin" ] && ! printf '%s  %s\n' "$WOK_CLAUDE_CODE_SHA256" "$bin" | sha256sum --check --status; then
+            echo "::warning::缓存里的 Claude Code 与固定的 SHA256 不符, 删掉重新下载"
+            rm -f "$bin"
+          fi
+          if [ ! -f "$bin" ]; then
+            # 不设 --retry-delay: curl 按指数退避重试, 遇到 429/503 照服务端给的 Retry-After 等。
+            curl --fail --location --silent --show-error --retry 8 --retry-max-time 900 --connect-timeout 30 \
+              "https://downloads.claude.ai/claude-code-releases/$WOK_CLAUDE_CODE_VERSION/linux-x64/claude" -o "$bin.part"
+            if ! printf '%s  %s\n' "$WOK_CLAUDE_CODE_SHA256" "$bin.part" | sha256sum --check --status; then
+              echo "::error::下载的 Claude Code $WOK_CLAUDE_CODE_VERSION 与固定的 SHA256 不符"
+              exit 1
+            fi
+            mv "$bin.part" "$bin"
+          fi
+          chmod +x "$bin"
+          echo "path=$bin" >> "$GITHUB_OUTPUT"
+
+      - name: 保存 Claude Code 缓存
+        if: steps.claude-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.cache/wok-ci/claude-code
+          key: claude-code-${{ env.WOK_CLAUDE_CODE_VERSION }}-linux-x64-${{ env.WOK_CLAUDE_CODE_SHA256 }}
+
       - name: 下载审查产出
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: claude-review
           path: ${{ runner.temp }}/claude-review
 
-      # 发布脚本拿着可写的 App 令牌跑, 只用 base 分支上的版本, PR 改不了它。
-      - name: 取 base 分支的发布脚本与标签定义
+      # 发布脚本拿着可写的 App 令牌跑, 只用默认分支上的版本。不能取 base 分支: 堆叠 PR 的 base 是作者自己的分支,
+      # 取它就等于让作者决定 App 令牌执行什么; 默认分支有规则集保护, 改它要走 PR 和代码所有者批准。
+      - name: 取默认分支的发布脚本与标签定义
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          git show "origin/$BASE_REF:.github/scripts/claude_publish.py" > "$RUNNER_TEMP/claude_publish.py"
-          git show "origin/$BASE_REF:.github/labels.json" > "$RUNNER_TEMP/labels.json"
+          git show "origin/$DEFAULT_BRANCH:.github/scripts/claude_publish.py" > "$RUNNER_TEMP/claude_publish.py"
+          git show "origin/$DEFAULT_BRANCH:.github/labels.json" > "$RUNNER_TEMP/labels.json"
 
       # Claude 在这里只是换令牌的载体: 唯一允许的工具就是原样执行发布脚本, 脚本做完才写完成标记。
       # 路径变量放在步骤级: runner 上下文在 job 级 env 里不可用。
@@ -475,7 +602,9 @@ jobs:
           REVIEW_OUT: ${{ runner.temp }}/claude-review
           LABELS_FILE: ${{ runner.temp }}/labels.json
           DONE_MARKER: ${{ runner.temp }}/claude-publish.done
+          PUBLISH_LOG: ${{ runner.temp }}/claude-publish.log
         with:
+          path_to_claude_code_executable: ${{ steps.claude-bin.outputs.path }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
             只做一件事: 用 Bash 工具原样执行下面这条命令一次, 然后结束。
@@ -487,9 +616,22 @@ jobs:
             --max-turns 3
             --allowedTools "Bash(python3 ${{ runner.temp }}/claude_publish.py)"
 
+      # 上一步失败也要跑到这里, 把发布脚本自己记的日志打出来: action 隐藏了 Claude 执行命令的输出,
+      # 不看这份日志就分不清卡在推送、评论、标签还是行内批注(#88 第一次重跑就因此查不到原因)。
       - name: 核对发布结果
+        if: ${{ !cancelled() }}
         run: |
+          log="$RUNNER_TEMP/claude-publish.log"
+          if [ -f "$log" ]; then
+            # 日志里有标签名与文件路径等来自审查产出的文字, 原样打印前先停掉工作流命令解析。
+            resume=$(cat /proc/sys/kernel/random/uuid)
+            echo "::group::发布脚本日志"
+            echo "::stop-commands::$resume"
+            cat "$log"
+            echo "::$resume::"
+            echo "::endgroup::"
+          fi
           if [ ! -f "$RUNNER_TEMP/claude-publish.done" ]; then
-            echo "::error::发布脚本没有跑完, 见上一步日志。常见原因: 组织没装 Claude GitHub App; 或本 PR 改了工作流, 与默认分支不一致时 App 换令牌会被跳过"
+            echo "::error::发布脚本没有跑完, 见上面的发布脚本日志; 没有日志说明脚本根本没执行。常见原因: 组织没装 Claude GitHub App; 或本 PR 改了工作流, 与默认分支不一致时 App 换令牌会被跳过"
             exit 1
           fi

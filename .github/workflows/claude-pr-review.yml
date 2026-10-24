@@ -602,6 +602,7 @@ jobs:
           REVIEW_OUT: ${{ runner.temp }}/claude-review
           LABELS_FILE: ${{ runner.temp }}/labels.json
           DONE_MARKER: ${{ runner.temp }}/claude-publish.done
+          PUBLISH_LOG: ${{ runner.temp }}/claude-publish.log
         with:
           path_to_claude_code_executable: ${{ steps.claude-bin.outputs.path }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -615,9 +616,22 @@ jobs:
             --max-turns 3
             --allowedTools "Bash(python3 ${{ runner.temp }}/claude_publish.py)"
 
+      # 上一步失败也要跑到这里, 把发布脚本自己记的日志打出来: action 隐藏了 Claude 执行命令的输出,
+      # 不看这份日志就分不清卡在推送、评论、标签还是行内批注(#88 第一次重跑就因此查不到原因)。
       - name: 核对发布结果
+        if: ${{ !cancelled() }}
         run: |
+          log="$RUNNER_TEMP/claude-publish.log"
+          if [ -f "$log" ]; then
+            # 日志里有标签名与文件路径等来自审查产出的文字, 原样打印前先停掉工作流命令解析。
+            resume=$(cat /proc/sys/kernel/random/uuid)
+            echo "::group::发布脚本日志"
+            echo "::stop-commands::$resume"
+            cat "$log"
+            echo "::$resume::"
+            echo "::endgroup::"
+          fi
           if [ ! -f "$RUNNER_TEMP/claude-publish.done" ]; then
-            echo "::error::发布脚本没有跑完, 见上一步日志。常见原因: 组织没装 Claude GitHub App; 或本 PR 改了工作流, 与默认分支不一致时 App 换令牌会被跳过"
+            echo "::error::发布脚本没有跑完, 见上面的发布脚本日志; 没有日志说明脚本根本没执行。常见原因: 组织没装 Claude GitHub App; 或本 PR 改了工作流, 与默认分支不一致时 App 换令牌会被跳过"
             exit 1
           fi

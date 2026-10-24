@@ -2,7 +2,7 @@
 """以 claude[bot] 身份发布 Claude 审查的结论: 推送自动修复、发评论、整理标签、发行内批注。
 
 claude-pr-review 工作流的 publish job 用 claude-code-action 换到 Claude GitHub App 的安装令牌(环境变量 GH_TOKEN),
-再让 Claude 原样执行本脚本。脚本与 labels.json 都取自 base 分支; 审查材料由 review job 校验后产出。
+再让 Claude 原样执行本脚本。脚本与 labels.json 都取自默认分支; 审查材料由 review job 校验后产出。
 """
 import base64
 import json
@@ -67,7 +67,7 @@ def sync_labels(repo, number, policy, wanted):
     defs = label_definitions(policy)
     unknown = [name for name in wanted if name not in defs]
     if unknown:
-        raise RuntimeError(f"标签不在 base 分支的 labels.json 与模块清单里: {unknown}")
+        raise RuntimeError(f"标签不在默认分支的 labels.json 与模块清单里: {unknown}")
     for name in wanted:
         entry = defs[name]
         gh("label", "create", name, "--repo", repo, "--color", entry["color"],

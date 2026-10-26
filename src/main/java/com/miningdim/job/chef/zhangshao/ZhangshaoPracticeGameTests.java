@@ -42,19 +42,23 @@ public final class ZhangshaoPracticeGameTests {
                     ChefBlocks.BAKING_OVEN_STEEL.get().defaultBlockState(), player) == -1,
                     "Creative empty-hand sneak must preserve the appearance preview");
             player.setShiftKeyDown(false);
-            player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.BREAD, 7));
             int experience = player.totalExperience;
             BlockPos position = helper.absolutePos(new BlockPos(1, 1, 1));
             helper.getLevel().setBlockAndUpdate(position, ChefBlocks.BAKING_OVEN_STEEL.get().defaultBlockState());
-            PlayerInteractEvent.RightClickBlock event = new PlayerInteractEvent.RightClickBlock(player,
-                    InteractionHand.MAIN_HAND, position,
-                    new BlockHitResult(Vec3.atCenterOf(position), Direction.UP, position, false));
-            ZhangshaoPracticeEvents.rightClick(event);
-            helper.assertTrue(event.isCanceled() && event.getCancellationResult() == InteractionResult.SUCCESS,
-                    "Normal right-click must open the practice and consume the block interaction");
-            helper.assertTrue(player.getMainHandItem().is(Items.BREAD)
-                            && player.getMainHandItem().getCount() == 7 && player.totalExperience == experience,
-                    "Practice entry must neither consume food nor grant experience");
+            // 这些都是玩家正常右键时会继续触发使用动作的物品。
+            for (ItemStack held : new ItemStack[]{new ItemStack(Items.BREAD, 7),
+                    new ItemStack(Items.WATER_BUCKET), new ItemStack(Items.ENDER_PEARL, 3)}) {
+                player.setItemInHand(InteractionHand.MAIN_HAND, held.copy());
+                PlayerInteractEvent.RightClickBlock event = new PlayerInteractEvent.RightClickBlock(player,
+                        InteractionHand.MAIN_HAND, position,
+                        new BlockHitResult(Vec3.atCenterOf(position), Direction.UP, position, false));
+                ZhangshaoPracticeEvents.rightClick(event);
+                helper.assertTrue(event.isCanceled() && event.getCancellationResult() == InteractionResult.SUCCESS,
+                        "Practice entry must consume the interaction with " + held);
+                helper.assertTrue(ItemStack.matches(player.getMainHandItem(), held)
+                                && !player.isUsingItem() && player.totalExperience == experience,
+                        "Practice entry must preserve held items, avoid item use, and grant no experience");
+            }
             if (net.minecraftforge.fml.ModList.get().isLoaded("farmersdelight")) {
                 var pot = net.minecraftforge.registries.ForgeRegistries.BLOCKS.getValue(
                         new net.minecraft.resources.ResourceLocation("farmersdelight", "cooking_pot"));

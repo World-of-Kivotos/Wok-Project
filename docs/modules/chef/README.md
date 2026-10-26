@@ -16,6 +16,8 @@
 
 新版掌勺按规格 §17.13 接入练习模式：`/chef practice` 可打开四台共用的原生界面，九台新烹饪台右键可进入对应台子；农夫乐事厨锅仅在双手空着潜行右键时进入。模拟不扣料、不扣信用点、不出菜、不加经验或手熟，原有调味台生产逻辑保持独立。操作与测试包说明见 [掌勺 MC 测试](../../Chef_Zhangshao_MC_Playtest.md)。
 
+未接正式生产的烹饪台暂以普通右键进入练习；接入正式生产后，练习入口应移入台子菜单。农夫乐事厨锅的空手潜行右键同样属于过渡入口，界面内练习按钮仍待后续接入。临时入口与最终规格的交互差异须由维护者确认。
+
 ## 配置
 
 服务端配置文件为 `miningdim-chef.toml`，由 `ChefConfig.SPEC` 注册。配置分组包括：`xp`、`amplify`、`nourish_food`、`aftertaste_saturation`、`nourish_heal`、`shield`、`grease`、`aftertaste_regen`、`stable_aim`、`endurance`、`refresh`、`night_sight`、`satiation`、`exploration`、`effect_pool`、`minigame`、`quality_resolution`、`negatives` 和 `economy`。

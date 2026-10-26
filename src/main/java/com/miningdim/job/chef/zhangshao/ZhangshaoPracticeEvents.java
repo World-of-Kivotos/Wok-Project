@@ -37,16 +37,19 @@ public final class ZhangshaoPracticeEvents {
 
     @SubscribeEvent
     public static void rightClick(PlayerInteractEvent.RightClickBlock event) {
-        if (event.getLevel().isClientSide || event.getHand() != InteractionHand.MAIN_HAND) {
+        if (event.getHand() != InteractionHand.MAIN_HAND) {
             return;
         }
         int station = practiceStation(event.getLevel().getBlockState(event.getPos()), event.getEntity());
         if (station < 0) {
             return;
         }
-        open((ServerPlayer) event.getEntity(), station);
+        // 客户端也必须消费交互，否则原版会继续使用手持物品并另发 UseItem 包。
         event.setCanceled(true);
         event.setCancellationResult(InteractionResult.SUCCESS);
+        if (!event.getLevel().isClientSide) {
+            open((ServerPlayer) event.getEntity(), station);
+        }
     }
 
     /** 保留创造模式的外观预览操作；农夫乐事厨锅只在空手潜行时进入练习。 */

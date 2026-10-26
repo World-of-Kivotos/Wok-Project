@@ -25,6 +25,7 @@
     "miningdim:baking_oven_steel",
     "miningdim:baking_oven_chinese",
     "miningdim:prep_counter_steel",
-    "miningdim:prep_counter_chinese"
+    "miningdim:prep_counter_chinese",
+    "miningdim:brewing_station"
   ]
 }

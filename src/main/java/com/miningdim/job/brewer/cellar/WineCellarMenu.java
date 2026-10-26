@@ -6,6 +6,8 @@ import com.miningdim.menu.AbstractMiningMenu;
 import com.miningdim.menu.MenuValidity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.ContainerLevelAccess;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.items.SlotItemHandler;
@@ -56,6 +58,12 @@ public final class WineCellarMenu extends AbstractMiningMenu {
         this.blockEntity = clientBlockEntity(playerInv, pos);
         addContainerSlots(blockEntity);
         addPlayerInventory(playerInv, 8, 84);
+    }
+
+    @Override
+    public void clicked(int slot, int button, ClickType clickType, Player player) {
+        blockEntity.settleNow();
+        super.clicked(slot, button, clickType, player);
     }
 
     private void addContainerSlots(WineCellarBlockEntity be) {

@@ -95,6 +95,14 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
             return;
         }
 
+        settleNow();
+    }
+
+    /** 玩家操作前先结清旧库存，防止新酒或新补燃料被追溯到上次结算时刻。 */
+    public void settleNow() {
+        if (level == null || level.isClientSide) {
+            return;
+        }
         long now = System.currentTimeMillis();
         if (lastSettleEpochMillis == UNSET) {
             // 新建 / 刚加载且无记录: 锚定当前挂钟, 本次不补结算 (避免把"放下前"的时间误算进陈酿)。
@@ -127,7 +135,7 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
                 continue;
             }
             slotIndices.add(slot);
-            states.add(new CellarSettle.BottleState(WineNbt.readVintage(stack), WineNbt.isSpoiled(stack)));
+            states.add(new CellarSettle.BottleState(WineNbt.readVintage(stack), WineNbt.isSpoiled(stack), stack.getCount()));
         }
         if (states.isEmpty()) {
             return; // 无酒可陈: 不动燃料 (空窖不烧粮)。
@@ -167,6 +175,7 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
     @Nullable
     @Override
     public AbstractContainerMenu createMenu(int windowId, Inventory inv, Player player) {
+        settleNow();
         return new WineCellarMenu(windowId, inv, this);
     }
 

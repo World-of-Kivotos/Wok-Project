@@ -45,8 +45,11 @@ public final class CellarSettle {
     private CellarSettle() {
     }
 
-    /** 单瓶陈酿状态 (vintage 年份, spoiled 是否变质)。 */
-    public record BottleState(double vintage, boolean spoiled) {
+    /** 同年份的一栈酒；瓶数参与耗粮，年份和变质状态仍由整栈共享。 */
+    public record BottleState(double vintage, boolean spoiled, int count) {
+        public BottleState(double vintage, boolean spoiled) {
+            this(vintage, spoiled, 1);
+        }
     }
 
     /**
@@ -105,8 +108,8 @@ public final class CellarSettle {
                 if (b.spoiled()) {
                     continue;
                 }
-                demandPerYear += BrewerConfig.DRIED_WHEAT_PER_BOTTLE_YEAR.get()
-                        + BrewerConfig.FUEL_QUAD_COEF.get() * b.vintage() * b.vintage();
+                demandPerYear += b.count() * (BrewerConfig.DRIED_WHEAT_PER_BOTTLE_YEAR.get()
+                        + BrewerConfig.FUEL_QUAD_COEF.get() * b.vintage() * b.vintage());
             }
             double fullDemand = demandPerYear * stepYears;
 
@@ -138,7 +141,7 @@ public final class CellarSettle {
                 if (b.spoiled()) {
                     continue;
                 }
-                working.set(i, new BottleState(b.vintage() + stepYears * agedFraction, false));
+                working.set(i, new BottleState(b.vintage() + stepYears * agedFraction, false, b.count()));
             }
             debt += fullDemand * agedFraction;
 
@@ -170,7 +173,7 @@ public final class CellarSettle {
                 continue;
             }
             double decayed = b.vintage() - decayYears;
-            working.set(i, decayed <= 0.0D ? new BottleState(0.0D, true) : new BottleState(decayed, false));
+            working.set(i, decayed <= 0.0D ? new BottleState(0.0D, true, b.count()) : new BottleState(decayed, false, b.count()));
         }
     }
 }

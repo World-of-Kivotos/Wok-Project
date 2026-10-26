@@ -5,7 +5,11 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import com.electronwill.nightconfig.core.file.FileWatcher;
+
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -19,7 +23,7 @@ import java.util.stream.Stream;
  * 重新开始随机变色 —— 而随机变色恰恰最容易被当成"重跑一次就好"糊过去。所以这里必须有一条会红的断言。
  *
  * 判据取磁盘这个独立事实源: 世界存档 serverconfig 目录下每一份 {@code miningdim-*.toml}, 都必须出现在
- * 守卫实际摘过监视器的清单里。少一份就说明那一份的热重载还在, 也就还会自写自重载。
+ * 守卫实际禁用过热重载的清单里。少一份就说明那一份的热重载还在, 也就还会自写自重载。
  */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -32,10 +36,10 @@ public final class GameTestConfigWatchGuardGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void everyServerConfigFileHasItsHotReloadWatcherDetached(GameTestHelper helper) {
-        Set<Path> detached = GameTestConfigWatchGuard.detachedFiles();
-        helper.assertTrue(!detached.isEmpty(),
-                "守卫没跑: GameTestServer 起来了却一份配置监视器都没摘, 检查 MiningDim 里的 register 调用"
+    public static void everyServerConfigFileHasItsHotReloadDisabled(GameTestHelper helper) {
+        Set<Path> disabled = GameTestConfigWatchGuard.hotReloadDisabledFiles();
+        helper.assertTrue(!disabled.isEmpty(),
+                "守卫没跑: GameTestServer 起来了却一份配置热重载都没禁用, 检查 MiningDim 里的 register 调用"
                         + "与 ServerStartedEvent 的挂载");
 
         Path serverConfigDir = helper.getLevel().getServer().getWorldPath(
@@ -44,17 +48,48 @@ public final class GameTestConfigWatchGuardGameTests {
         helper.assertTrue(!onDisk.isEmpty(),
                 "serverconfig 目录下一份 miningdim-*.toml 都没有, 断言失去意义: " + serverConfigDir);
 
-        // 逐份比对: 磁盘上存在的, 守卫必须都摘过。比"数量相等"更严, 且不会因为新增配置而误红 ——
+        // 逐份比对: 磁盘上存在的, 守卫必须都禁用过热重载。比"数量相等"更严, 且不会因为新增配置而误红 ——
         // 新增一份配置只要走的是标准 registerConfig, 就会被 ModConfigEvent.Loading 一并收走。
         for (Path file : onDisk) {
             Path normalized = file.toAbsolutePath().normalize();
-            boolean covered = detached.stream()
+            boolean covered = disabled.stream()
                     .anyMatch(path -> path.toAbsolutePath().normalize().equals(normalized));
             helper.assertTrue(covered,
-                    normalized.getFileName() + " 的热重载监视器没被摘掉; 它会在测试写配置时异步重载,"
+                    normalized.getFileName() + " 的热重载回调没被禁用; 它会在测试写配置时异步重载,"
                             + " 读到半截文件就把内存配置打成默认值");
         }
         helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void disabledReloadRetainsBalancedWatcherCleanup(GameTestHelper helper) throws IOException {
+        // GameTest 写配置不应热重载，但 Forge 停服仍会对同一路径调用 removeWatch。
+        Path directory = Files.createTempDirectory("wok-config-unload-");
+        Path file = directory.resolve("probe.toml");
+        Files.writeString(file, "value = 1\n");
+        FileWatcher watcher = FileWatcher.defaultInstance();
+        AtomicInteger reloads = new AtomicInteger();
+        watcher.addWatch(file, reloads::incrementAndGet);
+        GameTestConfigWatchGuard.disableHotReload(file);
+        Files.writeString(file, "value = 2\n");
+        helper.runAfterDelay(20, () -> {
+            try {
+                helper.assertTrue(reloads.get() == 0, "test config writes must not reload the config");
+                watcher.removeWatch(file);
+                watcher.addWatch(file, reloads::incrementAndGet);
+                watcher.removeWatch(file);
+                helper.succeed();
+            } catch (IOException exception) {
+                throw new UncheckedIOException(exception);
+            } finally {
+                try {
+                    Files.delete(file);
+                    Files.delete(directory);
+                } catch (IOException exception) {
+                    throw new UncheckedIOException(exception);
+                }
+            }
+        });
     }
 
     private static List<Path> ownConfigFiles(Path serverConfigDir) {

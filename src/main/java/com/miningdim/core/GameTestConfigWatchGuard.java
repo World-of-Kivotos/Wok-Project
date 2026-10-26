@@ -9,12 +9,14 @@ import net.minecraftforge.fml.event.config.ModConfigEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * runGameTestServer 期间摘掉本 mod 配置文件的 nightconfig 文件监视器。
+ * runGameTestServer 期间禁用本 mod 配置文件的 nightconfig 热重载回调。
  *
  * <h3>为什么需要</h3>
  * Forge 的 {@code ConfigFileTypeHandler.reader} 给每个配置文件建了一个 {@code CommentedFileConfig},
@@ -36,7 +38,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * </ol>
  *
  * <h3>为什么这么修</h3>
- * 只摘监视器, 不动别的: {@code ConfigValue.set} 照常写内存并清缓存, {@code get} 照常实时读,
+ * 只替换热重载回调，保留监视器登记供 Forge 停服清理: {@code ConfigValue.set} 照常写内存并清缓存, {@code get} 照常实时读,
  * 所以 {@code *StateReadsConfigLive} 要断言的"没有在初始化时缓存"依然被完整覆盖; 消失的只是
  * 测试环境里没有意义、且只会自己打自己的那条异步重载路径。
  *
@@ -50,22 +52,22 @@ public final class GameTestConfigWatchGuard {
     /** 本 mod 已加载配置的磁盘路径; 由 ModConfigEvent.Loading 收集, 与加载顺序无关。 */
     private static final Set<Path> LOADED_CONFIG_FILES = ConcurrentHashMap.newKeySet();
 
-    /** 已摘掉监视器的文件; 为空表示 detachAll 还没跑过。供契约测试核对。 */
-    private static final Set<Path> DETACHED_FILES = ConcurrentHashMap.newKeySet();
+    /** 已禁用热重载的文件; 为空表示 disableAll 还没跑过。供契约测试核对。 */
+    private static final Set<Path> DISABLED_FILES = ConcurrentHashMap.newKeySet();
 
     private GameTestConfigWatchGuard() {
     }
 
-    /** 实际摘掉监视器的配置文件快照 (GameTest 契约用)。 */
-    public static Set<Path> detachedFiles() {
-        return Set.copyOf(DETACHED_FILES);
+    /** 已禁用热重载的配置文件快照 (GameTest 契约用)。 */
+    public static Set<Path> hotReloadDisabledFiles() {
+        return Set.copyOf(DISABLED_FILES);
     }
 
     public static void register(IEventBus modBus, IEventBus forgeBus) {
         modBus.addListener((ModConfigEvent.Loading event) -> remember(event.getConfig()));
         forgeBus.addListener((ServerStartedEvent event) -> {
             if (event.getServer() instanceof GameTestServer) {
-                detachAll();
+                disableAll();
             }
         });
     }
@@ -79,13 +81,22 @@ public final class GameTestConfigWatchGuard {
         LOADED_CONFIG_FILES.add(config.getFullPath());
     }
 
-    private static void detachAll() {
-        FileWatcher watcher = FileWatcher.defaultInstance();
-        for (Path path : LOADED_CONFIG_FILES) {
-            watcher.removeWatch(path);
-            DETACHED_FILES.add(path);
+    static void disableHotReload(Path path) {
+        try {
+            // NightConfig 3.6.4 的 removeWatch 不幂等；保留登记供 Forge 停服时执行唯一一次清理。
+            FileWatcher.defaultInstance().setWatch(path,
+                    () -> LOGGER.trace("[miningdim] GameTest config reload suppressed for {}", path));
+        } catch (IOException exception) {
+            throw new UncheckedIOException("Cannot disable GameTest config reload for " + path, exception);
         }
-        LOGGER.info("[miningdim] GameTest 环境: 已摘掉 {} 份配置文件的热重载监视器, 避免测试自写自重载互相打架",
-                DETACHED_FILES.size());
+    }
+
+    private static void disableAll() {
+        for (Path path : LOADED_CONFIG_FILES) {
+            disableHotReload(path);
+            DISABLED_FILES.add(path);
+        }
+        LOGGER.info("[miningdim] GameTest 环境: 已禁用 {} 份配置文件的热重载回调, 避免测试自写自重载互相打架",
+                DISABLED_FILES.size());
     }
 }

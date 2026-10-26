@@ -2,6 +2,7 @@ package com.miningdim.job.brewer.cellar;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Containers;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
@@ -42,6 +43,18 @@ public final class WineCellarBlock extends Block implements EntityBlock {
             NetworkHooks.openScreen(serverPlayer, be, buf -> buf.writeBlockPos(pos));
         }
         return InteractionResult.CONSUME;
+    }
+
+    @Override
+    public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean moved) {
+        if (!state.is(newState.getBlock()) && !level.isClientSide
+                && level.getBlockEntity(pos) instanceof WineCellarBlockEntity be) {
+            be.settleNow();
+            for (int slot = 0; slot < be.inventory().getSlots(); slot++) {
+                Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), be.inventory().getStackInSlot(slot));
+            }
+        }
+        super.onRemove(state, level, pos, newState, moved);
     }
 
     @Nullable

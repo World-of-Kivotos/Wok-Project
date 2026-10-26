@@ -1,0 +1,61 @@
+掌勺练习图标来源归属
+
+本目录中的 MIT 许可文本依据各来源 JAR 的嵌入元数据记录。除 Dumpling's Delight Rewrapped 外，这些 JAR 没有附带独立许可证文本，因此保留项目名称、作者、JAR 文件名和已明确的官方来源地址。
+
+Farmer's Delight
+modId: farmersdelight
+JAR: FarmersDelight-1.20.1-1.2.9.jar
+作者: vectorwing
+许可证证据: META-INF/mods.toml, license = "MIT License"
+来源: https://github.com/vectorwing/FarmersDelight
+
+Brewin' And Chewin'
+modId: brewinandchewin
+JAR: BrewinAndChewin-1.20.1-3.2.1.jar
+作者: Probleyes, Umpaz, MerchantPug
+许可证证据: META-INF/mods.toml, license = "MIT License"
+来源: https://github.com/MerchantPug/BrewinAndChewin
+
+Crabber's Delight
+modId: crabbersdelight
+JAR: crabbersdelight-9NT9IkSs.jar
+作者: Alabaster Leking
+许可证证据: META-INF/mods.toml, license = "MIT License"
+来源: https://cdn.modrinth.com/data/gBGdVBJy/versions/9NT9IkSs/crabbersdelight-1.20.1-1.2.3.jar
+
+Delightful
+modId: delightful
+JAR: Delightful-HbEQIqIu.jar
+作者: brnbrd
+许可证证据: META-INF/mods.toml, license = "MIT License"
+来源: https://cdn.modrinth.com/data/JtSnhtNJ/versions/HbEQIqIu/Delightful-1.20.1-3.8.1.jar
+
+More Delight
+modId: moredelight
+JAR: moredelight-GrLDJ8lO.jar
+作者: Axperty
+许可证证据: META-INF/mods.toml, license = "MIT"
+来源: https://cdn.modrinth.com/data/znHQQtuU/versions/GrLDJ8lO/moredelight-26.05.20-1.20-forge.jar
+
+Ocean's Delight
+modId: oceansdelight
+JAR: oceansdelight-9jLLNENb.jar
+作者: Scouter456
+许可证证据: META-INF/mods.toml, license = "MIT"
+来源: https://cdn.modrinth.com/data/DGiq4ZSW/versions/9jLLNENb/oceansdelight-1.0.2-1.20.jar
+
+Casualness Delight
+modId: casualness_delight
+JAR: casualness_delight-p6Z5Qd84.jar
+作者: TsukimiRen
+许可证证据: META-INF/mods.toml, license = "MIT License"
+来源: https://cdn.modrinth.com/data/zYuGPZIx/versions/p6Z5Qd84/%5B%2B%E9%A3%9F%E5%93%81%7D_%E9%9A%8F%E6%84%8F%E4%B9%90%E4%BA%8Bcasualness_delight-1.20.1-0.4n.jar
+
+Dumpling's Delight Rewrapped
+modId: dumplings_delight
+JAR: Dumplings Delight-fhqaCHuw.jar
+作者: Joshcraft2002; 原作贡献者 FoggyHillSide
+许可证证据: fabric.mod.json, license = "MIT License"; JAR entry LICENSE_DumplingsDelightRewrapped
+来源: https://cdn.modrinth.com/data/DqKMBArS/versions/fhqaCHuw/DumplingsDelightRewrapped-1.20.1-1.3.0%2Bfabric.jar
+
+Cultural Delights 的 JAR 声明为 All Rights Reserved。其五个示例菜的图标没有从 JAR 读取，改用生成器自产的通用练习菜盘，因此不在本目录复制其许可证或图像。

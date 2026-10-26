@@ -1,0 +1,126 @@
+{
+  "purpose": "掌勺练习图集中的第三方菜品图标来源与许可证核对记录",
+  "method": "除 Cultural Delights 外，图标从对应 JAR 的原物品贴图读取；Cultural Delights 的五个示例只保留菜名和玩法数据，图标由生成器从零绘制通用练习菜盘。许可证只记录 JAR 内 META-INF/mods.toml、fabric.mod.json 或明确的项目官方元数据，不根据 Modrinth 常见许可证推断。",
+  "records": [
+    {
+      "project": "Farmer's Delight",
+      "modId": "farmersdelight",
+      "jar": "FarmersDelight-1.20.1-1.2.9.jar",
+      "usedIds": [
+        "farmersdelight:bone_broth",
+        "farmersdelight:beef_stew",
+        "farmersdelight:fried_rice",
+        "farmersdelight:roasted_mutton_chops",
+        "farmersdelight:apple_pie",
+        "farmersdelight:roast_chicken_block",
+        "farmersdelight:sweet_berry_cookie",
+        "farmersdelight:barbecue_stick",
+        "farmersdelight:egg_sandwich",
+        "farmersdelight:salmon_roll"
+      ],
+      "license": "MIT License",
+      "licenseEvidence": "META-INF/mods.toml: license = \"MIT License\"",
+      "licenseFile": "META-INF/licenses/zhangshao/MIT-LICENSE.txt",
+      "officialUrl": "https://github.com/vectorwing/FarmersDelight"
+    },
+    {
+      "project": "Brewin' And Chewin'",
+      "modId": "brewinandchewin",
+      "jar": "BrewinAndChewin-1.20.1-3.2.1.jar",
+      "usedIds": [
+        "brewinandchewin:fiery_fondue_pot",
+        "brewinandchewin:pizza"
+      ],
+      "license": "MIT License",
+      "licenseEvidence": "META-INF/mods.toml: license = \"MIT License\"",
+      "licenseFile": "META-INF/licenses/zhangshao/MIT-LICENSE.txt",
+      "officialUrl": "https://github.com/MerchantPug/BrewinAndChewin"
+    },
+    {
+      "project": "Crabber's Delight",
+      "modId": "crabbersdelight",
+      "jar": "crabbersdelight-9NT9IkSs.jar",
+      "usedIds": ["crabbersdelight:clam_bake"],
+      "license": "MIT License",
+      "licenseEvidence": "META-INF/mods.toml: license = \"MIT License\"",
+      "licenseFile": "META-INF/licenses/zhangshao/MIT-LICENSE.txt",
+      "officialUrl": "https://cdn.modrinth.com/data/gBGdVBJy/versions/9NT9IkSs/crabbersdelight-1.20.1-1.2.3.jar"
+    },
+    {
+      "project": "Delightful",
+      "modId": "delightful",
+      "jar": "Delightful-HbEQIqIu.jar",
+      "usedIds": [
+        "delightful:crab_rangoon",
+        "delightful:baklava",
+        "delightful:salmonberry_milkshake"
+      ],
+      "license": "MIT License",
+      "licenseEvidence": "META-INF/mods.toml: license = \"MIT License\"",
+      "licenseFile": "META-INF/licenses/zhangshao/MIT-LICENSE.txt",
+      "officialUrl": "https://cdn.modrinth.com/data/JtSnhtNJ/versions/HbEQIqIu/Delightful-1.20.1-3.8.1.jar"
+    },
+    {
+      "project": "More Delight",
+      "modId": "moredelight",
+      "jar": "moredelight-GrLDJ8lO.jar",
+      "usedIds": ["moredelight:loaded_hamburger"],
+      "license": "MIT",
+      "licenseEvidence": "META-INF/mods.toml: license=\"MIT\"",
+      "licenseFile": "META-INF/licenses/zhangshao/MIT-LICENSE.txt",
+      "officialUrl": "https://cdn.modrinth.com/data/znHQQtuU/versions/GrLDJ8lO/moredelight-26.05.20-1.20-forge.jar"
+    },
+    {
+      "project": "Ocean's Delight",
+      "modId": "oceansdelight",
+      "jar": "oceansdelight-9jLLNENb.jar",
+      "usedIds": ["oceansdelight:honey_fried_kelp"],
+      "license": "MIT",
+      "licenseEvidence": "META-INF/mods.toml: license=\"MIT\"",
+      "licenseFile": "META-INF/licenses/zhangshao/MIT-LICENSE.txt",
+      "officialUrl": "https://cdn.modrinth.com/data/DGiq4ZSW/versions/9jLLNENb/oceansdelight-1.0.2-1.20.jar"
+    },
+    {
+      "project": "Casualness Delight",
+      "modId": "casualness_delight",
+      "jar": "casualness_delight-p6Z5Qd84.jar",
+      "usedIds": [
+        "casualness_delight:spring_roll",
+        "casualness_delight:fried_dumpling",
+        "casualness_delight:plate_of_fried_dumpling",
+        "casualness_delight:spring_roll_medley"
+      ],
+      "license": "MIT License",
+      "licenseEvidence": "META-INF/mods.toml: license=\"MIT License\"",
+      "licenseFile": "META-INF/licenses/zhangshao/MIT-LICENSE.txt",
+      "officialUrl": "https://cdn.modrinth.com/data/zYuGPZIx/versions/p6Z5Qd84/%5B%2B%E9%A3%9F%E5%93%81%7D_%E9%9A%8F%E6%84%8F%E4%B9%90%E4%BA%8Bcasualness_delight-1.20.1-0.4n.jar"
+    },
+    {
+      "project": "Dumpling's Delight Rewrapped",
+      "modId": "dumplings_delight",
+      "jar": "Dumplings Delight-fhqaCHuw.jar",
+      "usedIds": ["dumplings_delight:pork_cabbage_wonton"],
+      "license": "MIT License",
+      "licenseEvidence": "fabric.mod.json: license=\"MIT License\"; LICENSE_DumplingsDelight entry present",
+      "licenseFile": "META-INF/licenses/zhangshao/DumplingsDelightRewrapped-LICENSE.txt",
+      "officialUrl": "https://cdn.modrinth.com/data/DqKMBArS/versions/fhqaCHuw/DumplingsDelightRewrapped-1.20.1-1.3.0%2Bfabric.jar"
+    },
+    {
+      "project": "Cultural Delights",
+      "modId": "culturaldelights",
+      "jar": "culturaldelights-0.16.5.jar",
+      "usedIds": [
+        "culturaldelights:spicy_curry",
+        "culturaldelights:empanada",
+        "culturaldelights:hearty_salad",
+        "culturaldelights:chicken_taco",
+        "culturaldelights:exotic_roll_medley"
+      ],
+      "license": "All Rights Reserved",
+      "licenseEvidence": "META-INF/mods.toml: license=\"All Rights Reserved\"",
+      "redistributionStatus": "icon excluded; no Cultural Delights texture is redistributed",
+      "iconStatus": "replaced with generated generic practice dish plate",
+      "replacementSource": "chef_minigame/art/gen.mjs: genericPracticeDishIcon"
+    }
+  ]
+}

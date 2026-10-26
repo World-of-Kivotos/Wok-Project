@@ -10,9 +10,11 @@
 
 本模块负责任意 `ItemStack.getFoodProperties(entity)` 成品食物的品质盖章、五档调味台、火候与调味 QTE、调料方向标签和厨师效果结算契约。品质仍写在原食物的 NBT 上，不注册新的菜肴物品。
 
-厨师重构新增的九台烹饪台（炸锅、烤炉、备餐台，各有田园 rustic、商用不锈钢 steel、中式 chinese 三套外观，功能相同、玩家按喜好造）目前只交付方块本身：朝向、工作状态、形状、遮挡、光照、粒子、掉落、合成与语言，没有方块实体，烹饪逻辑与"掌勺"小游戏之后接入。造型取自厨师重构的 station-preview 预览工具定稿方案（设计资料见 [docs/chef-rework/README.md](../../chef-rework/README.md)），形状、遮挡、发光与粒子出生点照各方案 `meta.json` 的实装说明，取值集中在 `station/CookingStations.java`；例外是三台的碰撞箱：铸铁烤箱灶不用说明里的整格、改为等于选择框，木质备餐台与中式案台在整格上各并入一块高出台面的摆件（调料架、蒸笼），理由都是 1.20.1 碰撞箱严格整格时模型面一律取邻格光照而发黑，详见该文件各工厂方法的注释。为便于进游戏目测待机/工作中两种外观，创造模式玩家双手空着潜行右键可切换 `lit`（生存无效），这是临时入口，接入烹饪逻辑后删除。因为台子还没有功能，九个配方暂时用 `forge:false` 条件关着（生存合不出来，创造标签页照常可拿），物品提示里写着功能种类、摆放要求和「烹饪功能尚未开放」；接入烹饪逻辑时删掉配方的 `conditions`、去掉这行提示，并把 `CookingStationGameTests.RECIPES_OPEN` 改成 `true`。
+厨师重构新增的九台烹饪台（炸锅、烤炉、备餐台，各有田园 rustic、商用不锈钢 steel、中式 chinese 三套外观，功能相同、玩家按喜好造）已交付朝向、工作状态、形状、遮挡、光照、粒子、掉落、合成与语言，没有方块实体；右键可打开新版掌勺原生练习界面，正式烹饪生产逻辑仍待接入。造型取自厨师重构的 station-preview 预览工具定稿方案（设计资料见 [docs/chef-rework/README.md](../../chef-rework/README.md)），形状、遮挡、发光与粒子出生点照各方案 `meta.json` 的实装说明，取值集中在 `station/CookingStations.java`；例外是三台的碰撞箱：铸铁烤箱灶不用说明里的整格、改为等于选择框，木质备餐台与中式案台在整格上各并入一块高出台面的摆件（调料架、蒸笼），理由都是 1.20.1 碰撞箱严格整格时模型面一律取邻格光照而发黑，详见该文件各工厂方法的注释。为便于进游戏目测待机/工作中两种外观，创造模式玩家双手空着潜行右键可切换 `lit`（生存无效），这是临时入口，接入烹饪逻辑后删除。因为台子还没有功能，九个配方暂时用 `forge:false` 条件关着（生存合不出来，创造标签页照常可拿），物品提示里写着功能种类、摆放要求和「烹饪功能尚未开放」；接入烹饪逻辑时删掉配方的 `conditions`、去掉这行提示，并把 `CookingStationGameTests.RECIPES_OPEN` 改成 `true`。
 
 客户端界面显示服务端 `ContainerData`：剩余时间、火候、调味台档位、目标品质、已计入厨师等级与台档的实时目标达成率、当前 QTE 目标、台档修正后的 QTE 总数、命中数、命中条速度、失败原因和最终品质。开始包为 `START(targetQualityTier)`，其余输入为 `HEAT_PRESS`、`HEAT_RELEASE`、`SEASON_HIT(target)`；五种品质对所有台档开放，服务端只校验目标品质 ID，并锁定开局厨师等级、台档、目标品质及其动态 QTE 数量和节奏。结算使用一个随机数从目标向低档依次对照实时阈值，客户端不得自行决定计时、品质或效果。
+
+新版掌勺按规格 §17.13 接入练习模式：`/chef practice` 可打开四台共用的原生界面，九台新烹饪台右键可进入对应台子；农夫乐事厨锅仅在双手空着潜行右键时进入。模拟不扣料、不扣信用点、不出菜、不加经验或手熟，原有调味台生产逻辑保持独立。操作与测试包说明见 [掌勺 MC 测试](../../Chef_Zhangshao_MC_Playtest.md)。
 
 ## 配置
 
@@ -37,7 +39,7 @@
 | 配方 | `miningdim:chef/<烹饪台 id>`，九个工作台有序配方，只用原版材料；烹饪逻辑接入前带 `forge:false` 条件、不加载 |
 | 菜单 | `miningdim:seasoning_table` |
 | 创造标签页 | `miningdim:miningdim_chef` |
-| 网络频道 | `miningdim:chef` |
+| 网络频道 | `miningdim:chef`、练习入口 `miningdim:zhangshao_practice` |
 | 经验轨道 | `miningdim:job/chef` |
 | 经验来源 | `miningdim:chef/seasoning_complete` |
 | 窗口 MobEffect | `miningdim:chef_endurance`、`miningdim:chef_satiation`、`miningdim:chef_shield`、`miningdim:chef_grease`、`miningdim:chef_aftertaste_regen`、`miningdim:chef_stable_aim`、`miningdim:chef_fire_quell`、`miningdim:chef_gills`、`miningdim:chef_feather`、`miningdim:chef_firefly` |

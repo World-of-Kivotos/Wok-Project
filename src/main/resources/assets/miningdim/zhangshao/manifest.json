@@ -1,0 +1,3143 @@
+{
+  "title": "掌勺小游戏 · 像素素材",
+  "contentHash": "fnv1a32:714d2434",
+  "generator": "gen.mjs（node gen.mjs 重跑；不要手改 PNG）",
+  "spec": "../../../docs/chef-rework/minigame-spec.md",
+  "conventions": {
+    "pixels": "所有尺寸都是 1x GUI 像素。只按整数倍放大：网页 image-rendering: pixelated（canvas 关 imageSmoothingEnabled）；MC 端用 GuiGraphics.blit，跟随 GUI scale。",
+    "slice": "九宫格：left/top/right/bottom = 四边不拉伸的像素；mode = repeat（中段与四边按原像素平铺）或 stretch（拉伸；纯色区两者一样）。宽或高固定的条（轨道、火候条、油温计）同样按九宫格写，固定的那一维直接用源图尺寸。",
+    "content": "内容区内缩：在任意尺寸绘制后，按这几个像素往里缩就是可画内容的区域（轨道 = 火候条 / 食材活动范围；竖槽 = 填充范围）。",
+    "frames": "动画帧竖排（与 MC .png.mcmeta 同样排法）：frames.count 帧、每帧 w×h；ms = 建议每帧毫秒（0 = 不按时间播，按状态选帧）。",
+    "anchor": "没写 anchor 的按左上角放；center / bottom-center / left-center 是该点对齐目标坐标。",
+    "atlas": "每组另有一张拼好的图集 atlas/<组>.png，rect = [x, y, w, h]（1px 间隔，尺寸取 16 的倍数）。散图和图集内容完全一样，二选一用。",
+    "text": "中文字（下锅！、翻面！、火小了、品质名、按钮字）一律用游戏字体，不做成图片；PERFECT / 3·2·1 用 5×7 像素字（与原版字体同尺寸）。",
+    "colors": "原版界面色：#c6c6c6 底、#ffffff / #555555 斜边、#000000 描边、#373737 / #8b8b8b 凹槽。各台换皮色全部取自九台定稿烹饪台 gen.mjs 与农夫乐事原色（gen.mjs 的 palettes 段逐行注明出处）。"
+  },
+  "drawOrder": [
+    "common/panel",
+    "<台>/track",
+    "oven/glow · oven/flames · pot/bubbles",
+    "<台>/bar_*",
+    "common/target_halo",
+    "食材图标（icons/track/*）",
+    "common/target_ghost",
+    "调料瓶 + bottle_meter",
+    "<台>/特效（oil_splash / burn_smoke）",
+    "prep/track_dim（摆料段）",
+    "prep/beat_lane …",
+    "仪表与徽章"
+  ],
+  "mapping": {
+    "track": "u（0–1,000,000）→ 像素：y = contentBottom − round(u × contentH / 1,000,000)。火候条下沿 yb、高 H 同样换算；食材 / 调料瓶图标中心对齐 yt / pos。",
+    "progress": "熟度 P → 填充高 = round(P × contentH / 1,000,000)，≥ 750,000 换 progress_fill_hot。烤炉翻面点 mark_k、备餐台摆料点 segMark_k 同样换算。",
+    "heat": "厨锅 h（0–1000）→ 火苗柱填充高 = round(h × contentH / 1000)；h < 400 小火、< 800 中火、其余旺火；顶死 / 熄火用 dead。",
+    "oil": "炸锅 T → 色带按 0–300 / 300–750 / 750–1000 铺；油温柱高 = round(T × contentH / 1000)。",
+    "stations": {
+      "pot": "厨锅（铁锅 / 火候）",
+      "fryer": "炸锅（油温计 / 金黄油）",
+      "oven": "烤炉（砖拱 / 火光）",
+      "prep": "备餐台（木案板 / 盘子）"
+    }
+  },
+  "referenceLayout": {
+    "pot": {
+      "panel": [
+        0,
+        0,
+        176,
+        184
+      ],
+      "slot": [
+        8,
+        8
+      ],
+      "stars": [
+        30,
+        9
+      ],
+      "badge": [
+        110,
+        10
+      ],
+      "chip": [
+        30,
+        22,
+        34,
+        12
+      ],
+      "track": [
+        62,
+        34,
+        26,
+        146
+      ],
+      "progress": [
+        92,
+        36,
+        8,
+        132
+      ],
+      "progressCap": [
+        90,
+        170
+      ],
+      "meters": [
+        [
+          146,
+          120,
+          5,
+          44
+        ],
+        [
+          154,
+          120,
+          5,
+          44
+        ]
+      ],
+      "demoDish": "dumplings_delight:pork_cabbage_wonton",
+      "note": "mock 用的参考坐标（1x）；只是示意，实际排版由原型决定。"
+    },
+    "fryer": {
+      "panel": [
+        0,
+        0,
+        176,
+        184
+      ],
+      "slot": [
+        8,
+        8
+      ],
+      "stars": [
+        30,
+        9
+      ],
+      "badge": [
+        110,
+        10
+      ],
+      "chip": [
+        30,
+        22,
+        34,
+        12
+      ],
+      "track": [
+        62,
+        34,
+        26,
+        146
+      ],
+      "progress": [
+        92,
+        36,
+        8,
+        132
+      ],
+      "progressCap": [
+        90,
+        170
+      ],
+      "meters": [
+        [
+          146,
+          120,
+          5,
+          44
+        ],
+        [
+          154,
+          120,
+          5,
+          44
+        ]
+      ],
+      "demoDish": "casualness_delight:fried_dumpling",
+      "note": "mock 用的参考坐标（1x）；只是示意，实际排版由原型决定。"
+    },
+    "oven": {
+      "panel": [
+        0,
+        0,
+        176,
+        184
+      ],
+      "slot": [
+        8,
+        8
+      ],
+      "stars": [
+        30,
+        9
+      ],
+      "badge": [
+        110,
+        10
+      ],
+      "chip": [
+        30,
+        22,
+        34,
+        12
+      ],
+      "track": [
+        62,
+        34,
+        26,
+        146
+      ],
+      "progress": [
+        92,
+        36,
+        8,
+        132
+      ],
+      "progressCap": [
+        90,
+        170
+      ],
+      "meters": [
+        [
+          146,
+          120,
+          5,
+          44
+        ],
+        [
+          154,
+          120,
+          5,
+          44
+        ]
+      ],
+      "demoDish": "farmersdelight:roast_chicken_block",
+      "note": "mock 用的参考坐标（1x）；只是示意，实际排版由原型决定。"
+    },
+    "prep": {
+      "panel": [
+        0,
+        0,
+        176,
+        208
+      ],
+      "slot": [
+        8,
+        8
+      ],
+      "stars": [
+        30,
+        9
+      ],
+      "badge": [
+        110,
+        10
+      ],
+      "chip": [
+        30,
+        22,
+        34,
+        12
+      ],
+      "track": [
+        62,
+        34,
+        26,
+        146
+      ],
+      "progress": [
+        92,
+        36,
+        8,
+        132
+      ],
+      "progressCap": [
+        90,
+        170
+      ],
+      "meters": [
+        [
+          146,
+          120,
+          5,
+          44
+        ],
+        [
+          154,
+          120,
+          5,
+          44
+        ]
+      ],
+      "demoDish": "moredelight:loaded_hamburger",
+      "note": "mock 用的参考坐标（1x）；只是示意，实际排版由原型决定。"
+    }
+  },
+  "atlases": {
+    "common": {
+      "file": "atlas/common.png",
+      "size": [
+        256,
+        240
+      ],
+      "sprites": 50
+    },
+    "pot": {
+      "file": "atlas/pot.png",
+      "size": [
+        256,
+        64
+      ],
+      "sprites": 21
+    },
+    "fryer": {
+      "file": "atlas/fryer.png",
+      "size": [
+        256,
+        160
+      ],
+      "sprites": 20
+    },
+    "oven": {
+      "file": "atlas/oven.png",
+      "size": [
+        256,
+        256
+      ],
+      "sprites": 24
+    },
+    "prep": {
+      "file": "atlas/prep.png",
+      "size": [
+        256,
+        64
+      ],
+      "sprites": 21
+    },
+    "dishes": {
+      "file": "atlas/dishes.png",
+      "size": [
+        112,
+        64
+      ],
+      "grid": "行 = pot/fryer/oven/prep，列 = slotStar 1–7，每格 16×16（原物品贴图或自产练习菜盘）"
+    },
+    "dishes_track": {
+      "file": "atlas/dishes_track.png",
+      "size": [
+        126,
+        72
+      ],
+      "grid": "同上，每格 18×18（加 1px 深色描边，画在轨道上用）"
+    }
+  },
+  "dishes": "dishes.json",
+  "previews": {
+    "preview/atlas_common@4x.png": "图集放大（×4，棋盘底），只给人看",
+    "preview/atlas_dishes@4x.png": "图集放大（×4，棋盘底），只给人看",
+    "preview/atlas_dishes_track@4x.png": "图集放大（×4，棋盘底），只给人看",
+    "preview/atlas_fryer@4x.png": "图集放大（×4，棋盘底），只给人看",
+    "preview/atlas_oven@4x.png": "图集放大（×4，棋盘底），只给人看",
+    "preview/atlas_pot@4x.png": "图集放大（×4，棋盘底），只给人看",
+    "preview/atlas_prep@4x.png": "图集放大（×4，棋盘底），只给人看",
+    "preview/mock_fryer@3x.png": "示意截图（×3）：零件按 referenceLayout 拼起来的样子，只给人看",
+    "preview/mock_oven@3x.png": "示意截图（×3）：零件按 referenceLayout 拼起来的样子，只给人看",
+    "preview/mock_pot@3x.png": "示意截图（×3）：零件按 referenceLayout 拼起来的样子，只给人看",
+    "preview/mock_prep@3x.png": "示意截图（×3）：零件按 referenceLayout 拼起来的样子，只给人看",
+    "preview/stations@3x.png": "四台并排（×3）：轨道（146 高 / 60 高）、火候条三态（自下而上 常态 / 刚丢 / 顶死）、熟度条（上段为收汁）、7 道示例菜"
+  },
+  "sprites": {
+    "common/panel": {
+      "file": "sprites/common/panel.png",
+      "size": [
+        16,
+        16
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        184,
+        181,
+        16,
+        16
+      ],
+      "use": "原版容器底板（整个小游戏界面 / 结算屏的底）。四角 4px 逐像素照原版 generic_54 / inventory。",
+      "slice": {
+        "left": 4,
+        "top": 4,
+        "right": 4,
+        "bottom": 4,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 4,
+        "top": 4,
+        "right": 4,
+        "bottom": 4
+      }
+    },
+    "common/inset": {
+      "file": "sprites/common/inset.png",
+      "size": [
+        8,
+        8
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        82,
+        217,
+        8,
+        8
+      ],
+      "use": "原版凹槽（物品格同款斜边）。任意尺寸的凹陷底：结算屏数值框、练习模式面板等。",
+      "slice": {
+        "left": 1,
+        "top": 1,
+        "right": 1,
+        "bottom": 1,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 1,
+        "top": 1,
+        "right": 1,
+        "bottom": 1
+      }
+    },
+    "common/slot": {
+      "file": "sprites/common/slot.png",
+      "size": [
+        18,
+        18
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        112,
+        181,
+        18,
+        18
+      ],
+      "use": "原版物品格 18×18（成品格：放 16×16 菜品图标于 (1,1)）。",
+      "content": {
+        "left": 1,
+        "top": 1,
+        "right": 1,
+        "bottom": 1
+      }
+    },
+    "common/button_normal": {
+      "file": "sprites/common/button_normal.png",
+      "size": [
+        20,
+        20
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        0,
+        181,
+        20,
+        20
+      ],
+      "use": "按钮（常态）：掌勺 / 批量 / 快手 / 家常 / 再来一份 / 收取。字用游戏字体白字 + 阴影，置灰用 #a0a0a0。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 3,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 3
+      }
+    },
+    "common/button_hover": {
+      "file": "sprites/common/button_hover.png",
+      "size": [
+        20,
+        20
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        218,
+        0,
+        20,
+        20
+      ],
+      "use": "按钮（悬停）：掌勺 / 批量 / 快手 / 家常 / 再来一份 / 收取。字用游戏字体白字 + 阴影，置灰用 #a0a0a0。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 3,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 3
+      }
+    },
+    "common/button_disabled": {
+      "file": "sprites/common/button_disabled.png",
+      "size": [
+        20,
+        20
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        197,
+        0,
+        20,
+        20
+      ],
+      "use": "按钮（置灰（做不了，写明原因））：掌勺 / 批量 / 快手 / 家常 / 再来一份 / 收取。字用游戏字体白字 + 阴影，置灰用 #a0a0a0。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 3,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 3
+      }
+    },
+    "common/tooltip": {
+      "file": "sprites/common/tooltip.png",
+      "size": [
+        9,
+        9
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        72,
+        217,
+        9,
+        9
+      ],
+      "use": "原版物品提示框：结算屏扣分明细、负面原因、按钮置灰原因的悬浮说明。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 3,
+        "top": 3,
+        "right": 3,
+        "bottom": 3
+      }
+    },
+    "common/gauge_frame": {
+      "file": "sprites/common/gauge_frame.png",
+      "size": [
+        8,
+        16
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        201,
+        181,
+        8,
+        16
+      ],
+      "use": "竖槽外框：熟度条、厨锅火苗柱共用。内容区宽 6px，填充用各台 progress_fill / heat_fill 平铺。",
+      "slice": {
+        "left": 1,
+        "top": 1,
+        "right": 1,
+        "bottom": 1,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 1,
+        "top": 1,
+        "right": 1,
+        "bottom": 1
+      }
+    },
+    "common/meter_frame": {
+      "file": "sprites/common/meter_frame.png",
+      "size": [
+        5,
+        8
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        91,
+        217,
+        5,
+        8
+      ],
+      "use": "「生 / 焦」两根小槽的外框（欠火‰ / 过火‰ 实时值，§17.4）。内容区宽 3px。",
+      "slice": {
+        "left": 1,
+        "top": 1,
+        "right": 1,
+        "bottom": 1,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 1,
+        "top": 1,
+        "right": 1,
+        "bottom": 1
+      }
+    },
+    "common/meter_fill_raw": {
+      "file": "sprites/common/meter_fill_raw.png",
+      "size": [
+        3,
+        2
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        120,
+        217,
+        3,
+        2
+      ],
+      "use": "「生」槽填充（欠火‰，0–100‰ 对应满槽建议上限 200‰）。平铺。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "common/meter_fill_burnt": {
+      "file": "sprites/common/meter_fill_burnt.png",
+      "size": [
+        3,
+        2
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        116,
+        217,
+        3,
+        2
+      ],
+      "use": "「焦」槽填充（过火‰）。备餐台把这根槽叫「多盐」，换 meter_fill_salt。平铺。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "common/meter_fill_salt": {
+      "file": "sprites/common/meter_fill_salt.png",
+      "size": [
+        3,
+        2
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        124,
+        217,
+        3,
+        2
+      ],
+      "use": "备餐台的「多盐」槽填充（过火方向在备餐台显示为多盐，§13.4）。平铺。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "common/meter_fill_alert": {
+      "file": "sprites/common/meter_fill_alert.png",
+      "size": [
+        3,
+        2
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        112,
+        217,
+        3,
+        2
+      ],
+      "use": "生 / 焦 / 多盐 任一槽过 80‰ 后整根换成这个红（§17.4「过 80 变红」）。平铺。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "common/meter_threshold": {
+      "file": "sprites/common/meter_threshold.png",
+      "size": [
+        3,
+        1
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        128,
+        217,
+        3,
+        1
+      ],
+      "use": "生 / 焦槽里 80‰ 门槛刻度线（画在内容区对应高度）。"
+    },
+    "common/star_on": {
+      "file": "sprites/common/star_on.png",
+      "size": [
+        11,
+        11
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        36,
+        217,
+        11,
+        11
+      ],
+      "use": "星级 ★（亮）。界面标题行按菜的 ★ 数排，间距 10px（描边重叠 1px）。"
+    },
+    "common/star_off": {
+      "file": "sprites/common/star_off.png",
+      "size": [
+        11,
+        11
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        24,
+        217,
+        11,
+        11
+      ],
+      "use": "星级 ☆（暗）：补齐到 7 颗时用。"
+    },
+    "common/arrow_up": {
+      "file": "sprites/common/arrow_up.png",
+      "size": [
+        11,
+        10
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        60,
+        217,
+        11,
+        10
+      ],
+      "use": "「火小了 ↑」：食材在火候条上方（欠火）。画在轨道外侧、食材同高；字用游戏字体。"
+    },
+    "common/arrow_down": {
+      "file": "sprites/common/arrow_down.png",
+      "size": [
+        11,
+        10
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        48,
+        217,
+        11,
+        10
+      ],
+      "use": "「火大了 ↓」：食材在火候条下方（过火）。备餐台同一个箭头配「料多了」。"
+    },
+    "common/motion_mix": {
+      "file": "sprites/common/motion_mix.png",
+      "size": [
+        11,
+        11
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        244,
+        202,
+        11,
+        11
+      ],
+      "use": "性子图标「混」：随机大移动，偶尔小跳（骰子）。用在开局前面板（§17.1）、练习模式选性子；字用游戏字体写「混」。"
+    },
+    "common/motion_dart": {
+      "file": "sprites/common/motion_dart.png",
+      "size": [
+        11,
+        11
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        220,
+        202,
+        11,
+        11
+      ],
+      "use": "性子图标「窜」：频繁短距离急窜（闪电）。用在开局前面板（§17.1）、练习模式选性子；字用游戏字体写「窜」。"
+    },
+    "common/motion_steady": {
+      "file": "sprites/common/motion_steady.png",
+      "size": [
+        11,
+        11
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        12,
+        217,
+        11,
+        11
+      ],
+      "use": "性子图标「稳」：走到一个点停下再走，没有小跳（暂停）。用在开局前面板（§17.1）、练习模式选性子；字用游戏字体写「稳」。"
+    },
+    "common/motion_sink": {
+      "file": "sprites/common/motion_sink.png",
+      "size": [
+        11,
+        11
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        0,
+        217,
+        11,
+        11
+      ],
+      "use": "性子图标「沉」：总往 30% 线沉（箭头压到线上）。用在开局前面板（§17.1）、练习模式选性子；字用游戏字体写「沉」。"
+    },
+    "common/motion_float": {
+      "file": "sprites/common/motion_float.png",
+      "size": [
+        11,
+        11
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        232,
+        202,
+        11,
+        11
+      ],
+      "use": "性子图标「浮」：总往 70% 线浮（箭头顶到线下）。用在开局前面板（§17.1）、练习模式选性子；字用游戏字体写「浮」。"
+    },
+    "common/keycap": {
+      "file": "sprites/common/keycap.png",
+      "size": [
+        11,
+        12
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        118,
+        202,
+        11,
+        12
+      ],
+      "use": "键帽：动作键提示（炸锅压火 / 烤炉翻面 / 备餐台摆料，默认 F / 右键，跟随改键）。字用游戏字体深灰 #373737，写在内容区。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 3,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 3
+      }
+    },
+    "common/chip_gray": {
+      "file": "sprites/common/chip_gray.png",
+      "size": [
+        8,
+        12
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        166,
+        202,
+        8,
+        12
+      ],
+      "use": "标签条：品质「低」；糊锅/撂勺结算里的「家常菜」。字用 #aaaaaa 游戏字体，写在内容区（高 8px）。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2
+      },
+      "textColor": "#aaaaaa"
+    },
+    "common/chip_green": {
+      "file": "sprites/common/chip_green.png",
+      "size": [
+        8,
+        12
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        175,
+        202,
+        8,
+        12
+      ],
+      "use": "标签条：品质「中」；烤炉「正好」。字用 #55ff55 游戏字体，写在内容区（高 8px）。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2
+      },
+      "textColor": "#55ff55"
+    },
+    "common/chip_aqua": {
+      "file": "sprites/common/chip_aqua.png",
+      "size": [
+        8,
+        12
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        130,
+        202,
+        8,
+        12
+      ],
+      "use": "标签条：品质「高」；备餐台「可以」。字用 #55ffff 游戏字体，写在内容区（高 8px）。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2
+      },
+      "textColor": "#55ffff"
+    },
+    "common/chip_purple": {
+      "file": "sprites/common/chip_purple.png",
+      "size": [
+        8,
+        12
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        184,
+        202,
+        8,
+        12
+      ],
+      "use": "标签条：品质「超凡」。字用 #ff55ff 游戏字体，写在内容区（高 8px）。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2
+      },
+      "textColor": "#ff55ff"
+    },
+    "common/chip_gold": {
+      "file": "sprites/common/chip_gold.png",
+      "size": [
+        8,
+        12
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        157,
+        202,
+        8,
+        12
+      ],
+      "use": "标签条：品质「闪耀」；备餐台「正好」；调料瓶「抓到」。字用 #ffaa00 游戏字体，写在内容区（高 8px）。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2
+      },
+      "textColor": "#ffaa00"
+    },
+    "common/chip_red": {
+      "file": "sprites/common/chip_red.png",
+      "size": [
+        8,
+        12
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        193,
+        202,
+        8,
+        12
+      ],
+      "use": "标签条：烤炉「自动翻」；备餐台「漏拍」；爆油。字用 #ff5555 游戏字体，写在内容区（高 8px）。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2
+      },
+      "textColor": "#ff5555"
+    },
+    "common/chip_yellow": {
+      "file": "sprites/common/chip_yellow.png",
+      "size": [
+        8,
+        12
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        211,
+        202,
+        8,
+        12
+      ],
+      "use": "标签条：烤炉「稍晚」；到点。字用 #ffff55 游戏字体，写在内容区（高 8px）。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2
+      },
+      "textColor": "#ffff55"
+    },
+    "common/chip_blue": {
+      "file": "sprites/common/chip_blue.png",
+      "size": [
+        8,
+        12
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        139,
+        202,
+        8,
+        12
+      ],
+      "use": "标签条：烤炉「翻早」。字用 #7f8fff 游戏字体，写在内容区（高 8px）。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2
+      },
+      "textColor": "#7f8fff"
+    },
+    "common/chip_brown": {
+      "file": "sprites/common/chip_brown.png",
+      "size": [
+        8,
+        12
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        148,
+        202,
+        8,
+        12
+      ],
+      "use": "标签条：烤炉「焦面」；备餐台「乱按」。字用 #c8823c 游戏字体，写在内容区（高 8px）。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2
+      },
+      "textColor": "#c8823c"
+    },
+    "common/chip_white": {
+      "file": "sprites/common/chip_white.png",
+      "size": [
+        8,
+        12
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        202,
+        202,
+        8,
+        12
+      ],
+      "use": "标签条：中性提示（做法、份数、推荐等级）。字用 #ffffff 游戏字体，写在内容区（高 8px）。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2
+      },
+      "textColor": "#ffffff"
+    },
+    "common/target_ghost": {
+      "file": "sprites/common/target_ghost.png",
+      "size": [
+        18,
+        18
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        131,
+        181,
+        18,
+        18
+      ],
+      "use": "新手落点虚影：L1–3 把食材当前目的地 tgt 画成虚线圈（中心对齐 tgt；tgt == NONE 不画）。也可另画半透明食材图标。",
+      "anchor": "center"
+    },
+    "common/target_halo": {
+      "file": "sprites/common/target_halo.png",
+      "size": [
+        22,
+        22
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        174,
+        0,
+        22,
+        22
+      ],
+      "use": "框住光圈：食材在火候条内时画在食材图标下面（可随音调做 2 档呼吸）。",
+      "anchor": "center"
+    },
+    "common/bottle": {
+      "file": "sprites/common/bottle.png",
+      "size": [
+        16,
+        16
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        150,
+        181,
+        16,
+        16
+      ],
+      "use": "调料瓶（普通瓶，§10）：16×16 小玻璃瓶，软木塞、纸签、酱色调料。中心对齐瓶位 pos。金瓶在 Perfect 断掉后也画成这张（褪成普通色）。",
+      "anchor": "center"
+    },
+    "common/bottle_gold": {
+      "file": "sprites/common/bottle_gold.png",
+      "size": [
+        16,
+        16
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        167,
+        181,
+        16,
+        16
+      ],
+      "use": "金调料瓶（闪耀的必要条件）。出现时配金光和弦。动画版见 bottle_gold_glint。",
+      "anchor": "center"
+    },
+    "common/bottle_gold_glint": {
+      "file": "sprites/common/bottle_gold_glint.png",
+      "size": [
+        16,
+        64
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        100,
+        0,
+        16,
+        64
+      ],
+      "use": "金调料瓶闪光（4 帧循环，一颗星光沿瓶身绕一圈）。",
+      "frames": {
+        "count": 4,
+        "w": 16,
+        "h": 16,
+        "layout": "vertical",
+        "ms": 120
+      },
+      "anchor": "center"
+    },
+    "common/bottle_meter_frame": {
+      "file": "sprites/common/bottle_meter_frame.png",
+      "size": [
+        8,
+        5
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        97,
+        217,
+        8,
+        5
+      ],
+      "use": "抓瓶进度条外框：画在瓶下方 1px，宽 18（与瓶居中）。内容区高 3px。",
+      "slice": {
+        "left": 1,
+        "top": 1,
+        "right": 1,
+        "bottom": 1,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 1,
+        "top": 1,
+        "right": 1,
+        "bottom": 1
+      }
+    },
+    "common/bottle_meter_fill": {
+      "file": "sprites/common/bottle_meter_fill.png",
+      "size": [
+        2,
+        3
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        106,
+        217,
+        2,
+        3
+      ],
+      "use": "抓瓶进度填充（普通瓶）。横向平铺。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "common/bottle_meter_fill_gold": {
+      "file": "sprites/common/bottle_meter_fill_gold.png",
+      "size": [
+        2,
+        3
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        109,
+        217,
+        2,
+        3
+      ],
+      "use": "抓瓶进度填充（金瓶）。横向平铺。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "common/bottle_pop": {
+      "file": "sprites/common/bottle_pop.png",
+      "size": [
+        24,
+        120
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        75,
+        0,
+        24,
+        120
+      ],
+      "use": "抓到调料瓶：一圈粒子炸开（5 帧，播一次），中心对齐瓶位。",
+      "frames": {
+        "count": 5,
+        "w": 24,
+        "h": 24,
+        "layout": "vertical",
+        "ms": 60
+      },
+      "anchor": "center"
+    },
+    "common/perfect_badge": {
+      "file": "sprites/common/perfect_badge.png",
+      "size": [
+        58,
+        13
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        59,
+        202,
+        58,
+        13
+      ],
+      "use": "「✦ PERFECT」徽章：挂在界面左上，开局就在。整张不拉伸。"
+    },
+    "common/perfect_badge_broken": {
+      "file": "sprites/common/perfect_badge_broken.png",
+      "size": [
+        58,
+        14
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        0,
+        202,
+        58,
+        14
+      ],
+      "use": "徽章碎了（第一次失误后停在这张）：灰掉、中间一道裂、右半边掉下 1px。",
+      "note": "比 perfect_badge 高 1px（右半边下沉），左上角对齐。"
+    },
+    "common/perfect_shatter": {
+      "file": "sprites/common/perfect_shatter.png",
+      "size": [
+        74,
+        180
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        0,
+        0,
+        74,
+        180
+      ],
+      "use": "徽章碎裂动画（5 帧播一次，播完停在 perfect_badge_broken）。徽章画在帧内 (8,2)。",
+      "frames": {
+        "count": 5,
+        "w": 74,
+        "h": 36,
+        "layout": "vertical",
+        "ms": 70
+      },
+      "note": "帧 0 = 刚裂开；碎片左右散开、下坠、淡出。"
+    },
+    "common/perfect_stamp": {
+      "file": "sprites/common/perfect_stamp.png",
+      "size": [
+        90,
+        18
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        21,
+        181,
+        90,
+        18
+      ],
+      "use": "出锅大字盖章旁弹出的「PERFECT!」（§17.4）。整张不拉伸，建议界面 ×2 再放大一档。"
+    },
+    "common/countdown_3": {
+      "file": "sprites/common/countdown_3.png",
+      "size": [
+        18,
+        24
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        155,
+        0,
+        18,
+        24
+      ],
+      "use": "倒计时数字「3」（§17.3，20 tick 内 3→2→1，每个约 6–7 tick）。画在轨道正中。",
+      "anchor": "center"
+    },
+    "common/countdown_2": {
+      "file": "sprites/common/countdown_2.png",
+      "size": [
+        18,
+        24
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        136,
+        0,
+        18,
+        24
+      ],
+      "use": "倒计时数字「2」（§17.3，20 tick 内 3→2→1，每个约 6–7 tick）。画在轨道正中。",
+      "anchor": "center"
+    },
+    "common/countdown_1": {
+      "file": "sprites/common/countdown_1.png",
+      "size": [
+        18,
+        24
+      ],
+      "atlas": "atlas/common.png",
+      "rect": [
+        117,
+        0,
+        18,
+        24
+      ],
+      "use": "倒计时数字「1」（§17.3，20 tick 内 3→2→1，每个约 6–7 tick）。画在轨道正中。",
+      "anchor": "center"
+    },
+    "pot/track": {
+      "file": "sprites/pot/track.png",
+      "size": [
+        26,
+        44
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        0,
+        0,
+        26,
+        44
+      ],
+      "use": "厨锅轨道：汤锅侧剖面（铁锅壁 + 汤 + 锅底透火）。竖向九宫格：只拉高度（中段 32 行平铺），宽度固定 26。内容区 = 火候条和食材活动范围：u 0 = 内容区底边，1,000,000 = 内容区顶边。",
+      "slice": {
+        "left": 3,
+        "top": 6,
+        "right": 3,
+        "bottom": 6,
+        "mode": "repeat"
+      },
+      "content": {
+        "left": 3,
+        "top": 3,
+        "right": 3,
+        "bottom": 3
+      },
+      "note": "推荐 1x 尺寸 26×146（内容区 20×140）。像素映射：y = contentBottom − round(u × contentH / 1,000,000)；火候条高 = round(H × contentH / 1,000,000)。"
+    },
+    "fryer/track": {
+      "file": "sprites/fryer/track.png",
+      "size": [
+        26,
+        44
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        47,
+        0,
+        26,
+        44
+      ],
+      "use": "炸锅轨道：油锅侧剖面（铸铁壁 + 金黄热油 + 油泡）。竖向九宫格：只拉高度（中段 32 行平铺），宽度固定 26。内容区 = 火候条和食材活动范围：u 0 = 内容区底边，1,000,000 = 内容区顶边。",
+      "slice": {
+        "left": 3,
+        "top": 6,
+        "right": 3,
+        "bottom": 6,
+        "mode": "repeat"
+      },
+      "content": {
+        "left": 3,
+        "top": 3,
+        "right": 3,
+        "bottom": 3
+      },
+      "note": "推荐 1x 尺寸 26×146（内容区 20×140）。像素映射：y = contentBottom − round(u × contentH / 1,000,000)；火候条高 = round(H × contentH / 1,000,000)。"
+    },
+    "oven/track": {
+      "file": "sprites/oven/track.png",
+      "size": [
+        26,
+        44
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        65,
+        0,
+        26,
+        44
+      ],
+      "use": "烤炉轨道：砖拱炉膛（砖墙、拱顶、烟熏黑炉膛、膛底炭火）。竖向九宫格：只拉高度（中段 32 行平铺），宽度固定 26。内容区 = 火候条和食材活动范围：u 0 = 内容区底边，1,000,000 = 内容区顶边。",
+      "slice": {
+        "left": 3,
+        "top": 6,
+        "right": 3,
+        "bottom": 6,
+        "mode": "repeat"
+      },
+      "content": {
+        "left": 3,
+        "top": 3,
+        "right": 3,
+        "bottom": 3
+      },
+      "note": "推荐 1x 尺寸 26×146（内容区 20×140）。像素映射：y = contentBottom − round(u × contentH / 1,000,000)；火候条高 = round(H × contentH / 1,000,000)。"
+    },
+    "prep/track": {
+      "file": "sprites/prep/track.png",
+      "size": [
+        26,
+        44
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        0,
+        0,
+        26,
+        44
+      ],
+      "use": "备餐台轨道：木案板（竖向木纹 + 刀痕）+ 橱柜木框。竖向九宫格：只拉高度（中段 32 行平铺），宽度固定 26。内容区 = 火候条和食材活动范围：u 0 = 内容区底边，1,000,000 = 内容区顶边。",
+      "slice": {
+        "left": 3,
+        "top": 6,
+        "right": 3,
+        "bottom": 6,
+        "mode": "repeat"
+      },
+      "content": {
+        "left": 3,
+        "top": 3,
+        "right": 3,
+        "bottom": 3
+      },
+      "note": "推荐 1x 尺寸 26×146（内容区 20×140）。像素映射：y = contentBottom − round(u × contentH / 1,000,000)；火候条高 = round(H × contentH / 1,000,000)。"
+    },
+    "pot/bar_normal": {
+      "file": "sprites/pot/bar_normal.png",
+      "size": [
+        20,
+        8
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        188,
+        0,
+        20,
+        8
+      ],
+      "use": "厨锅火候条（发光的火候区）· 常态。宽度固定 20，只拉高度到 H。画在食材下面。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "repeat"
+      }
+    },
+    "pot/bar_miss": {
+      "file": "sprites/pot/bar_miss.png",
+      "size": [
+        20,
+        8
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        167,
+        0,
+        20,
+        8
+      ],
+      "use": "厨锅火候条（发光的火候区）· 刚丢食材：条边闪红（与常态交替 2–3 次）。宽度固定 20，只拉高度到 H。画在食材下面。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "repeat"
+      }
+    },
+    "pot/bar_dead": {
+      "file": "sprites/pot/bar_dead.png",
+      "size": [
+        20,
+        8
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        146,
+        0,
+        20,
+        8
+      ],
+      "use": "厨锅火候条（发光的火候区）· 顶死 / 熄火（贴边 ≥ 10 tick，这些 tick 不算框住）：变灰。宽度固定 20，只拉高度到 H。画在食材下面。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "repeat"
+      }
+    },
+    "fryer/bar_normal": {
+      "file": "sprites/fryer/bar_normal.png",
+      "size": [
+        20,
+        8
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        171,
+        0,
+        20,
+        8
+      ],
+      "use": "炸锅火候条（漏勺（钢丝网））· 常态。宽度固定 20，只拉高度到 H。画在食材下面。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "repeat"
+      }
+    },
+    "fryer/bar_miss": {
+      "file": "sprites/fryer/bar_miss.png",
+      "size": [
+        20,
+        8
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        150,
+        0,
+        20,
+        8
+      ],
+      "use": "炸锅火候条（漏勺（钢丝网））· 刚丢食材：条边闪红（与常态交替 2–3 次）。宽度固定 20，只拉高度到 H。画在食材下面。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "repeat"
+      }
+    },
+    "fryer/bar_dead": {
+      "file": "sprites/fryer/bar_dead.png",
+      "size": [
+        20,
+        8
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        129,
+        0,
+        20,
+        8
+      ],
+      "use": "炸锅火候条（漏勺（钢丝网））· 顶死 / 熄火（贴边 ≥ 10 tick，这些 tick 不算框住）：变灰。宽度固定 20，只拉高度到 H。画在食材下面。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "repeat"
+      }
+    },
+    "oven/bar_normal": {
+      "file": "sprites/oven/bar_normal.png",
+      "size": [
+        20,
+        8
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        21,
+        241,
+        20,
+        8
+      ],
+      "use": "烤炉火候条（烤架上的火区（铁烤架 + 火光））· 常态。宽度固定 20，只拉高度到 H。画在食材下面。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "repeat"
+      }
+    },
+    "oven/bar_miss": {
+      "file": "sprites/oven/bar_miss.png",
+      "size": [
+        20,
+        8
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        0,
+        241,
+        20,
+        8
+      ],
+      "use": "烤炉火候条（烤架上的火区（铁烤架 + 火光））· 刚丢食材：条边闪红（与常态交替 2–3 次）。宽度固定 20，只拉高度到 H。画在食材下面。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "repeat"
+      }
+    },
+    "oven/bar_dead": {
+      "file": "sprites/oven/bar_dead.png",
+      "size": [
+        20,
+        8
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        230,
+        0,
+        20,
+        8
+      ],
+      "use": "烤炉火候条（烤架上的火区（铁烤架 + 火光））· 顶死 / 熄火（贴边 ≥ 10 tick，这些 tick 不算框住）：变灰。宽度固定 20，只拉高度到 H。画在食材下面。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "repeat"
+      }
+    },
+    "prep/bar_normal": {
+      "file": "sprites/prep/bar_normal.png",
+      "size": [
+        20,
+        8
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        21,
+        45,
+        20,
+        8
+      ],
+      "use": "备餐台火候条（刀面（不锈钢刀身，半透明））· 常态。宽度固定 20，只拉高度到 H。画在食材下面。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "repeat"
+      }
+    },
+    "prep/bar_miss": {
+      "file": "sprites/prep/bar_miss.png",
+      "size": [
+        20,
+        8
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        0,
+        45,
+        20,
+        8
+      ],
+      "use": "备餐台火候条（刀面（不锈钢刀身，半透明））· 刚丢食材：条边闪红（与常态交替 2–3 次）。宽度固定 20，只拉高度到 H。画在食材下面。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "repeat"
+      }
+    },
+    "prep/bar_dead": {
+      "file": "sprites/prep/bar_dead.png",
+      "size": [
+        20,
+        8
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        235,
+        0,
+        20,
+        8
+      ],
+      "use": "备餐台火候条（刀面（不锈钢刀身，半透明））· 顶死 / 熄火（贴边 ≥ 10 tick，这些 tick 不算框住）：变灰。宽度固定 20，只拉高度到 H。画在食材下面。",
+      "slice": {
+        "left": 2,
+        "top": 2,
+        "right": 2,
+        "bottom": 2,
+        "mode": "repeat"
+      }
+    },
+    "pot/progress_fill": {
+      "file": "sprites/pot/progress_fill.png",
+      "size": [
+        6,
+        4
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        250,
+        0,
+        6,
+        4
+      ],
+      "use": "厨锅熟度条填充（一碗汤慢慢盛满）：在 common/gauge_frame 内容区里从底往上平铺到 P/1,000,000。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "pot/progress_fill_hot": {
+      "file": "sprites/pot/progress_fill_hot.png",
+      "size": [
+        6,
+        4
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        0,
+        45,
+        6,
+        4
+      ],
+      "use": "厨锅熟度条「收汁」段：熟度 ≥ 75% 时整根换成这张（更亮 + 闪点，配音乐加快，§17.4）。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "pot/progress_top": {
+      "file": "sprites/pot/progress_top.png",
+      "size": [
+        6,
+        2
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        7,
+        45,
+        6,
+        2
+      ],
+      "use": "厨锅熟度条液面：画在填充顶端（填充高 ≥ 2px 时）。"
+    },
+    "fryer/progress_fill": {
+      "file": "sprites/fryer/progress_fill.png",
+      "size": [
+        6,
+        4
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        205,
+        0,
+        6,
+        4
+      ],
+      "use": "炸锅熟度条填充（炸到金黄）：在 common/gauge_frame 内容区里从底往上平铺到 P/1,000,000。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "fryer/progress_fill_hot": {
+      "file": "sprites/fryer/progress_fill_hot.png",
+      "size": [
+        6,
+        4
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        212,
+        0,
+        6,
+        4
+      ],
+      "use": "炸锅熟度条「收汁」段：熟度 ≥ 75% 时整根换成这张（更亮 + 闪点，配音乐加快，§17.4）。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "fryer/progress_top": {
+      "file": "sprites/fryer/progress_top.png",
+      "size": [
+        6,
+        2
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        234,
+        0,
+        6,
+        2
+      ],
+      "use": "炸锅熟度条液面：画在填充顶端（填充高 ≥ 2px 时）。"
+    },
+    "oven/progress_fill": {
+      "file": "sprites/oven/progress_fill.png",
+      "size": [
+        6,
+        4
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        55,
+        241,
+        6,
+        4
+      ],
+      "use": "烤炉熟度条填充（烤出焦糖色）：在 common/gauge_frame 内容区里从底往上平铺到 P/1,000,000。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "oven/progress_fill_hot": {
+      "file": "sprites/oven/progress_fill_hot.png",
+      "size": [
+        6,
+        4
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        62,
+        241,
+        6,
+        4
+      ],
+      "use": "烤炉熟度条「收汁」段：熟度 ≥ 75% 时整根换成这张（更亮 + 闪点，配音乐加快，§17.4）。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "oven/progress_top": {
+      "file": "sprites/oven/progress_top.png",
+      "size": [
+        6,
+        2
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        69,
+        241,
+        6,
+        2
+      ],
+      "use": "烤炉熟度条液面：画在填充顶端（填充高 ≥ 2px 时）。"
+    },
+    "prep/progress_fill": {
+      "file": "sprites/prep/progress_fill.png",
+      "size": [
+        6,
+        4
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        71,
+        45,
+        6,
+        4
+      ],
+      "use": "备餐台熟度条填充（摆得满满当当（鲜绿））：在 common/gauge_frame 内容区里从底往上平铺到 P/1,000,000。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "prep/progress_fill_hot": {
+      "file": "sprites/prep/progress_fill_hot.png",
+      "size": [
+        6,
+        4
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        78,
+        45,
+        6,
+        4
+      ],
+      "use": "备餐台熟度条「收汁」段：熟度 ≥ 75% 时整根换成这张（更亮 + 闪点，配音乐加快，§17.4）。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "prep/progress_top": {
+      "file": "sprites/prep/progress_top.png",
+      "size": [
+        6,
+        2
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        90,
+        45,
+        6,
+        2
+      ],
+      "use": "备餐台熟度条液面：画在填充顶端（填充高 ≥ 2px 时）。"
+    },
+    "pot/progress_cap": {
+      "file": "sprites/pot/progress_cap.png",
+      "size": [
+        12,
+        8
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        209,
+        0,
+        12,
+        8
+      ],
+      "use": "厨锅熟度条底座装饰（木碗（熟度 = 一碗慢慢盛满））：贴在 gauge_frame 正下方、水平居中（比槽宽 4px）。纯装饰。"
+    },
+    "fryer/progress_cap": {
+      "file": "sprites/fryer/progress_cap.png",
+      "size": [
+        12,
+        8
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        192,
+        0,
+        12,
+        8
+      ],
+      "use": "炸锅熟度条底座装饰（小炸篮）：贴在 gauge_frame 正下方、水平居中（比槽宽 4px）。纯装饰。"
+    },
+    "oven/progress_cap": {
+      "file": "sprites/oven/progress_cap.png",
+      "size": [
+        12,
+        8
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        42,
+        241,
+        12,
+        8
+      ],
+      "use": "烤炉熟度条底座装饰（派盘）：贴在 gauge_frame 正下方、水平居中（比槽宽 4px）。纯装饰。"
+    },
+    "prep/progress_cap": {
+      "file": "sprites/prep/progress_cap.png",
+      "size": [
+        12,
+        8
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        42,
+        45,
+        12,
+        8
+      ],
+      "use": "备餐台熟度条底座装饰（搪瓷盘）：贴在 gauge_frame 正下方、水平居中（比槽宽 4px）。纯装饰。"
+    },
+    "pot/heat_fill_low": {
+      "file": "sprites/pot/heat_fill_low.png",
+      "size": [
+        6,
+        4
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        236,
+        0,
+        6,
+        4
+      ],
+      "use": "火苗柱填充 · 小火（h < 400）：在 common/gauge_frame 内容区从底往上平铺到 h/1000。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "pot/heat_tip_low": {
+      "file": "sprites/pot/heat_tip_low.png",
+      "size": [
+        8,
+        40
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        36,
+        0,
+        8,
+        40
+      ],
+      "use": "火苗柱顶的火苗 · 小火（h < 400）（4 帧循环）。底边对齐填充顶、水平居中于槽。",
+      "frames": {
+        "count": 4,
+        "w": 8,
+        "h": 10,
+        "layout": "vertical",
+        "ms": 110
+      },
+      "anchor": "bottom-center"
+    },
+    "pot/heat_fill_mid": {
+      "file": "sprites/pot/heat_fill_mid.png",
+      "size": [
+        6,
+        4
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        243,
+        0,
+        6,
+        4
+      ],
+      "use": "火苗柱填充 · 中火（400 ≤ h < 800）：在 common/gauge_frame 内容区从底往上平铺到 h/1000。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "pot/heat_tip_mid": {
+      "file": "sprites/pot/heat_tip_mid.png",
+      "size": [
+        8,
+        40
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        45,
+        0,
+        8,
+        40
+      ],
+      "use": "火苗柱顶的火苗 · 中火（400 ≤ h < 800）（4 帧循环）。底边对齐填充顶、水平居中于槽。",
+      "frames": {
+        "count": 4,
+        "w": 8,
+        "h": 10,
+        "layout": "vertical",
+        "ms": 110
+      },
+      "anchor": "bottom-center"
+    },
+    "pot/heat_fill_high": {
+      "file": "sprites/pot/heat_fill_high.png",
+      "size": [
+        6,
+        4
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        229,
+        0,
+        6,
+        4
+      ],
+      "use": "火苗柱填充 · 旺火（h ≥ 800）：在 common/gauge_frame 内容区从底往上平铺到 h/1000。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "pot/heat_tip_high": {
+      "file": "sprites/pot/heat_tip_high.png",
+      "size": [
+        8,
+        40
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        27,
+        0,
+        8,
+        40
+      ],
+      "use": "火苗柱顶的火苗 · 旺火（h ≥ 800）（4 帧循环）。底边对齐填充顶、水平居中于槽。",
+      "frames": {
+        "count": 4,
+        "w": 8,
+        "h": 10,
+        "layout": "vertical",
+        "ms": 110
+      },
+      "anchor": "bottom-center"
+    },
+    "pot/heat_fill_dead": {
+      "file": "sprites/pot/heat_fill_dead.png",
+      "size": [
+        6,
+        4
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        222,
+        0,
+        6,
+        4
+      ],
+      "use": "火苗柱填充 · 熄火 / 顶死（火苗变灰）：在 common/gauge_frame 内容区从底往上平铺到 h/1000。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "pot/heat_tip_dead": {
+      "file": "sprites/pot/heat_tip_dead.png",
+      "size": [
+        8,
+        10
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        137,
+        0,
+        8,
+        10
+      ],
+      "use": "火苗柱顶的灰火苗（熄火 / 顶死时）。底边对齐填充顶。",
+      "anchor": "bottom-center"
+    },
+    "pot/flame_small": {
+      "file": "sprites/pot/flame_small.png",
+      "size": [
+        14,
+        12
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        122,
+        0,
+        14,
+        12
+      ],
+      "use": "火候档位图标：小火（画在火苗柱旁，当前档亮、其余用 grey 版本或半透明）。"
+    },
+    "pot/flame_mid": {
+      "file": "sprites/pot/flame_mid.png",
+      "size": [
+        14,
+        12
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        107,
+        0,
+        14,
+        12
+      ],
+      "use": "火候档位图标：中火（画在火苗柱旁，当前档亮、其余用 grey 版本或半透明）。"
+    },
+    "pot/flame_big": {
+      "file": "sprites/pot/flame_big.png",
+      "size": [
+        14,
+        12
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        92,
+        0,
+        14,
+        12
+      ],
+      "use": "火候档位图标：旺火（画在火苗柱旁，当前档亮、其余用 grey 版本或半透明）。"
+    },
+    "pot/bubbles": {
+      "file": "sprites/pot/bubbles.png",
+      "size": [
+        20,
+        24
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        54,
+        0,
+        20,
+        24
+      ],
+      "use": "汤面冒泡（h 满 1000 时，4 帧循环，配咕嘟声）：贴在轨道内容区顶端（y = contentTop）。",
+      "frames": {
+        "count": 4,
+        "w": 20,
+        "h": 6,
+        "layout": "vertical",
+        "ms": 120
+      }
+    },
+    "fryer/thermo_frame": {
+      "file": "sprites/fryer/thermo_frame.png",
+      "size": [
+        12,
+        24
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        74,
+        0,
+        12,
+        24
+      ],
+      "use": "油温计外壳（暗黄铜 + 玻璃管 + 红球泡）：竖向九宫格，只拉高度（推荐与轨道同高）。玻璃管内容区里先按比例铺三色带（thermo_band_*），再从底往上画油温柱 thermo_column。",
+      "slice": {
+        "left": 4,
+        "top": 3,
+        "right": 4,
+        "bottom": 12,
+        "mode": "repeat"
+      },
+      "content": {
+        "left": 4,
+        "top": 3,
+        "right": 4,
+        "bottom": 12
+      },
+      "note": "内容区宽 4：带子铺满 4 列，油温柱画在中间 2 列（内容区 x+1..x+2）。T → 高度：y = contentBottom − round(T × contentH / 1000)。"
+    },
+    "fryer/thermo_band_cold": {
+      "file": "sprites/fryer/thermo_band_cold.png",
+      "size": [
+        4,
+        4
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        219,
+        0,
+        4,
+        4
+      ],
+      "use": "油温计色带 · 冷油（T < 300，蓝）。玻璃管内容区里 0–30% 高度平铺。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "fryer/thermo_band_gold": {
+      "file": "sprites/fryer/thermo_band_gold.png",
+      "size": [
+        4,
+        4
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        224,
+        0,
+        4,
+        4
+      ],
+      "use": "油温计色带 · 金黄区（300 ≤ T < 750）。30–75% 高度平铺。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "fryer/thermo_band_hot": {
+      "file": "sprites/fryer/thermo_band_hot.png",
+      "size": [
+        4,
+        4
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        229,
+        0,
+        4,
+        4
+      ],
+      "use": "油温计色带 · 过热（750 ≤ T < 1000，红）。75–100% 高度平铺。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "fryer/thermo_column": {
+      "file": "sprites/fryer/thermo_column.png",
+      "size": [
+        2,
+        2
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        241,
+        0,
+        2,
+        2
+      ],
+      "use": "油温柱（红）：内容区中间 2 列，从底往上平铺到 T。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "fryer/thermo_column_top": {
+      "file": "sprites/fryer/thermo_column_top.png",
+      "size": [
+        2,
+        1
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        248,
+        0,
+        2,
+        1
+      ],
+      "use": "油温柱顶端高光（1 行）。"
+    },
+    "fryer/thermo_pointer": {
+      "file": "sprites/fryer/thermo_pointer.png",
+      "size": [
+        6,
+        9
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        122,
+        0,
+        6,
+        9
+      ],
+      "use": "油温指针 ◀：画在油温计右侧、尖端对准当前 T 高度（anchor = 左边中点）。",
+      "anchor": "left-center"
+    },
+    "fryer/thermo_tick": {
+      "file": "sprites/fryer/thermo_tick.png",
+      "size": [
+        3,
+        1
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        244,
+        0,
+        3,
+        1
+      ],
+      "use": "色带分界刻度（300 / 750）：画在油温计左外侧。"
+    },
+    "fryer/cooldown_ring": {
+      "file": "sprites/fryer/cooldown_ring.png",
+      "size": [
+        17,
+        153
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        0,
+        0,
+        17,
+        153
+      ],
+      "use": "压火冷却环（9 帧，不自动播）：帧号 = round(8 × (1 − cd / oilCd))，帧 0 = 刚压过（满蓝），帧 8 = 冷却结束。中间放 common/keycap（11×12，偏移 (3,2)）。",
+      "frames": {
+        "count": 9,
+        "w": 17,
+        "h": 17,
+        "layout": "vertical",
+        "ms": 0
+      },
+      "note": "ms = 0 表示按状态选帧，不按时间播放。"
+    },
+    "fryer/cooldown_ready": {
+      "file": "sprites/fryer/cooldown_ready.png",
+      "size": [
+        17,
+        17
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        87,
+        0,
+        17,
+        17
+      ],
+      "use": "压火可用：金圈（cd == 0）。"
+    },
+    "fryer/oil_splash": {
+      "file": "sprites/fryer/oil_splash.png",
+      "size": [
+        28,
+        110
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        18,
+        0,
+        28,
+        110
+      ],
+      "use": "爆油：溅油花（5 帧播一次），底边中点对齐食材位置；同时界面抖一下、「滋啦」。",
+      "frames": {
+        "count": 5,
+        "w": 28,
+        "h": 22,
+        "layout": "vertical",
+        "ms": 60
+      },
+      "anchor": "bottom-center"
+    },
+    "oven/flames": {
+      "file": "sprites/oven/flames.png",
+      "size": [
+        20,
+        32
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        92,
+        0,
+        20,
+        32
+      ],
+      "use": "膛底火苗（4 帧循环）：贴在轨道内容区底边（底对齐 contentBottom），画在轨道之上、火候条之下。",
+      "frames": {
+        "count": 4,
+        "w": 20,
+        "h": 8,
+        "layout": "vertical",
+        "ms": 120
+      }
+    },
+    "oven/glow": {
+      "file": "sprites/oven/glow.png",
+      "size": [
+        20,
+        24
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        113,
+        0,
+        20,
+        24
+      ],
+      "use": "火光（抖动点阵的橙色半透明）：贴在轨道内容区底部，画在 flames 之下，让炉膛下半截被火映亮。宽度固定 20。"
+    },
+    "oven/flip_mark_pending": {
+      "file": "sprites/oven/flip_mark_pending.png",
+      "size": [
+        6,
+        9
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        223,
+        0,
+        6,
+        9
+      ],
+      "use": "翻面点三角 ◀ · 还没到：画在熟度条右侧，尖端对准 mark_k 高度（anchor = 左边中点）。",
+      "anchor": "left-center"
+    },
+    "oven/flip_mark_now": {
+      "file": "sprites/oven/flip_mark_now.png",
+      "size": [
+        6,
+        9
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        216,
+        0,
+        6,
+        9
+      ],
+      "use": "翻面点三角 ◀ · 「翻面！」提示生效中（可与 pending 交替闪）：画在熟度条右侧，尖端对准 mark_k 高度（anchor = 左边中点）。",
+      "anchor": "left-center"
+    },
+    "oven/flip_mark_good": {
+      "file": "sprites/oven/flip_mark_good.png",
+      "size": [
+        6,
+        9
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        202,
+        0,
+        6,
+        9
+      ],
+      "use": "翻面点三角 ◀ · 正好：画在熟度条右侧，尖端对准 mark_k 高度（anchor = 左边中点）。",
+      "anchor": "left-center"
+    },
+    "oven/flip_mark_late": {
+      "file": "sprites/oven/flip_mark_late.png",
+      "size": [
+        6,
+        9
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        209,
+        0,
+        6,
+        9
+      ],
+      "use": "翻面点三角 ◀ · 稍晚：画在熟度条右侧，尖端对准 mark_k 高度（anchor = 左边中点）。",
+      "anchor": "left-center"
+    },
+    "oven/flip_mark_early": {
+      "file": "sprites/oven/flip_mark_early.png",
+      "size": [
+        6,
+        9
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        195,
+        0,
+        6,
+        9
+      ],
+      "use": "翻面点三角 ◀ · 翻早：画在熟度条右侧，尖端对准 mark_k 高度（anchor = 左边中点）。",
+      "anchor": "left-center"
+    },
+    "oven/flip_mark_burnt": {
+      "file": "sprites/oven/flip_mark_burnt.png",
+      "size": [
+        6,
+        9
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        188,
+        0,
+        6,
+        9
+      ],
+      "use": "翻面点三角 ◀ · 焦面：画在熟度条右侧，尖端对准 mark_k 高度（anchor = 左边中点）。",
+      "anchor": "left-center"
+    },
+    "oven/flip_mark_auto": {
+      "file": "sprites/oven/flip_mark_auto.png",
+      "size": [
+        6,
+        9
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        181,
+        0,
+        6,
+        9
+      ],
+      "use": "翻面点三角 ◀ · 自动翻：画在熟度条右侧，尖端对准 mark_k 高度（anchor = 左边中点）。",
+      "anchor": "left-center"
+    },
+    "oven/flip_prompt": {
+      "file": "sprites/oven/flip_prompt.png",
+      "size": [
+        12,
+        13
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        168,
+        0,
+        12,
+        13
+      ],
+      "use": "「翻面！」大字横幅底（字用游戏字体白字 + 阴影，可 ×2）：提示生效时画在轨道上方或右侧。",
+      "slice": {
+        "left": 3,
+        "top": 3,
+        "right": 3,
+        "bottom": 3,
+        "mode": "stretch"
+      },
+      "content": {
+        "left": 3,
+        "top": 3,
+        "right": 3,
+        "bottom": 3
+      }
+    },
+    "oven/flip_icon": {
+      "file": "sprites/oven/flip_icon.png",
+      "size": [
+        16,
+        16
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        134,
+        0,
+        16,
+        16
+      ],
+      "use": "翻面图标（锅铲 + 翻转箭头）：放在「翻面！」横幅左侧或键帽旁。"
+    },
+    "oven/flip_ring_good": {
+      "file": "sprites/oven/flip_ring_good.png",
+      "size": [
+        15,
+        240
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        16,
+        0,
+        15,
+        240
+      ],
+      "use": "翻面计时环 · 正好窗口（dt ≤ flipGood）。16 帧按状态选：帧号 = floor(16 × 已过 / 窗口长)。",
+      "frames": {
+        "count": 16,
+        "w": 15,
+        "h": 15,
+        "layout": "vertical",
+        "ms": 0
+      },
+      "note": "ms = 0：按状态选帧。焦面阶段可停在帧 15 并闪。"
+    },
+    "oven/flip_ring_late": {
+      "file": "sprites/oven/flip_ring_late.png",
+      "size": [
+        15,
+        240
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        32,
+        0,
+        15,
+        240
+      ],
+      "use": "翻面计时环 · 稍晚窗口（flipGood < dt ≤ flipGood+12）。16 帧按状态选：帧号 = floor(16 × 已过 / 窗口长)。",
+      "frames": {
+        "count": 16,
+        "w": 15,
+        "h": 15,
+        "layout": "vertical",
+        "ms": 0
+      },
+      "note": "ms = 0：按状态选帧。焦面阶段可停在帧 15 并闪。"
+    },
+    "oven/flip_ring_burn": {
+      "file": "sprites/oven/flip_ring_burn.png",
+      "size": [
+        15,
+        240
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        0,
+        0,
+        15,
+        240
+      ],
+      "use": "翻面计时环 · 焦面（再晚：开始烤焦，扣分逐 tick 涨）。16 帧按状态选：帧号 = floor(16 × 已过 / 窗口长)。",
+      "frames": {
+        "count": 16,
+        "w": 15,
+        "h": 15,
+        "layout": "vertical",
+        "ms": 0
+      },
+      "note": "ms = 0：按状态选帧。焦面阶段可停在帧 15 并闪。"
+    },
+    "oven/burn_smoke": {
+      "file": "sprites/oven/burn_smoke.png",
+      "size": [
+        16,
+        64
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        48,
+        0,
+        16,
+        64
+      ],
+      "use": "烤焦冒烟（4 帧循环）：焦面阶段画在食材上方，底边中点对齐食材。",
+      "frames": {
+        "count": 4,
+        "w": 16,
+        "h": 16,
+        "layout": "vertical",
+        "ms": 140
+      },
+      "anchor": "bottom-center"
+    },
+    "prep/beat_lane": {
+      "file": "sprites/prep/beat_lane.png",
+      "size": [
+        32,
+        20
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        154,
+        0,
+        32,
+        20
+      ],
+      "use": "摆料段节拍道（横向，深色木条）：进入摆料段时出现在轨道正下方，图标从左往右滑向右端的盘子。横向九宫格，只拉宽度（中段 24 列平铺）。",
+      "slice": {
+        "left": 4,
+        "top": 4,
+        "right": 4,
+        "bottom": 4,
+        "mode": "repeat"
+      },
+      "content": {
+        "left": 1,
+        "top": 2,
+        "right": 1,
+        "bottom": 2
+      },
+      "note": "内容区高 16 = 节拍图标 16×16；图标中心线 = 内容区中线。"
+    },
+    "prep/beat_plate": {
+      "file": "sprites/prep/beat_plate.png",
+      "size": [
+        22,
+        22
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        108,
+        0,
+        22,
+        22
+      ],
+      "use": "节拍道终点的盘子（判定点）：中心 = 判定线，画在节拍道右端、竖直居中。汉堡等可在盘子上一层层摞图标。",
+      "anchor": "center"
+    },
+    "prep/beat_shaker": {
+      "file": "sprites/prep/beat_shaker.png",
+      "size": [
+        22,
+        22
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        131,
+        0,
+        22,
+        22
+      ],
+      "use": "冷饮「摇杯」皮的判定点（雪克杯，§13.5）：替换 beat_plate；拍点就是摇一下（可左右晃 1px）。",
+      "anchor": "center"
+    },
+    "prep/beat_ring_perfect": {
+      "file": "sprites/prep/beat_ring_perfect.png",
+      "size": [
+        26,
+        26
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        81,
+        0,
+        26,
+        26
+      ],
+      "use": "判定闪圈 · 正好（|d| ≤ 1）：盖在盘子上 4–6 tick（中心对齐盘子中心）。",
+      "anchor": "center"
+    },
+    "prep/beat_ring_ok": {
+      "file": "sprites/prep/beat_ring_ok.png",
+      "size": [
+        26,
+        26
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        54,
+        0,
+        26,
+        26
+      ],
+      "use": "判定闪圈 · 可以（|d| ≤ goodW）：盖在盘子上 4–6 tick（中心对齐盘子中心）。",
+      "anchor": "center"
+    },
+    "prep/beat_ring_miss": {
+      "file": "sprites/prep/beat_ring_miss.png",
+      "size": [
+        26,
+        26
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        27,
+        0,
+        26,
+        26
+      ],
+      "use": "判定闪圈 · 漏拍 / 乱按：盖在盘子上 4–6 tick（中心对齐盘子中心）。",
+      "anchor": "center"
+    },
+    "prep/beat_light_off": {
+      "file": "sprites/prep/beat_light_off.png",
+      "size": [
+        7,
+        7
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        55,
+        45,
+        7,
+        7
+      ],
+      "use": "节拍灯（灭）：节拍道上方一排，每拍一个。"
+    },
+    "prep/beat_light_on": {
+      "file": "sprites/prep/beat_light_on.png",
+      "size": [
+        7,
+        7
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        63,
+        45,
+        7,
+        7
+      ],
+      "use": "节拍灯（亮）：拍点那一 tick 点亮（客户端按帧时钟，配「嗒」）。"
+    },
+    "prep/ice_cube": {
+      "file": "sprites/prep/ice_cube.png",
+      "size": [
+        16,
+        16
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        187,
+        0,
+        16,
+        16
+      ],
+      "use": "冷饮皮的节拍图标（冰块，§13.5）。其余菜的节拍图标用这道菜的食材图标。"
+    },
+    "prep/track_dim": {
+      "file": "sprites/prep/track_dim.png",
+      "size": [
+        4,
+        4
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        85,
+        45,
+        4,
+        4
+      ],
+      "use": "摆料段时盖在轨道内容区上的暗幕（食材、火候条冻结）。平铺。",
+      "slice": {
+        "left": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "mode": "repeat"
+      }
+    },
+    "prep/seg_mark_pending": {
+      "file": "sprites/prep/seg_mark_pending.png",
+      "size": [
+        6,
+        9
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        228,
+        0,
+        6,
+        9
+      ],
+      "use": "摆料点三角 ◀ · 还没到：画在熟度条右侧，尖端对准 segMark_k 高度。",
+      "anchor": "left-center"
+    },
+    "prep/seg_mark_done": {
+      "file": "sprites/prep/seg_mark_done.png",
+      "size": [
+        6,
+        9
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        221,
+        0,
+        6,
+        9
+      ],
+      "use": "摆料点三角 ◀ · 摆完：画在熟度条右侧，尖端对准 segMark_k 高度。",
+      "anchor": "left-center"
+    },
+    "pot/icon": {
+      "file": "sprites/pot/icon.png",
+      "size": [
+        16,
+        16
+      ],
+      "atlas": "atlas/pot.png",
+      "rect": [
+        75,
+        0,
+        16,
+        16
+      ],
+      "use": "厨锅台子图标 16×16（标题行、练习模式选台、按钮前缀）。"
+    },
+    "fryer/icon": {
+      "file": "sprites/fryer/icon.png",
+      "size": [
+        16,
+        16
+      ],
+      "atlas": "atlas/fryer.png",
+      "rect": [
+        105,
+        0,
+        16,
+        16
+      ],
+      "use": "炸锅台子图标 16×16（标题行、练习模式选台、按钮前缀）。"
+    },
+    "oven/icon": {
+      "file": "sprites/oven/icon.png",
+      "size": [
+        16,
+        16
+      ],
+      "atlas": "atlas/oven.png",
+      "rect": [
+        151,
+        0,
+        16,
+        16
+      ],
+      "use": "烤炉台子图标 16×16（标题行、练习模式选台、按钮前缀）。"
+    },
+    "prep/icon": {
+      "file": "sprites/prep/icon.png",
+      "size": [
+        16,
+        16
+      ],
+      "atlas": "atlas/prep.png",
+      "rect": [
+        204,
+        0,
+        16,
+        16
+      ],
+      "use": "备餐台台子图标 16×16（标题行、练习模式选台、按钮前缀）。"
+    }
+  }
+}

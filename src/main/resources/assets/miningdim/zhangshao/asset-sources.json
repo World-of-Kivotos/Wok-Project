@@ -1,0 +1,50 @@
+[
+  {
+    "Project": "crabbers-delight",
+    "Version": "1.2.3",
+    "OriginalFilename": "crabbersdelight-1.20.1-1.2.3.jar",
+    "URL": "https://cdn.modrinth.com/data/gBGdVBJy/versions/9NT9IkSs/crabbersdelight-1.20.1-1.2.3.jar",
+    "SHA512": "8a17311cea966ac40020efa32b682aa9e15a98acd4082b2d9243f09c39dec4d892c019f9810ee2382efba5bae42106d3aaf821471804ec102db52ee78aecbdcd",
+    "Use": "Read image assets only; not installed or executed"
+  },
+  {
+    "Project": "delightful",
+    "Version": "3.8.1-1.20.1",
+    "OriginalFilename": "Delightful-1.20.1-3.8.1.jar",
+    "URL": "https://cdn.modrinth.com/data/JtSnhtNJ/versions/HbEQIqIu/Delightful-1.20.1-3.8.1.jar",
+    "SHA512": "040e79077bd590e5cca6ed2352b55d0c2d982c3823b898a9582f22defb79877e1abf9d69772ef41073c330f11a2ea0d3b9f1ed65c2ee3dff1aec083ac6176312",
+    "Use": "Read image assets only; not installed or executed"
+  },
+  {
+    "Project": "more-delight",
+    "Version": "26.05.20-1.20-forge",
+    "OriginalFilename": "moredelight-26.05.20-1.20-forge.jar",
+    "URL": "https://cdn.modrinth.com/data/znHQQtuU/versions/GrLDJ8lO/moredelight-26.05.20-1.20-forge.jar",
+    "SHA512": "69632de72d44a683541fd2bfb73a38fa2fd76c1a7ced264a9f6b00dfd75382bd3141c8932cd9bc9eb6740a204936a33d725a9580a80cdceb23b37e66b1045dec",
+    "Use": "Read image assets only; not installed or executed"
+  },
+  {
+    "Project": "oceans-delight",
+    "Version": "1.0.2-1.20",
+    "OriginalFilename": "oceansdelight-1.0.2-1.20.jar",
+    "URL": "https://cdn.modrinth.com/data/DGiq4ZSW/versions/9jLLNENb/oceansdelight-1.0.2-1.20.jar",
+    "SHA512": "64ba0396d7168c73c810c8aefc135eebd7c2d5780e482fb36e96de87d0f226625b3ebb4249372b896ededa335895efda5d134846522e2e45c0a8d3a97ae2bf93",
+    "Use": "Read image assets only; not installed or executed"
+  },
+  {
+    "Project": "casualness-delight",
+    "Version": "1.20.1-0.4n",
+    "OriginalFilename": "[+食品}_随意乐事casualness_delight-1.20.1-0.4n.jar",
+    "URL": "https://cdn.modrinth.com/data/zYuGPZIx/versions/p6Z5Qd84/%5B%2B%E9%A3%9F%E5%93%81%7D_%E9%9A%8F%E6%84%8F%E4%B9%90%E4%BA%8Bcasualness_delight-1.20.1-0.4n.jar",
+    "SHA512": "e1324ec629764fffc39d5a7733b5e95f13c58f0e53cef40fd11d6751754798d5885514a3c4719621cdf0af16b363466f133d513fc00bba7b1a9c8d6abb7d396b",
+    "Use": "Read image assets only; not installed or executed"
+  },
+  {
+    "Project": "dumplings-delight-rewrapped",
+    "Version": "1.20.1-1.3.0+fabric",
+    "OriginalFilename": "DumplingsDelightRewrapped-1.20.1-1.3.0+fabric.jar",
+    "URL": "https://cdn.modrinth.com/data/DqKMBArS/versions/fhqaCHuw/DumplingsDelightRewrapped-1.20.1-1.3.0%2Bfabric.jar",
+    "SHA512": "164e211dd051512cd012841f22f59a0f8d19f3f7f12adbc80279600d269652a83d9d5a5dd1fc6dd7cd3a85116d9158a794aa3003b25ceede3fb06d9671af5cfb",
+    "Use": "Read image assets only; not installed or executed"
+  }
+]

@@ -68,9 +68,11 @@
 
 当前环境无 Context7 工具，Minecraft/Forge API 按工程锁定的 Minecraft 1.20.1 / Forge 47.3.0 映射 JAR 与现有源码核对签名，并通过编译和专用服务器加载验证。
 
-2026-10-27 审查修订拆为 #100 支撑层和 #99 完整生产层，生产 Java 增删分别为 717 和 1450 行。支撑层独立完整测试为 `All 2105 required tests passed :)`，日志 `tmp/chef-pr-rework-20261027/100-strict-save-verify.log`。`5b37e360` 后续补上帮助鼠标翻页的同帧双击边界，已编译并通过模块检查；它与两层炸锅修订一起纳入最终完整链验证。
+2026-10-27 审查修订拆为 #100 支撑层和 #99 完整生产层，生产 Java 增删分别为 732 和 1450 行。支撑层独立完整测试为 `All 2106 required tests passed :)`，日志 `tmp/chef-pr-rework-20261027/100-load-guard-verify.log`。`5b37e360` 后续补上帮助鼠标翻页的同帧双击边界，已编译并通过模块检查；它与两层炸锅修订一起纳入最终完整链验证。
 
-最终完整链执行 `compileJava verifyModuleBoundaries runGameTestServer jarJar reobfJarJar -Pmod_version=1.0.39-fryer-pr-review`，日志原文为 `All 2110 required tests passed :)`，构建和重混淆打包全部通过。日志 `tmp/chef-pr-rework-20261027/99-final-verify.log`。两个存档写入点仍为版本 2；已核对 1.0.38 本体测试 JAR 及历史实现均写 2，删除没有核实来源的 v1 兼容，并验证不支持版本及缺事务队列会被拒绝。
+最终完整链执行 `compileJava verifyModuleBoundaries runGameTestServer jarJar reobfJarJar -Pmod_version=1.0.39-fryer-pr-review`，日志原文为 `All 2111 required tests passed :)`，构建和重混淆打包全部通过。日志 `tmp/chef-pr-rework-20261027/99-load-guard-final-verify.log`。两个存档写入点仍为版本 2；已核对 1.0.38 本体测试 JAR 及历史实现均写 2，删除没有核实来源的 v1 兼容，并验证不支持版本及缺事务队列会被拒绝。
+
+加载保护同时覆盖原版存储层：已有或不可确认访问的 journal 读取失败时向外报错，仅在文件确认不存在时才允许新建。新增用例让损坏文件经过真实 `DimensionDataStorage`，验证错误不会变成空档，原文件字节完全保留。
 
 早先一次完整复验在原子替换 journal 文件时失败，原日志 `tmp/chef-pr-rework-20261027/99-production-verify-2.log` 保留。未定位到具体系统原因，也没有添加重试或吞错；带异常诊断的重测和上述最终完整链均通过。诊断日志保留在同任务目录的 `jvm-exceptions/`。本轮未部署新包，客户端中文排版、低帧翻页、原生菜单操作与四道可选菜仍待实机验收。
 

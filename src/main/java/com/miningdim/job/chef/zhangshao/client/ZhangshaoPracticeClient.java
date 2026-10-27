@@ -7,6 +7,6 @@ public final class ZhangshaoPracticeClient {
     private ZhangshaoPracticeClient() {}
 
     public static void open(int station) {
-        Minecraft.getInstance().setScreen(new ZhangshaoPracticeScreen(station));
+        Minecraft.getInstance().setScreen(new ZhangshaoStationScreen(station));
     }
 }

@@ -1,6 +1,6 @@
 # 厨师重构设计资料（2026-10）
 
-厨师职业重构已经拍板的设计。代码已落地九台烹饪台方块（`com.miningdim.job.chef.station`）和 MC 原生掌勺练习模式（`com.miningdim.job.chef.zhangshao`，对应规格 §17.13），可用 `/chef practice` 或新台子右键进入；[游戏内测试说明](../Chef_Zhangshao_MC_Playtest.md)。练习不扣料、不产出、不授予经验，正式烹饪生产和职业效果重构按这里的规格继续实现。
+厨师职业重构已经拍板的设计。代码已落地九台烹饪台方块（`com.miningdim.job.chef.station`）和 MC 原生掌勺练习模式（`com.miningdim.job.chef.zhangshao`，对应规格 §17.13），由台子界面的「练习」按钮进入；[游戏内测试说明](../Chef_Zhangshao_MC_Playtest.md)。练习不扣料、不产出、不授予经验，正式烹饪生产和职业效果重构按这里的规格继续实现。
 
 | 文件 | 内容 |
 |---|---|

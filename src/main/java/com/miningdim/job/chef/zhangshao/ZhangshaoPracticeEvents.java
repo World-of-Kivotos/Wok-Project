@@ -5,26 +5,24 @@ import com.miningdim.job.chef.station.CookingStationBlock;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.network.PacketDistributor;
-import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.fml.common.Mod;
 
 @Mod.EventBusSubscriber(modid = MiningConstants.MODID)
 public final class ZhangshaoPracticeEvents {
-    private static final ResourceLocation FARMERS_POT = new ResourceLocation("farmersdelight", "cooking_pot");
-
     @SubscribeEvent
     public static void registerCommands(RegisterCommandsEvent event) {
         LiteralArgumentBuilder<CommandSourceStack> practice = Commands.literal("practice")
+                .requires(source -> source.hasPermission(2))
                 .executes(context -> open(context.getSource().getPlayerOrException(), 0));
         String[] names = {"pot", "fryer", "oven", "prep"};
         for (int station = 0; station < names.length; station++) {
@@ -52,9 +50,13 @@ public final class ZhangshaoPracticeEvents {
         }
     }
 
-    /** 保留创造模式的外观预览操作；农夫乐事厨锅只在空手潜行时进入练习。 */
+    /** 台子先开选择界面；潜行放置和创造模式外观预览交给原版。 */
     public static int practiceStation(BlockState state, Player player) {
         if (state.getBlock() instanceof CookingStationBlock station) {
+            if (player.isShiftKeyDown() && (player.getMainHandItem().getItem() instanceof BlockItem
+                    || player.getOffhandItem().getItem() instanceof BlockItem)) {
+                return -1;
+            }
             if (player.isCreative() && player.isShiftKeyDown()
                     && player.getMainHandItem().isEmpty() && player.getOffhandItem().isEmpty()) {
                 return -1;
@@ -64,10 +66,6 @@ public final class ZhangshaoPracticeEvents {
                 case BAKING_OVEN -> 2;
                 case PREP_COUNTER -> 3;
             };
-        }
-        if (FARMERS_POT.equals(ForgeRegistries.BLOCKS.getKey(state.getBlock()))
-                && player.isShiftKeyDown() && player.getMainHandItem().isEmpty() && player.getOffhandItem().isEmpty()) {
-            return 0;
         }
         return -1;
     }

@@ -56,6 +56,24 @@ public final class FryerGameTests {
     private static void fund(ServerPlayer player) { EconomyServices.economyService().grant(player, Currency.CREDIT, 1000); }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer")
+    public static void removedFryerMenuSynchronizesAndClosesWithoutCrash(GameTestHelper helper) {
+        Fixture f = fixture(helper);
+        try {
+            FryerMenu menu = (FryerMenu) f.player.containerMenu;
+            menu.broadcastChanges();
+            helper.assertTrue(menu.value(13) == 1 && menu.stillValid(f.player), "Placed fryer is usable before removal");
+            helper.assertTrue(helper.getLevel().destroyBlock(f.pos, false), "Destroy the fryer through the real block removal lifecycle");
+            helper.assertTrue(f.fryer.isRemoved() && !menu.stillValid(f.player), "Old menu outlives its removed block entity");
+            // 原版玩家 tick 先同步再检查 stillValid，拆台后的旧菜单必须仍可同步。
+            menu.broadcastChanges();
+            helper.assertTrue(menu.value(13) == 0, "Removed fryer no longer advertises a usable heat source");
+            f.player.tick();
+            helper.assertTrue(f.player.containerMenu == f.player.inventoryMenu, "Player tick closes the removed fryer menu without crashing");
+            helper.succeed();
+        } finally { MockGameTestPlayers.logout(f.player); }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer")
     public static void homeCookingConsumesOneRecipeWithoutMoneyOrXp(GameTestHelper helper) {
         Fixture f = fixture(helper);
         try {

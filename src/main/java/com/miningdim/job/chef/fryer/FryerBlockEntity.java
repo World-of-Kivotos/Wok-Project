@@ -137,7 +137,8 @@ public final class FryerBlockEntity extends BlockEntity implements MenuProvider 
                 case 10 -> lastPerfect;
                 case 11 -> lastBottle;
                 case 12 -> Math.min(100, lastProgress);
-                case 13 -> level != null && FryerStationBlock.fryerBlockedReason(level, worldPosition) == null ? 1 : 0;
+                // 玩家 tick 先同步再检查菜单有效性；拆台后的旧菜单不能再查询该坐标的热源。
+                case 13 -> !isRemoved() && level != null && FryerStationBlock.fryerBlockedReason(level, worldPosition) == null ? 1 : 0;
                 case 14 -> lastLevel;
                 default -> throw new IndexOutOfBoundsException("Fryer data " + index);
             };

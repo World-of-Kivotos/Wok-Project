@@ -1,0 +1,263 @@
+package com.miningdim.job.chef.fryer;
+
+import com.miningdim.core.MiningConstants;
+import com.miningdim.economy.Currency;
+import com.miningdim.economy.EconomyServices;
+import com.miningdim.entry.MiningCapabilities;
+import com.miningdim.job.JobId;
+import com.miningdim.job.JobServices;
+import com.miningdim.job.chef.ChefBlocks;
+import com.miningdim.job.chef.ChefConfig;
+import com.miningdim.job.chef.ChefQualityNbt;
+import com.miningdim.job.chef.zhangshao.ZhangshaoKernel;
+import com.miningdim.testutil.MockGameTestPlayers;
+import net.minecraft.core.BlockPos;
+import net.minecraft.gametest.framework.GameTest;
+import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.crafting.Ingredient;
+import net.minecraft.world.level.storage.LevelResource;
+import net.minecraftforge.gametest.GameTestHolder;
+import net.minecraftforge.gametest.PrefixGameTestTemplate;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+@GameTestHolder(MiningConstants.MODID)
+@PrefixGameTestTemplate(false)
+public final class FryerGameTests {
+    private FryerGameTests() {}
+    private record Fixture(FryerBlockEntity fryer, ServerPlayer player, BlockPos pos) {}
+
+    private static Fixture fixture(GameTestHelper helper) {
+        BlockPos pos = helper.absolutePos(new BlockPos(1, 1, 1));
+        helper.getLevel().setBlockAndUpdate(pos, ChefBlocks.DEEP_FRYER_STEEL.get().defaultBlockState());
+        FryerBlockEntity fryer = (FryerBlockEntity) helper.getLevel().getBlockEntity(pos);
+        ServerPlayer player = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
+        player.setPos(pos.getX() + .5, pos.getY() + .5, pos.getZ() + 1.5);
+        player.containerMenu = new FryerMenu(31, player.getInventory(), fryer);
+        fryer.inventory().setStackInSlot(0, new ItemStack(Items.COD, 2));
+        return new Fixture(fryer, player, pos);
+    }
+
+    private static long balance(ServerPlayer player) { return EconomyServices.economyService().creditBalance(player); }
+    private static long xp(ServerPlayer player) { return JobServices.jobService().totalXp(player, JobId.CHEF); }
+    private static void fund(ServerPlayer player) { EconomyServices.economyService().grant(player, Currency.CREDIT, 1000); }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer")
+    public static void homeCookingConsumesOneRecipeWithoutMoneyOrXp(GameTestHelper helper) {
+        Fixture f = fixture(helper);
+        try {
+            long money = balance(f.player), experience = xp(f.player);
+            f.fryer.inventory().setStackInSlot(0, ItemStack.EMPTY);
+            f.player.getInventory().setItem(0, new ItemStack(Items.COD, 2));
+            ItemStack inserted = f.player.containerMenu.quickMoveStack(f.player, FryerMenu.SLOTS + 27);
+            helper.assertTrue(inserted.getCount() == 2 && f.player.getInventory().getItem(0).isEmpty()
+                    && f.fryer.inventory().getStackInSlot(0).getCount() == 2, "Shift insertion transfers the exact real ingredients");
+            helper.assertTrue(f.fryer.start(f.player, false), "Real starter fish recipe must start");
+            helper.assertTrue(f.fryer.inventory().getStackInSlot(0).getCount() == 1, "One fish moves into the reservation");
+            for (int i = 0; i < 200; i++) f.fryer.serverTick();
+            ItemStack output = f.fryer.inventory().getStackInSlot(8);
+            helper.assertTrue(output.is(Items.COOKED_COD) && output.getCount() == 1 && !ChefQualityNbt.hasQuality(output),
+                    "Home cooking produces one ordinary cooked fish");
+            helper.assertTrue(balance(f.player) == money && xp(f.player) == experience, "Home cooking is free and grants no XP");
+
+            FryerRecipe overlapping = new FryerRecipe(new ResourceLocation("miningdim", "test_overlap"), List.of(
+                    new FryerRecipe.Input(Ingredient.of(Items.COD, Items.SALMON), 1),
+                    new FryerRecipe.Input(Ingredient.of(Items.COD), 2)), Ingredient.of(Items.BOWL), 1,
+                    new ItemStack(Items.COOKED_COD), 1, 4, 200);
+            SimpleContainer ingredients = new SimpleContainer(9);
+            ingredients.setItem(0, new ItemStack(Items.COD, 2)); ingredients.setItem(1, new ItemStack(Items.SALMON));
+            helper.assertTrue(overlapping.allocation(ingredients) == null, "Missing container refuses the actual recipe");
+            ingredients.setItem(6, new ItemStack(Items.BOWL));
+            int[] taken = overlapping.allocation(ingredients);
+            helper.assertTrue(taken != null && taken[0] == 2 && taken[1] == 1 && taken[6] == 1,
+                    "Overlapping ingredients consume exactly the required fish and separate bowl");
+            helper.succeed();
+        } finally { MockGameTestPlayers.logout(f.player); }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer")
+    public static void refusalsNeverPartiallyChargeOrConsume(GameTestHelper helper) throws IOException {
+        Fixture f = fixture(helper);
+        try {
+            fund(f.player);
+            long money = balance(f.player);
+            f.fryer.inventory().setStackInSlot(8, new ItemStack(Items.COOKED_SALMON, 64));
+            helper.assertTrue(!f.fryer.start(f.player, true) && balance(f.player) == money
+                    && f.fryer.inventory().getStackInSlot(0).getCount() == 2, "Full output keeps ingredients and money");
+            f.fryer.inventory().extractItem(8, 64, false);
+            f.fryer.inventory().setStackInSlot(0, new ItemStack(Items.STONE));
+            helper.assertTrue(!f.fryer.start(f.player, true) && balance(f.player) == money, "No recipe cannot charge");
+            f.fryer.inventory().setStackInSlot(0, new ItemStack(Items.COD, 2));
+            if (money > 0) EconomyServices.economyService().tryCharge(f.player, Currency.CREDIT, money);
+            helper.assertTrue(ChefConfig.seasoningCreditCost() > 0 && !f.fryer.start(f.player, true)
+                    && balance(f.player) == 0 && f.fryer.inventory().getStackInSlot(0).getCount() == 2,
+                    "Insufficient balance keeps all ingredients and leaves no active transaction");
+            helper.assertTrue(!f.fryer.busy(), "Rejected start does not lock the fryer");
+            CompoundTag beforeIo = f.fryer.saveWithoutMetadata();
+            f.player.getInventory().setItem(0, new ItemStack(Items.COD));
+            Path blockedJournal = helper.getLevel().getServer().getWorldPath(LevelResource.ROOT)
+                    .resolve("data/miningdim_fryer_players.dat.tmp");
+            // 暂存路径不可写会真实触发 journal IOException，不替换生产持久化实现。
+            Files.createDirectory(blockedJournal);
+            boolean refusedWrite = false;
+            try { f.player.containerMenu.quickMoveStack(f.player, FryerMenu.SLOTS + 27); }
+            catch (UncheckedIOException expected) { refusedWrite = true; }
+            finally { Files.delete(blockedJournal); }
+            helper.assertTrue(refusedWrite && f.player.getInventory().getItem(0).getCount() == 1
+                    && f.fryer.inventory().getStackInSlot(0).getCount() == 2,
+                    "Failed ingredient checkpoint neither consumes player items nor inserts an uncommitted copy");
+            FryerPlayerData.get(helper.getLevel()).sync();
+            f.fryer.setRemoved();
+            FryerBlockEntity restored = new FryerBlockEntity(f.pos, f.fryer.getBlockState());
+            restored.load(beforeIo); helper.getLevel().setBlockEntity(restored); restored.serverTick();
+            helper.assertTrue(restored.inventory().getStackInSlot(0).getCount() == 2,
+                    "Retrying journal save cannot persist an inventory mutation that failed before delivery");
+            helper.succeed();
+        } finally { MockGameTestPlayers.logout(f.player); }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer", timeoutTicks = 700)
+    public static void realTimeInputsSettleServerQualityAndChargeOnce(GameTestHelper helper) {
+        Fixture f = fixture(helper);
+        fund(f.player);
+        MiningCapabilities.get(f.player).orElseThrow().jobProgress(JobId.CHEF).setLevel(9);
+        long money = balance(f.player), experience = xp(f.player);
+        long azure = EconomyServices.economyService().heartstoneBalance(f.player);
+        helper.assertTrue(f.fryer.start(f.player, true), "Manual production starts with funded real ingredients");
+        long round = f.fryer.roundId(), started = System.nanoTime();
+        ZhangshaoKernel.State local = f.fryer.sessionState();
+        byte[] pending = new byte[20]; int[] count = {0}, seq = {0}; boolean[] finished = {false};
+        helper.assertTrue(!f.fryer.start(f.player, true) && balance(f.player) == money - ChefConfig.seasoningCreditCost(),
+                "A repeated start cannot reserve or charge another fish");
+        helper.onEachTick(() -> {
+            if (finished[0]) return;
+            int due = (int) (((System.nanoTime() - started) / 1_000_000L - 1000L) / 50L);
+            while (local.tick < due && local.end == ZhangshaoKernel.RUNNING) {
+                int input = control(local);
+                pending[count[0]++] = (byte) input; ZhangshaoKernel.step(local, input);
+                boolean terminal = local.end != ZhangshaoKernel.RUNNING;
+                if (count[0] == 20 || terminal) {
+                    f.fryer.acceptInput(f.player, round, seq[0]++, local.tick - count[0],
+                            Arrays.copyOf(pending, count[0]), seq[0] == 1 ? 0 : ZhangshaoKernel.hash(local), terminal);
+                    count[0] = 0;
+                }
+            }
+            if (f.fryer.data().get(0) == 3) {
+                finished[0] = true;
+                try {
+                    ItemStack output = f.fryer.inventory().getStackInSlot(8);
+                    helper.assertTrue(output.is(Items.COOKED_COD) && output.getCount() == 1 && ChefQualityNbt.hasQuality(output),
+                            "Accepted real-time inputs produce exactly one quality dish");
+                    ZhangshaoKernel.Result expected = ZhangshaoKernel.result(local, null);
+                    helper.assertTrue(f.fryer.data().get(8) == expected.accuracy && f.fryer.data().get(9) == expected.pen,
+                            "Wrong client hash cannot replace the server replay result");
+                    helper.assertTrue(balance(f.player) == money - ChefConfig.seasoningCreditCost() && xp(f.player) > experience
+                            && EconomyServices.economyService().heartstoneBalance(f.player) == azure,
+                            "Manual quality dish charges only one CREDIT fee, preserves AZURE and grants actual XP");
+                    f.fryer.acceptInput(f.player, round, 0, 0, new byte[]{0}, 0, true);
+                    helper.assertTrue(output.getCount() == 1 && f.fryer.inventory().getStackInSlot(0).getCount() == 1,
+                            "A stale packet cannot duplicate production");
+                    helper.succeed();
+                } finally { MockGameTestPlayers.logout(f.player); }
+            }
+        });
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer")
+    public static void illegalInputAndRepeatedAbortProduceOnlyOneHomeDish(GameTestHelper helper) {
+        Fixture f = fixture(helper);
+        try {
+            fund(f.player); long money = balance(f.player), experience = xp(f.player);
+            CompoundTag oldChunk = f.fryer.saveWithoutMetadata();
+            helper.assertTrue(f.fryer.start(f.player, true), "Manual start succeeds before invalid input");
+            long round = f.fryer.roundId();
+            // 输入值来自C2S字节；保留位4是服务器必须拒绝的实际网络边界。
+            f.fryer.acceptInput(f.player, round, 0, 0, new byte[]{4}, 0, false);
+            f.fryer.abort(f.player, round, "重复关闭");
+            f.fryer.acceptInput(f.player, round, 0, 0, new byte[]{4}, 0, false);
+            ItemStack result = f.fryer.inventory().getStackInSlot(8);
+            helper.assertTrue(result.is(Items.COOKED_COD) && result.getCount() == 1 && !ChefQualityNbt.hasQuality(result),
+                    "Invalid input settles one home dish without a quality stamp");
+            helper.assertTrue(balance(f.player) == money - ChefConfig.seasoningCreditCost() && xp(f.player) == experience,
+                    "Abandonment does not refund or award XP");
+            f.fryer.setRemoved();
+            FryerBlockEntity restored = new FryerBlockEntity(f.pos, f.fryer.getBlockState());
+            restored.load(oldChunk); helper.getLevel().setBlockEntity(restored); restored.serverTick();
+            helper.assertTrue(restored.inventory().getStackInSlot(8).is(Items.COOKED_COD)
+                    && restored.inventory().getStackInSlot(0).getCount() == 1,
+                    "Completed journal restores the dish even when chunk still contains pre-charge ingredients");
+            f.player.containerMenu = new FryerMenu(32, f.player.getInventory(), restored);
+            ItemStack collected = f.player.containerMenu.quickMoveStack(f.player, FryerMenu.OUTPUT);
+            helper.assertTrue(f.player.getInventory().countItem(Items.COOKED_COD) == 1,
+                    "Shift collection delivers exactly one dish to the player after the fryer checkpoint");
+            restored.load(oldChunk); restored.serverTick();
+            helper.assertTrue(collected.getCount() == 1 && restored.inventory().getStackInSlot(8).isEmpty()
+                    && balance(f.player) == money - ChefConfig.seasoningCreditCost(),
+                    "Collected output cannot reappear or refund when the old chunk is loaded again");
+            List<ItemStack> drops = restored.breakAndDrop();
+            helper.assertTrue(drops.stream().noneMatch(s -> s.is(Items.COOKED_COD))
+                    && drops.stream().filter(s -> s.is(Items.COD)).mapToInt(ItemStack::getCount).sum() == 1,
+                    "Breaking the settled fryer drops only the untouched remainder");
+            helper.assertTrue(restored.breakAndDrop().stream().allMatch(ItemStack::isEmpty), "Second teardown cannot duplicate drops");
+            helper.succeed();
+        } finally { MockGameTestPlayers.logout(f.player); }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer")
+    public static void staleChunkRecoveryReturnsReservedIngredientsAndFeeOnce(GameTestHelper helper) {
+        Fixture f = fixture(helper);
+        try {
+            fund(f.player); long money = balance(f.player);
+            CompoundTag oldChunk = f.fryer.saveWithoutMetadata();
+            helper.assertTrue(f.fryer.start(f.player, true), "Start records a durable operation before chunk save");
+            helper.assertTrue(balance(f.player) == money - ChefConfig.seasoningCreditCost(), "Fee is actually charged");
+            f.fryer.setRemoved();
+            FryerBlockEntity restored = new FryerBlockEntity(f.pos, f.fryer.getBlockState());
+            restored.load(oldChunk); helper.getLevel().setBlockEntity(restored);
+            restored.serverTick(); restored.serverTick();
+            // 区块恢复后旧菜单仍会走关闭生命周期，不能再用已卸载实体的 held 结算另一份菜。
+            f.player.containerMenu.removed(f.player);
+            helper.assertTrue(restored.inventory().getStackInSlot(0).is(Items.COD)
+                    && restored.inventory().getStackInSlot(0).getCount() == 2 && restored.inventory().getStackInSlot(8).isEmpty(),
+                    "Journal overrides stale chunk and restores the exact raw ingredients without a dish");
+            helper.assertTrue(balance(f.player) == money, "Recovery refunds the reserved fee exactly once");
+            CompoundTag saved = restored.saveWithoutMetadata(); restored.load(saved); restored.serverTick();
+            FryerPlayerData.get(helper.getLevel()).retryRefunds();
+            helper.assertTrue(balance(f.player) == money && restored.inventory().getStackInSlot(0).getCount() == 2,
+                    "Loading the recovered state again cannot refund or restore twice");
+            helper.succeed();
+        } finally { MockGameTestPlayers.logout(f.player); }
+    }
+
+    private record Choice(ZhangshaoKernel.State state, int first, long score) {}
+    private static int control(ZhangshaoKernel.State state) {
+        List<Choice> beam = List.of(new Choice(state, 0, 0));
+        for (int depth = 0; depth < 8; depth++) {
+            List<Choice> next = new ArrayList<>();
+            for (Choice node : beam) for (int hold = 0; hold <= 1; hold++) {
+                ZhangshaoKernel.State predicted = node.state.copy();
+                int input = hold | (predicted.T >= 640 && predicted.cd == 0 ? 2 : 0);
+                ZhangshaoKernel.step(predicted, input);
+                long score = node.score + (predicted.inPrev != 0 ? 1_000_000L : -1_000_000L)
+                        - Math.abs(predicted.yb + predicted.p.H / 2 - predicted.yt);
+                next.add(new Choice(predicted, depth == 0 ? input : node.first, score));
+            }
+            next.sort(Comparator.comparingLong(Choice::score).reversed());
+            beam = next.subList(0, Math.min(12, next.size()));
+        }
+        return beam.get(0).first;
+    }
+}

@@ -31,8 +31,8 @@ public final class ZhangshaoPracticeGameTests {
         try {
             for (int index = 0; index < ChefBlocks.COOKING_STATIONS.size(); index++) {
                 helper.assertTrue(ZhangshaoPracticeEvents.practiceStation(
-                        ChefBlocks.COOKING_STATIONS.get(index).get().defaultBlockState(), player) == index / 3 + 1,
-                        "Nine station appearances must route to their cooking kind");
+                        ChefBlocks.COOKING_STATIONS.get(index).get().defaultBlockState(), player) == (index < 3 ? -1 : index / 3 + 1),
+                        "Production fryers keep their menu; remaining stations offer practice");
             }
             helper.assertTrue(ZhangshaoPracticeEvents.practiceStation(Blocks.STONE.defaultBlockState(), player) == -1,
                     "Unrelated blocks must keep their interaction");

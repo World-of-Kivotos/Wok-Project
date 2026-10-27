@@ -45,7 +45,9 @@ public final class CookingStationItem extends BlockItem {
         if (station.decorRisesAbove()) {
             keys.add(KEEP_ABOVE_CLEAR_KEY);
         }
-        keys.add(WIP_KEY);
+        if (station.kind() != CookingStationBlock.Kind.DEEP_FRYER) {
+            keys.add(WIP_KEY);
+        }
         return keys;
     }
 

@@ -74,8 +74,6 @@ public final class CookingStationGameTests {
     private static final BlockPos SUPPORT_REL = new BlockPos(1, 1, 1);
     private static final BlockPos STATION_REL = new BlockPos(1, 2, 1);
 
-    /** 九个烹饪台配方是否已开放; 烹饪逻辑接入前为 false (配方带 forge:false 条件), 见 recipesStayClosedButCraftFromAGrid。 */
-    private static final boolean RECIPES_OPEN = false;
 
     /** 方块 id -> {中文名, 英文名}: 产品已拍板的名字, 写死在这里, 改名要连同本表一起改。 */
     private static final Map<String, String[]> NAMES = Map.of(
@@ -158,19 +156,20 @@ public final class CookingStationGameTests {
                 helper.assertTrue(useOn(helper, creative, pos).consumesAction() && !isLit(helper, pos),
                         id + ": 再按一次应切回待机");
 
+                InteractionResult normalUse = entry.get() instanceof FryerStationBlock ? InteractionResult.CONSUME : InteractionResult.PASS;
                 creative.setShiftKeyDown(false);
-                helper.assertTrue(useOn(helper, creative, pos) == InteractionResult.PASS && !isLit(helper, pos),
+                helper.assertTrue(useOn(helper, creative, pos) == normalUse && !isLit(helper, pos),
                         id + ": 没潜行时不得切换");
                 creative.setShiftKeyDown(true);
                 creative.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.BREAD));
-                helper.assertTrue(useOn(helper, creative, pos) == InteractionResult.PASS && !isLit(helper, pos),
+                helper.assertTrue(useOn(helper, creative, pos) == normalUse && !isLit(helper, pos),
                         id + ": 手里拿着东西时不得切换");
                 creative.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
 
                 survival.setShiftKeyDown(true);
                 survival.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
                 survival.setItemInHand(InteractionHand.OFF_HAND, ItemStack.EMPTY);
-                helper.assertTrue(useOn(helper, survival, pos) == InteractionResult.PASS && !isLit(helper, pos),
+                helper.assertTrue(useOn(helper, survival, pos) == normalUse && !isLit(helper, pos),
                         id + ": 生存玩家不得切换");
             }
             helper.setBlock(STATION_REL, Blocks.AIR);
@@ -581,11 +580,7 @@ public final class CookingStationGameTests {
     }
 
     /**
-     * 配方: 烹饪逻辑接入前九个配方都用 forge:false 条件关着 (台子还没有功能, 生存玩家不该白花材料合出来),
-     * 所以 RecipeManager 里找不到它们; 但配方文件本身要能用: 只引用原版材料, 解析后按格子摆上材料能合出自己,
-     * 而且这一格不被任何已加载的配方抢走 (开放时不会和别的配方冲突)。
-     * 接入烹饪逻辑时: 删掉九个配方的 conditions、去掉 CookingStationItem 的"尚未开放"提示, 并把下面的
-     * {@link #RECIPES_OPEN} 改成 true, 本用例转为核对"RecipeManager 能找到、这一格合出的就是它"。
+     * 炸锅已开放生存合成，其余六台继续关闭。全部配方仍须按实际格子匹配自身，避免开放时抢占别的配方。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void recipesStayClosedButCraftFromAGrid(GameTestHelper helper) {
@@ -604,11 +599,12 @@ public final class CookingStationGameTests {
             String id = entry.getId().getPath();
             ResourceLocation recipeId = new ResourceLocation(MiningConstants.MODID, "chef/" + id);
             JsonObject json = loadJsonResource("/data/miningdim/recipes/chef/" + id + ".json");
+            boolean recipesOpen = id.startsWith("deep_fryer_");
 
-            helper.assertTrue(hasFalseCondition(json) != RECIPES_OPEN, recipeId
-                    + (RECIPES_OPEN ? " 已开放, 不该再带 forge:false 条件" : " 在烹饪逻辑接入前必须带 forge:false 条件关着"));
-            helper.assertTrue(helper.getLevel().getRecipeManager().byKey(recipeId).isPresent() == RECIPES_OPEN,
-                    recipeId + (RECIPES_OPEN ? " 应已加载" : " 关着时 RecipeManager 里不该找得到"));
+            helper.assertTrue(hasFalseCondition(json) != recipesOpen, recipeId
+                    + (recipesOpen ? " 已开放, 不该再带 forge:false 条件" : " 在烹饪逻辑接入前必须带 forge:false 条件关着"));
+            helper.assertTrue(helper.getLevel().getRecipeManager().byKey(recipeId).isPresent() == recipesOpen,
+                    recipeId + (recipesOpen ? " 应已加载" : " 关着时 RecipeManager 里不该找得到"));
 
             JsonObject key = json.getAsJsonObject("key");
             for (Map.Entry<String, JsonElement> symbol : key.entrySet()) {
@@ -650,7 +646,7 @@ public final class CookingStationGameTests {
 
             Optional<CraftingRecipe> claimed = helper.getLevel().getRecipeManager()
                     .getRecipeFor(RecipeType.CRAFTING, grid, helper.getLevel());
-            if (RECIPES_OPEN) {
+            if (recipesOpen) {
                 helper.assertTrue(claimed.isPresent() && claimed.get().getId().equals(recipeId),
                         recipeId + " 的这一格应由它自己合出, 实为 " + claimed.map(CraftingRecipe::getId));
             } else {
@@ -689,7 +685,7 @@ public final class CookingStationGameTests {
             }
             helper.assertTrue(keys.get(0).equals(CookingStationItem.kindKey(block.kind())),
                     entry.getId() + " 的第一行提示应写功能种类");
-            helper.assertTrue(keys.contains(CookingStationItem.WIP_KEY), entry.getId() + " 应提示烹饪功能尚未开放");
+            helper.assertTrue(keys.contains(CookingStationItem.WIP_KEY) == (block.kind() != CookingStationBlock.Kind.DEEP_FRYER), entry.getId() + " 只有尚未开放生产的台子提示未开放");
             helper.assertTrue(keys.contains(CookingStationItem.NEEDS_HEAT_KEY) == (entry == ChefItems.DEEP_FRYER_RUSTIC),
                     entry.getId() + " 的\"要热源\"提示只属于炉上油锅");
             boolean risesAbove = entry == ChefItems.PREP_COUNTER_RUSTIC || entry == ChefItems.PREP_COUNTER_CHINESE

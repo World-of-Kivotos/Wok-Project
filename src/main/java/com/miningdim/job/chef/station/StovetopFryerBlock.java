@@ -41,7 +41,7 @@ import org.jetbrains.annotations.Nullable;
  * 排一个 {@link #HEAT_RECHECK_TICKS} 刻后的复核, 仍有热就再排下一次, 没热就熄火。同一位置同一方块的计划刻
  * 原版会去重, 重复排不会叠加。以后接入方块实体逐 tick 复核时可以去掉这一层。
  */
-public final class StovetopFryerBlock extends CookingStationBlock {
+public final class StovetopFryerBlock extends FryerStationBlock {
 
     public static final EnumProperty<Support> SUPPORT = EnumProperty.create("support", Support.class);
 
@@ -77,7 +77,7 @@ public final class StovetopFryerBlock extends CookingStationBlock {
     StovetopFryerBlock(BlockBehaviour.Properties properties, StationParticles.Emitter particles) {
         // 交给父类的形状不生效: 本类按 SUPPORT 重写了 getShape / getCollisionShape (POT 或 POT_ON_TRAY),
         // 改油锅形状要改上面两个常量, 不是这里。
-        super(properties, Kind.DEEP_FRYER, Style.RUSTIC, StationShape.symmetric(POT), particles);
+        super(properties, Style.RUSTIC, StationShape.symmetric(POT), particles);
         registerDefaultState(defaultBlockState().setValue(SUPPORT, Support.NONE));
     }
 

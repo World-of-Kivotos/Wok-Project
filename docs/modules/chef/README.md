@@ -10,15 +10,15 @@
 
 本模块负责任意 `ItemStack.getFoodProperties(entity)` 成品食物的品质盖章、五档调味台、火候与调味 QTE、调料方向标签和厨师效果结算契约。品质仍写在原食物的 NBT 上，不注册新的菜肴物品。
 
-厨师重构新增的九台烹饪台（炸锅、烤炉、备餐台，各有田园 rustic、商用不锈钢 steel、中式 chinese 三套外观，功能相同、玩家按喜好造）已交付朝向、工作状态、形状、遮挡、光照、粒子、掉落、合成与语言，没有方块实体；右键打开台子界面，再点击「练习」；正式烹饪生产逻辑仍待接入。造型取自厨师重构的 station-preview 预览工具定稿方案（设计资料见 [docs/chef-rework/README.md](../../chef-rework/README.md)），形状、遮挡、发光与粒子出生点照各方案 `meta.json` 的实装说明，取值集中在 `station/CookingStations.java`；例外是三台的碰撞箱：铸铁烤箱灶不用说明里的整格、改为等于选择框，木质备餐台与中式案台在整格上各并入一块高出台面的摆件（调料架、蒸笼），理由都是 1.20.1 碰撞箱严格整格时模型面一律取邻格光照而发黑，详见该文件各工厂方法的注释。为便于进游戏目测待机/工作中两种外观，创造模式玩家双手空着潜行右键可切换 `lit`（生存无效），这是临时入口，接入烹饪逻辑后删除。因为台子还没有功能，九个配方暂时用 `forge:false` 条件关着（生存合不出来，创造标签页照常可拿），物品提示里写着功能种类、摆放要求和「烹饪功能尚未开放」；接入烹饪逻辑时删掉配方的 `conditions`、去掉这行提示，并把 `CookingStationGameTests.RECIPES_OPEN` 改成 `true`。
+厨师重构新增的九台烹饪台（炸锅、烤炉、备餐台，各有田园 rustic、商用不锈钢 steel、中式 chinese 三套外观，功能相同、玩家按喜好造）已交付朝向、工作状态、形状、遮挡、光照、粒子、掉落、合成与语言。当前只有三种炸锅外观共用正式生产方块实体与原生菜单；右键打开菜单，提供六个原料槽、一个容器槽、一个调料槽和一个出品槽。正式配方类型为 `miningdim:frying`。烤炉和备餐台仍只有练习入口，没有生产方块实体或菜单。造型取自厨师重构的 station-preview 预览工具定稿方案（设计资料见 [docs/chef-rework/README.md](../../chef-rework/README.md)），形状、遮挡、发光与粒子出生点照各方案 `meta.json` 的实装说明，取值集中在 `station/CookingStations.java`；例外是三台的碰撞箱：铸铁烤箱灶不用说明里的整格、改为等于选择框，木质备餐台与中式案台在整格上各并入一块高出台面的摆件（调料架、蒸笼），理由都是 1.20.1 碰撞箱严格整格时模型面一律取邻格光照而发黑，详见该文件各工厂方法的注释。为便于进游戏目测待机/工作中两种外观，创造模式玩家双手空着潜行右键可切换 `lit`（生存无效）；炸锅的普通右键用于打开菜单。
 
 客户端界面显示服务端 `ContainerData`：剩余时间、火候、调味台档位、目标品质、已计入厨师等级与台档的实时目标达成率、当前 QTE 目标、台档修正后的 QTE 总数、命中数、命中条速度、失败原因和最终品质。开始包为 `START(targetQualityTier)`，其余输入为 `HEAT_PRESS`、`HEAT_RELEASE`、`SEASON_HIT(target)`；五种品质对所有台档开放，服务端只校验目标品质 ID，并锁定开局厨师等级、台档、目标品质及其动态 QTE 数量和节奏。结算使用一个随机数从目标向低档依次对照实时阈值，客户端不得自行决定计时、品质或效果。
 
-新版掌勺按规格 §17.13 接入练习模式：九台新烹饪台右键打开台子界面，由「练习」按钮进入对应模拟；农夫乐事厨锅从其原生界面的「练习」按钮进入，保留原有右键交互。模拟不扣料、不扣信用点、不出菜、不加经验或手熟，原有调味台生产逻辑保持独立。操作与测试包说明见 [掌勺 MC 测试](../../Chef_Zhangshao_MC_Playtest.md)。
+新版掌勺按规格 §17.13 提供练习模式：炸锅从正式生产菜单的「练习」按钮进入；烤炉和备餐台右键先打开台子选择界面，再点击「练习」；农夫乐事厨锅从其原生界面的「练习」按钮进入，保留原有右键交互。练习不扣料、不扣信用点、不出菜、不加经验或手熟。炸锅家常制作免费且无经验，掌勺制作默认每份 5 信用点；正式输入由服务端回放校验品质。旧调味台和存量菜品兼容保持。操作和验证状态见 [掌勺 MC 测试](../../Chef_Zhangshao_MC_Playtest.md)。41 种新固定职业效果以及烤炉、备餐台生产仍待后续实现。
 
-未接正式生产的烹饪台界面只提供练习按钮，不提供放料或出品槽；后续生产菜单继续提供同一入口。潜行且任一手持方块时交给原版放置，创造模式双手空着潜行保留外观预览。`/chef practice [pot|fryer|oven|prep]` 限权限等级 2，仅用于管理员调试。FD 按钮通过客户端 Forge 界面事件软联动，不引用 FD 类型、不新增 Mixin；正式生产按钮仍按规格另行接入。
+未接正式生产的烹饪台界面只提供练习按钮，不提供放料或出品槽；潜行且任一手持方块时交给原版放置，创造模式双手空着潜行保留外观预览。`/chef practice [pot|fryer|oven|prep]` 限权限等级 2，仅用于管理员调试。FD 按钮通过客户端 Forge 界面事件软联动，不引用 FD 类型、不新增 Mixin；正式生产按钮仍按规格另行接入。
 
-炸锅支撑层已注册 `miningdim:frying` 配方类型和六份配方数据，提供单信用点幂等账本、玩家进度与事务检查点保存，以及只读界面绘制组件。本层不注册炸锅生产方块实体或菜单，不开放生产入口；现有台子与练习继续按上文运行。完整生产由下一层接入。
+炸锅支撑层独立提供配方注册、单信用点幂等账本、玩家进度及事务检查点保存和只读绘制组件；本层只接入实体、菜单、输入网络及生产交互，前置层不会开放不完整生产入口。
 
 ## 配置
 
@@ -38,12 +38,12 @@
 | --- | --- |
 | 方块 | `miningdim:seasoning_table_low`、`medium`、`high`、`extraordinary`、`radiant` |
 | 方块（烹饪台） | `miningdim:deep_fryer_rustic`、`deep_fryer_steel`、`deep_fryer_chinese`、`baking_oven_rustic`、`baking_oven_steel`、`baking_oven_chinese`、`prep_counter_rustic`、`prep_counter_steel`、`prep_counter_chinese`；状态 `facing` + `lit`，`deep_fryer_rustic` 另有 `support`（`none`/`tray`），`prep_counter_steel` 另有 `lid_blocked` |
-| 方块实体 | `miningdim:seasoning_table`（烹饪台本阶段没有方块实体） |
+| 方块实体 | `miningdim:seasoning_table`、`miningdim:frying`（后者附着于三种 `deep_fryer_*` 外观） |
 | 方块物品 | 五个与方块同名的 `miningdim:seasoning_table_*`，九个与方块同名的烹饪台 |
-| 配方 | `miningdim:chef/<烹饪台 id>`，九个工作台有序配方，只用原版材料；烹饪逻辑接入前带 `forge:false` 条件、不加载 |
-| 菜单 | `miningdim:seasoning_table` |
+| 配方 | 三个 `miningdim:chef/deep_fryer_*` 炸锅合成配方开放；六个烤炉和备餐台合成配方带 `forge:false`、关闭。正式炸锅配方类型 `miningdim:frying`，当前两道原版鱼类菜无外部依赖，四道 Casualness 菜以 `forge:mod_loaded` 条件可选加载 |
+| 菜单 | `miningdim:seasoning_table`、`miningdim:frying` |
 | 创造标签页 | `miningdim:miningdim_chef` |
-| 网络频道 | `miningdim:chef`、练习入口 `miningdim:zhangshao_practice` |
+| 网络频道 | `miningdim:chef`、练习入口 `miningdim:zhangshao_practice`、正式炸锅 `miningdim:fryer` |
 | 经验轨道 | `miningdim:job/chef` |
 | 经验来源 | `miningdim:chef/seasoning_complete` |
 | 窗口 MobEffect | `miningdim:chef_endurance`、`miningdim:chef_satiation`、`miningdim:chef_shield`、`miningdim:chef_grease`、`miningdim:chef_aftertaste_regen`、`miningdim:chef_stable_aim`、`miningdim:chef_fire_quell`、`miningdim:chef_gills`、`miningdim:chef_feather`、`miningdim:chef_firefly` |
@@ -56,11 +56,11 @@ GeckoLib 是客户端与服务端都必须安装的运行时依赖，锁定 `4.8
 
 增香效果黑名单包含原版金苹果、附魔金苹果，以及 FID 1.1.0.3 官方 JAR 中核定的 32 个效果。该 JAR SHA-256 为 `C9CE8AFBC6FEBAB2A94AD45247A3D3FCEC32978516E3335134E46ECC0EEF7778`；资源中只放 32 个 optional 条目，`sesameglide` 与 `sesamedoor` 不列入黑名单。
 
-本模块拥有 `seasoning_table_*` blockstate/model、`geo/block/seasoning_table.geo.json`、`animations/block/seasoning_table.animation.json`、五档静态方块纹理与五档 `seasoning_table_*_geo.png` 动态模型图集、调味台 GUI、十个窗口效果图标的行为定义与 `chef.*` 注册键（这十个 PNG 文件本身按目录整体归 WOK-核心的 `assets/miningdim/textures/mob_effect/`，与跨职业共享的 `ModJobEffects` 同目录，见 RESOURCE_OWNERSHIP.md 的厨师行与 module-registry.json 中 wok-core 的 `resourcePaths`；本模块不拥有这些 PNG）、`recipes/chef/`、`tags/items/seasonings/*.json`、`tags/items/seasonings.json`、`tags/items/unseasonable.json`、`tags/items/chef_amplify_item_blacklist.json` 和 `tags/mob_effect/chef_amplify_effect_blacklist.json`。共享语言文件仅由本模块维护厨师前缀键。
+本模块拥有 `seasoning_table_*` blockstate/model、`geo/block/seasoning_table.geo.json`、`animations/block/seasoning_table.animation.json`、五档静态方块纹理与五档 `seasoning_table_*_geo.png` 动态模型图集、调味台 GUI、十个窗口效果图标的行为定义与 `chef.*` 注册键（这十个 PNG 文件本身按目录整体归 WOK-核心的 `assets/miningdim/textures/mob_effect/`，与跨职业共享的 `ModJobEffects` 同目录，见 RESOURCE_OWNERSHIP.md 的厨师行与 module-registry.json 中 wok-core 的 `resourcePaths`；本模块不拥有这些 PNG）、`recipes/chef/`（含正式炸锅数据配方）、`tags/items/seasonings/*.json`、`tags/items/seasonings.json`、`tags/items/unseasonable.json`、`tags/items/chef_amplify_item_blacklist.json` 和 `tags/mob_effect/chef_amplify_effect_blacklist.json`。共享语言文件仅由本模块维护厨师前缀键。旧调味系统的存量兼容继续保留。
 
 烹饪台资源按文件名前缀 `deep_fryer`、`baking_oven`、`prep_counter` 归本模块：blockstate、方块与物品模型、方块贴图（含 `.mcmeta` 动画）和 `loot_tables/blocks/` 下的战利品表；贴图与 `.mcmeta` 从预览方案逐字节拷入（另加两张拷自农夫乐事的托架贴图，见下），方块模型只改了文件名和模型里的 `miningdim:block/...` 引用，blockstate 与五个物品模型按 Java 里的方块状态重新生成。冷藏备餐台工作中翻开的掀盖会伸进上方一格，所以多一个 `lid_blocked` 状态：上方方块的选择框不为空时为 `true`，工作中改用方案预备的"掀盖合着"模型 `prep_counter_steel_on_closed`。木质备餐台、中式案台的摆件和砖砌烤炉的烟囱也高出方块顶，没有备用模型，物品提示里写"上方请留空"。挖掘工具：砖与金属的八台在共享文件 `data/minecraft/tags/blocks/mineable/pickaxe.json` 里各占一条；木质备餐台在共享文件 `data/minecraft/tags/blocks/mineable/axe.json` 里（这份原先由电力模块的数据生成器写在 `src/generated` 下，现已改为和 pickaxe 一样手工维护，电力的橡胶原木、橡胶木板也在里面）。资源的完整性（方块状态覆盖每种状态、模型链与贴图能解析）由 `CookingStationAssetGameTests` 守着。
 
-八台砖与金属的台子在 `mineable/pickaxe` 里、又没有方块实体，满足矿工连锁/隧道挖的 `ChainMiningEngine.chainable` 判定（镐类可采、手持镐够档、可破坏、没有方块实体）。但连锁与隧道挖只在矿洞维度的副本区域里生效，而矿洞维度的放置白名单 `rules.placeWhitelist` 默认只放行脚手架（`RulesSystem` 取消其余放置，创造模式也不例外），玩家放不进去，所以默认配置下碰不到这些台子。若服主把台子加进白名单，连带破坏的掉落会先经 `MinerFortune.withFortuneExtras` 按矿工等级追加时运额外产出（L4 起 8%，L10 为 50%），台子会被复制，不只是误拆；加白名单之前必须先由矿工模块把它们排除出连锁。台子不属高价矿，不进矿石经济计数。是否排除由矿工模块决定，本模块不改。
+三种炸锅现已有方块实体，因此被矿工连锁/隧道挖的 `ChainMiningEngine.chainable` 排除。其余五台砖与金属的烤炉、备餐台仍没有方块实体，满足该判定（镐类可采、手持镐够档、可破坏、没有方块实体）。连锁与隧道挖只在矿洞维度的副本区域里生效，而矿洞维度的放置白名单 `rules.placeWhitelist` 默认只放行脚手架（`RulesSystem` 取消其余放置，创造模式也不例外），默认配置下碰不到这些台子。若服主把这些无方块实体的台子加进白名单，连带破坏的掉落会先经 `MinerFortune.withFortuneExtras` 按矿工等级追加时运额外产出（L4 起 8%，L10 为 50%），台子会被复制；加白名单之前须由矿工模块排除。台子不属高价矿，不进矿石经济计数。本次不修改矿工模块。
 
 炉上油锅（`deep_fryer_rustic`）和农夫乐事厨锅一样要下方热源：只按名字读 `farmersdelight:heat_sources`、`tray_heat_sources`、`heat_conductors` 三个方块标签，不引用农夫乐事的类；没装农夫乐事时三个标签为空，这台锅找不到热源，其余八台自带热源不受影响。它架在营火类热源上时换 `*_tray` 模型，托架贴图是农夫乐事 1.2.9 `cooking_pot_tray_top`/`_side` 的逐字节拷贝 `deep_fryer_rustic_tray_top`/`_side`，`*_tray` 模型里托架板与四条腿共 5 个元素也照抄自它的 `cooking_pot_tray.json`（MIT，取证记录见仓库根的 THIRD-PARTY-NOTICES.md；许可全文随 jar 放在 `META-INF/licenses/FarmersDelight-LICENSE.txt`，本模块拥有该文件），不再跨 mod 引用，农夫乐事 1.3.x 把原图改名为 `heating_tray_*` 也不受影响。邻居更新覆盖不到的熄火情形（隔着漏斗的热源熄灭或被拆掉、中途卸掉农夫乐事）由工作中每 20 刻一次的计划刻复核兜底。
 

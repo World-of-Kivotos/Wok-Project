@@ -410,9 +410,10 @@ public final class ZhangshaoPracticeScreen extends Screen {
             y += 4;
         }
         text(g, "方向键翻页 / Esc 返回；游戏世界继续运行", 10, 203, 0xFF404040);
-        button(g, 9, 215, 77, 18, "上一页", helpPage > 0, false, () -> helpPage--, mouseX, mouseY);
+        button(g, 9, 215, 77, 18, "上一页", helpPage > 0, false,
+                () -> { if (helpPage > 0) helpPage--; }, mouseX, mouseY);
         button(g, 91, 215, 77, 18, "下一页", helpPage + 1 < ZhangshaoPracticeHelp.PAGES.size(), false,
-                () -> helpPage++, mouseX, mouseY);
+                () -> { if (helpPage + 1 < ZhangshaoPracticeHelp.PAGES.size()) helpPage++; }, mouseX, mouseY);
         button(g, 173, 215, 158, 18, "返回练习", true, false, this::closeHelp, mouseX, mouseY);
     }
 

@@ -18,6 +18,8 @@
 
 未接正式生产的烹饪台界面只提供练习按钮，不提供放料或出品槽；后续生产菜单继续提供同一入口。潜行且任一手持方块时交给原版放置，创造模式双手空着潜行保留外观预览。`/chef practice [pot|fryer|oven|prep]` 限权限等级 2，仅用于管理员调试。FD 按钮通过客户端 Forge 界面事件软联动，不引用 FD 类型、不新增 Mixin；正式生产按钮仍按规格另行接入。
 
+炸锅支撑层已注册 `miningdim:frying` 配方类型和六份配方数据，提供单信用点幂等账本、玩家进度与事务检查点保存，以及只读界面绘制组件。本层不注册炸锅生产方块实体或菜单，不开放生产入口；现有台子与练习继续按上文运行。完整生产由下一层接入。
+
 ## 配置
 
 服务端配置文件为 `miningdim-chef.toml`，由 `ChefConfig.SPEC` 注册。配置分组包括：`xp`、`amplify`、`nourish_food`、`aftertaste_saturation`、`nourish_heal`、`shield`、`grease`、`aftertaste_regen`、`stable_aim`、`endurance`、`refresh`、`night_sight`、`satiation`、`exploration`、`effect_pool`、`minigame`、`quality_resolution`、`negatives` 和 `economy`。

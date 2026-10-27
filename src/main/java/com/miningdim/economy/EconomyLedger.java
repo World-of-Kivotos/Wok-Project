@@ -52,6 +52,8 @@ public interface EconomyLedger {
     /**
      * 以 operationId 幂等地原子扣除信用点与青辉石。首次余额足则同时扣两币并记 CHARGED; 任一余额不足返 NONE,
      * 既不改余额也不记账。重放同一 operationId 返回已持久化状态; 若域/玩家/金额不符抛 OPERATION_CONFLICT。
+     * CHEF_FRYER 域仅允许 creditAmount > 0、azureAmount = 0，只扣信用点；其余域仍要求两币金额均 > 0。
+     * 免费制作由调用方跳过账本操作，不以 0/0 建立记录。
      */
     EconomyOperationStatus tryChargeBundle(EconomyOperationDomain domain, UUID playerId, UUID operationId,
                                            long creditAmount, long azureAmount);
@@ -62,7 +64,7 @@ public interface EconomyLedger {
     /** 把 CHARGED 幂等推进为 COMPLETED; REFUNDED 不可反向完成。 */
     EconomyOperationStatus completeBundle(EconomyOperationDomain domain, UUID playerId, UUID operationId);
 
-    /** 把 CHARGED 幂等退款并推进为 REFUNDED; COMPLETED 不可退款。 */
+    /** 把 CHARGED 幂等退款并推进为 REFUNDED；CHEF_FRYER 只退信用点，其余域退双币；COMPLETED 不可退款。 */
     EconomyOperationStatus refundBundle(EconomyOperationDomain domain, UUID playerId, UUID operationId);
 
     /** 入账 (faucet); 溢出抛 BALANCE_OVERFLOW。 */

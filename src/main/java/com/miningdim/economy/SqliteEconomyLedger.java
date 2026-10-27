@@ -121,7 +121,15 @@ public final class SqliteEconomyLedger implements EconomyLedger {
         Objects.requireNonNull(domain, "domain");
         Objects.requireNonNull(playerId, "playerId");
         Objects.requireNonNull(operationId, "operationId");
-        requireBundleAmounts(creditAmount, azureAmount);
+        boolean fryerCreditOnly = domain == EconomyOperationDomain.CHEF_FRYER;
+        if (fryerCreditOnly) {
+            if (creditAmount <= 0L || azureAmount != 0L) {
+                throw new EconomyException(EconomyException.Reason.ILLEGAL_AMOUNT,
+                        "CHEF_FRYER requires CREDIT > 0 and AZURE = 0, got " + creditAmount + " CREDIT / " + azureAmount + " AZURE");
+            }
+        } else {
+            requireBundleAmounts(creditAmount, azureAmount);
+        }
 
         return StoreTx.call(conn, () -> {
             BundleOperation existing = findOperation(operationId);
@@ -132,7 +140,9 @@ public final class SqliteEconomyLedger implements EconomyLedger {
                 return existing.status();
             }
             PlayerWallet wallet = loadWallet(playerId);
-            if (!wallet.tryDebitBundle(creditAmount, azureAmount)) {
+            boolean debited = fryerCreditOnly ? wallet.tryDebit(Currency.CREDIT, creditAmount)
+                    : wallet.tryDebitBundle(creditAmount, azureAmount);
+            if (!debited) {
                 return EconomyOperationStatus.NONE;
             }
             saveWallet(playerId, wallet);
@@ -185,8 +195,16 @@ public final class SqliteEconomyLedger implements EconomyLedger {
                 return operation.status();
             }
             PlayerWallet wallet = loadWallet(playerId);
-            // 溢出时 creditBundle 抛出, 整个事务回滚, 状态与两币一并保持不变。
-            wallet.creditBundle(operation.creditAmount(), operation.azureAmount());
+            // 溢出时钱包抛出，余额和退款状态在同一事务回滚。
+            if (domain == EconomyOperationDomain.CHEF_FRYER) {
+                if (operation.azureAmount() != 0L) {
+                    throw new EconomyException(EconomyException.Reason.ILLEGAL_AMOUNT,
+                            "CHEF_FRYER refund contains nonzero AZURE: " + operationId);
+                }
+                wallet.credit(Currency.CREDIT, operation.creditAmount());
+            } else {
+                wallet.creditBundle(operation.creditAmount(), operation.azureAmount());
+            }
             saveWallet(playerId, wallet);
             updateOperationStatus(operationId, EconomyOperationStatus.REFUNDED);
             return EconomyOperationStatus.REFUNDED;

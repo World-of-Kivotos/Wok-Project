@@ -13,7 +13,10 @@ package com.miningdim.economy;
 public enum EconomyOperationDomain {
 
     /** CS2 式开箱: 双币扣款 + SQLite 皮肤归属 Saga。 */
-    CASE_OPENING;
+    CASE_OPENING,
+
+    /** 炸锅正式生产：开局扣费，结算确认或重载恢复退款。 */
+    CHEF_FRYER;
 
     /** 持久化用的稳定标识; 改名等同于存档格式变更, 需同步迁移。 */
     public String id() {

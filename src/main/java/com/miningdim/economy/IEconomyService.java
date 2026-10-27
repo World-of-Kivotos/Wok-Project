@@ -75,6 +75,8 @@ public interface IEconomyService {
     /**
      * 以 (domain, operationId) 幂等地一次扣除信用点与青辉石。首次成功返 CHARGED；余额不足返 NONE 且两币均
      * 不动；重放返回已持久化状态且不再次扣款。同一 operationId 不得换业务域、玩家或金额复用。
+     * CHEF_FRYER 域是单信用点费用：必须 creditAmount > 0 且 azureAmount = 0；其余域仍要求两币均 > 0。
+     * 免费制作应跳过本方法，不能用 0/0 创建账本记录。
      *
      * domain 必传：operationId 由业务侧提供（开箱的甚至由客户端提交），只按 (玩家, operationId) 幂等会让
      * 不同业务互相串号 —— 一笔业务的已付款事实被另一笔当作自己的付款凭据，从而跳过扣款。
@@ -84,7 +86,7 @@ public interface IEconomyService {
         throw new UnsupportedOperationException("This economy service does not support persistent bundle charges");
     }
 
-    /** 按业务域与玩家 UUID 查询双币扣款状态，供玩家离线或服务启动时恢复 Saga。 */
+    /** 按业务域与玩家 UUID 查询扣款状态（含炸锅单信用点），供玩家离线或服务启动时恢复 Saga。 */
     default EconomyOperationStatus operationStatus(EconomyOperationDomain domain, UUID playerId, UUID operationId) {
         throw new UnsupportedOperationException("This economy service does not support persistent bundle charges");
     }
@@ -94,7 +96,7 @@ public interface IEconomyService {
         throw new UnsupportedOperationException("This economy service does not support persistent bundle charges");
     }
 
-    /** 幂等地把 CHARGED 的两币退回并标为 REFUNDED；不存在或不属于该域返 NONE，已完成返 COMPLETED。 */
+    /** 幂等退款并标为 REFUNDED；CHEF_FRYER 只退信用点，其余域退双币；不存在或不属于该域返 NONE，已完成返 COMPLETED。 */
     default EconomyOperationStatus refundBundle(EconomyOperationDomain domain, UUID playerId, UUID operationId) {
         throw new UnsupportedOperationException("This economy service does not support persistent bundle charges");
     }

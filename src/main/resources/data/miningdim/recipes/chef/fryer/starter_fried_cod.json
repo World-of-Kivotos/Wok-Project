@@ -1,0 +1,10 @@
+{
+  "type": "miningdim:frying",
+  "ingredients": [
+    { "ingredient": { "item": "minecraft:cod" }, "count": 1 }
+  ],
+  "result": { "item": "minecraft:cooked_cod", "count": 1 },
+  "star": 1,
+  "motion": 4,
+  "cookTime": 200
+}

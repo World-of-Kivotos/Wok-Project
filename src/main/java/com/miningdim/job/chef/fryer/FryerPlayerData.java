@@ -206,7 +206,7 @@ public final class FryerPlayerData extends SavedData {
     }
 
     public static FryerPlayerData load(CompoundTag tag) {
-        if (!tag.contains("Version", Tag.TAG_INT) || tag.getInt("Version") < 1 || tag.getInt("Version") > 2) throw new IllegalArgumentException("Invalid fryer player save version");
+        if (!tag.contains("Version", Tag.TAG_INT) || tag.getInt("Version") != 2) throw new IllegalArgumentException("Invalid fryer player save version");
         FryerPlayerData data = new FryerPlayerData();
         for (Tag entry : list(tag, "Players", 65536)) {
             CompoundTag p = (CompoundTag) entry;
@@ -231,20 +231,17 @@ public final class FryerPlayerData extends SavedData {
             if (!r.hasUUID("Operation") || !r.hasUUID("Player")) throw new IllegalArgumentException("Invalid fryer refund");
             if (data.pendingRefunds.putIfAbsent(r.getUUID("Operation"), r.getUUID("Player")) != null) throw new IllegalArgumentException("Duplicate fryer refund");
         }
-        // v1 是检查点引入前的玩家进度格式，没有完成队列和位置快照。
-        if (tag.getInt("Version") == 2) {
-            for (Tag entry : list(tag, "Completions", 65536)) {
-                CompoundTag c = (CompoundTag) entry;
-                if (!c.hasUUID("Operation") || !c.hasUUID("Player")) throw new IllegalArgumentException("Invalid fryer completion");
-                UUID operation = c.getUUID("Operation");
-                if (data.pendingRefunds.containsKey(operation) || data.pendingCompletions.putIfAbsent(operation, c.getUUID("Player")) != null) throw new IllegalArgumentException("Duplicate fryer completion");
-            }
-            for (Tag entry : list(tag, "Checkpoints", 65536)) {
-                CompoundTag c = (CompoundTag) entry;
-                if (!c.contains("Dimension", Tag.TAG_STRING) || !c.contains("Pos", Tag.TAG_LONG) || !c.contains("Snapshot", Tag.TAG_COMPOUND)) throw new IllegalArgumentException("Invalid fryer checkpoint");
-                StationKey key = new StationKey(new ResourceLocation(c.getString("Dimension")), c.getLong("Pos"));
-                if (data.checkpoints.putIfAbsent(key, c.getCompound("Snapshot").copy()) != null) throw new IllegalArgumentException("Duplicate fryer checkpoint position");
-            }
+        for (Tag entry : list(tag, "Completions", 65536)) {
+            CompoundTag c = (CompoundTag) entry;
+            if (!c.hasUUID("Operation") || !c.hasUUID("Player")) throw new IllegalArgumentException("Invalid fryer completion");
+            UUID operation = c.getUUID("Operation");
+            if (data.pendingRefunds.containsKey(operation) || data.pendingCompletions.putIfAbsent(operation, c.getUUID("Player")) != null) throw new IllegalArgumentException("Duplicate fryer completion");
+        }
+        for (Tag entry : list(tag, "Checkpoints", 65536)) {
+            CompoundTag c = (CompoundTag) entry;
+            if (!c.contains("Dimension", Tag.TAG_STRING) || !c.contains("Pos", Tag.TAG_LONG) || !c.contains("Snapshot", Tag.TAG_COMPOUND)) throw new IllegalArgumentException("Invalid fryer checkpoint");
+            StationKey key = new StationKey(new ResourceLocation(c.getString("Dimension")), c.getLong("Pos"));
+            if (data.checkpoints.putIfAbsent(key, c.getCompound("Snapshot").copy()) != null) throw new IllegalArgumentException("Duplicate fryer checkpoint position");
         }
         return data;
     }

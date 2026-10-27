@@ -11,12 +11,16 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.level.storage.LevelResource;
+import net.minecraft.world.level.storage.DimensionDataStorage;
 
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
 
 /** 玩家手熟、最佳及闪耀限额保存在主世界，不随死亡重建。 */
 public final class FryerPlayerData extends SavedData {
@@ -41,9 +45,20 @@ public final class FryerPlayerData extends SavedData {
     }
 
     public static FryerPlayerData get(ServerLevel level) {
-        FryerPlayerData data = level.getServer().overworld().getDataStorage().computeIfAbsent(
-                FryerPlayerData::load, FryerPlayerData::new, DATA_NAME);
-        data.storageLevel = level.getServer().overworld(); return data;
+        ServerLevel overworld = level.getServer().overworld();
+        Path journalPath = level.getServer().getWorldPath(LevelResource.ROOT).resolve("data").resolve(DATA_NAME + ".dat");
+        FryerPlayerData data = loadFromStorage(overworld.getDataStorage(), journalPath);
+        data.storageLevel = overworld; return data;
+    }
+
+    static FryerPlayerData loadFromStorage(DimensionDataStorage storage, Path journalPath) {
+        return storage.computeIfAbsent(FryerPlayerData::load, () -> {
+            // 原版会把加载异常变成 null；仅在文件确认不存在时才允许创建新档。
+            if (!Files.notExists(journalPath, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IllegalStateException("Cannot load existing or inaccessible fryer journal " + journalPath);
+            }
+            return new FryerPlayerData();
+        }, DATA_NAME);
     }
 
     public CompoundTag checkpoint(ServerLevel level, BlockPos pos) {

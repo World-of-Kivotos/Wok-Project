@@ -18,8 +18,12 @@ import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.Ingredient;
+import net.minecraft.world.level.storage.DimensionDataStorage;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -121,6 +125,24 @@ public final class FryerSupportGameTests {
             incompleteRejected = "Invalid fryer list Completions".equals(expected.getMessage());
         }
         helper.assertTrue(incompleteRejected, "Version 2 requires the completions list");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer_support")
+    public static void storageRejectsDamagedJournalWithoutOverwritingIt(GameTestHelper helper) throws Exception {
+        Path directory = Files.createTempDirectory("fryer-storage-test-");
+        Path file = directory.resolve("miningdim_fryer_players.dat");
+        // 损坏文件真实经过原版加载器；直接调 load 测不到原版吞错后创建空档的路径。
+        CompoundTag damaged = new FryerPlayerData().save(new CompoundTag()); damaged.remove("Completions");
+        FryerJournal.write(file.toFile(), damaged);
+        byte[] before = Files.readAllBytes(file);
+        DimensionDataStorage storage = new DimensionDataStorage(directory.toFile(), helper.getLevel().getServer().getFixerUpper());
+        boolean rejected = false;
+        try { FryerPlayerData.loadFromStorage(storage, file); }
+        catch (IllegalStateException expected) { rejected = true; }
+        helper.assertTrue(rejected && Arrays.equals(before, Files.readAllBytes(file)),
+                "Failed vanilla storage load must throw and preserve the exact journal bytes");
+        Files.delete(file); Files.delete(directory);
         helper.succeed();
     }
 }

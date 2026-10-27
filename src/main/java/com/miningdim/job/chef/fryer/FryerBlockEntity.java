@@ -569,7 +569,7 @@ public final class FryerBlockEntity extends BlockEntity implements MenuProvider 
         dish = ItemStack.EMPTY; recipe = null; state = null;
         // 放置方块尚未保存过时，无 FryerVersion 即空初始态。
         if (!tag.contains("FryerVersion")) return;
-        int version = (int) FryerPlayerData.number(tag, "FryerVersion", Tag.TAG_INT, 1, 2);
+        FryerPlayerData.number(tag, "FryerVersion", Tag.TAG_INT, 2, 2);
         if (!tag.contains("Inventory", Tag.TAG_COMPOUND)) throw new IllegalArgumentException("Missing fryer inventory");
         CompoundTag inv = tag.getCompound("Inventory");
         FryerPlayerData.number(inv, "Size", Tag.TAG_INT, 9, 9);
@@ -589,8 +589,7 @@ public final class FryerBlockEntity extends BlockEntity implements MenuProvider 
             bufferedOutputs.add(stack);
         }
         returnedItems.clear();
-        // v1 余容器直接掉落，没有保存待归还队列。
-        if (version == 2) for (Tag entry : FryerPlayerData.list(tag, "ReturnedItems", 512)) {
+        for (Tag entry : FryerPlayerData.list(tag, "ReturnedItems", 512)) {
             ItemStack stack = ItemStack.of((CompoundTag) entry);
             if (stack.isEmpty() || stack.getCount() > stack.getMaxStackSize()) throw new IllegalArgumentException("Invalid fryer returned item");
             returnedItems.add(stack);

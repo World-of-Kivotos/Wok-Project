@@ -1,6 +1,6 @@
 # WOK 本体掌勺小游戏 MC 测试
 
-产品线为 WOK 本体，modId `miningdim`，Minecraft 1.20.1 / Forge 47.x。源码在 `com.miningdim.job.chef.zhangshao`。
+产品线为 WOK 本体，modId `miningdim`，Minecraft 1.20.1 / Forge 47.x。源码在 `com.miningdim.job.chef.zhangshao` 和 `com.miningdim.job.chef.fryer`。
 
 当前提交分支为 `codex/chef-stack-04-fryer`，以前置支撑分支 `codex/chef-stack-04-fryer-support` 拆分审查。下文保留 `1.0.37-fryer-playtest` 的历史部署记录；本轮审查修订尚未部署新测试包。正式生产当前只开放炸锅，共有中式、田园和商用三种外观，共用炸锅方块实体与原生放料菜单。玩家右键打开菜单，使用六个原料槽、一个容器槽、一个调料槽和一个出品槽。家常制作免费且不授予经验；掌勺制作默认每份收取 5 信用点。开局时原料和容器进入锅内暂存，品质由服务端重演输入记录后判定。
 
@@ -67,6 +67,12 @@
 1.0.37 炸锅生产执行 `compileJava verifyModuleBoundaries runGameTestServer jarJar -Pmod_version=1.0.37-fryer-playtest` 成功，日志明确出现 `All 2106 required tests passed`，并完成 `reobfJarJar`。新增 5 项炸锅 GameTest 覆盖真实家常出品、材料和容器匹配、拒绝开局不扣料扣费、实时输入重演与单信用点结算、非法/重复输入幂等、旧区块恢复及失效菜单隔离；失败用例还使用不可写的 journal 暂存路径验证 Shift 放料不产生未交付副本。失败测试世界已单独保留。没有启动原生客户端进行视觉试玩，中文排版与手感由本次游戏测试确认。
 
 当前环境无 Context7 工具，Minecraft/Forge API 按工程锁定的 Minecraft 1.20.1 / Forge 47.3.0 映射 JAR 与现有源码核对签名，并通过编译和专用服务器加载验证。
+
+2026-10-27 审查修订拆为 #100 支撑层和 #99 完整生产层，生产 Java 增删分别为 717 和 1450 行。支撑层独立完整测试为 `All 2105 required tests passed :)`，日志 `tmp/chef-pr-rework-20261027/100-strict-save-verify.log`。`5b37e360` 后续补上帮助鼠标翻页的同帧双击边界，已编译并通过模块检查；它与两层炸锅修订一起纳入最终完整链验证。
+
+最终完整链执行 `compileJava verifyModuleBoundaries runGameTestServer jarJar reobfJarJar -Pmod_version=1.0.39-fryer-pr-review`，日志原文为 `All 2110 required tests passed :)`，构建和重混淆打包全部通过。日志 `tmp/chef-pr-rework-20261027/99-final-verify.log`。两个存档写入点仍为版本 2；已核对 1.0.38 本体测试 JAR 及历史实现均写 2，删除没有核实来源的 v1 兼容，并验证不支持版本及缺事务队列会被拒绝。
+
+早先一次完整复验在原子替换 journal 文件时失败，原日志 `tmp/chef-pr-rework-20261027/99-production-verify-2.log` 保留。未定位到具体系统原因，也没有添加重试或吞错；带异常诊断的重测和上述最终完整链均通过。诊断日志保留在同任务目录的 `jvm-exceptions/`。本轮未部署新包，客户端中文排版、低帧翻页、原生菜单操作与四道可选菜仍待实机验收。
 
 ## 后续范围与验证状态
 

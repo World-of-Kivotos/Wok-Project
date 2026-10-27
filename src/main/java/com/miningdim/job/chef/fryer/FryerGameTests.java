@@ -238,6 +238,13 @@ public final class FryerGameTests {
             FryerPlayerData.get(helper.getLevel()).retryRefunds();
             helper.assertTrue(balance(f.player) == money && restored.inventory().getStackInSlot(0).getCount() == 2,
                     "Loading the recovered state again cannot refund or restore twice");
+            // 区块 NBT 是磁盘输入，不支持的版本不能绕过余容器队列校验。
+            CompoundTag unsupported = saved.copy(); unsupported.putInt("FryerVersion", 1);
+            FryerBlockEntity incompatible = new FryerBlockEntity(f.pos, f.fryer.getBlockState());
+            boolean rejected = false;
+            try { incompatible.load(unsupported); }
+            catch (IllegalArgumentException expected) { rejected = true; }
+            helper.assertTrue(rejected, "Unsupported block save version must be rejected");
             helper.succeed();
         } finally { MockGameTestPlayers.logout(f.player); }
     }

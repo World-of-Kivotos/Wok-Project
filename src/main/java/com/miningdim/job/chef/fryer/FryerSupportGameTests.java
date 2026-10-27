@@ -100,4 +100,27 @@ public final class FryerSupportGameTests {
             helper.succeed();
         } finally { data.release(player.getUUID(), station, System.currentTimeMillis()); MockGameTestPlayers.logout(player); }
     }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer_support")
+    public static void rejectsUnsupportedOrIncompletePlayerSave(GameTestHelper helper) {
+        // NBT 来自磁盘；损坏版本或缺失事务队列不能被解释成旧档初始态。
+        CompoundTag saved = new FryerPlayerData().save(new CompoundTag());
+        CompoundTag unsupported = saved.copy();
+        unsupported.putInt("Version", 1);
+        boolean unsupportedRejected = false;
+        try { FryerPlayerData.load(unsupported); }
+        catch (IllegalArgumentException expected) {
+            unsupportedRejected = "Invalid fryer player save version".equals(expected.getMessage());
+        }
+        helper.assertTrue(unsupportedRejected, "Unsupported version 1 must be rejected");
+        CompoundTag incomplete = saved.copy();
+        incomplete.remove("Completions");
+        boolean incompleteRejected = false;
+        try { FryerPlayerData.load(incomplete); }
+        catch (IllegalArgumentException expected) {
+            incompleteRejected = "Invalid fryer list Completions".equals(expected.getMessage());
+        }
+        helper.assertTrue(incompleteRejected, "Version 2 requires the completions list");
+        helper.succeed();
+    }
 }

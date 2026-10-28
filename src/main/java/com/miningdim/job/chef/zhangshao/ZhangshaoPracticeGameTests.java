@@ -2,6 +2,7 @@ package com.miningdim.job.chef.zhangshao;
 
 import com.miningdim.core.MiningConstants;
 import com.miningdim.job.chef.ChefBlocks;
+import com.miningdim.job.chef.fryer.FryerMenu;
 import com.miningdim.testutil.MockGameTestPlayers;
 import io.netty.buffer.Unpooled;
 import net.minecraft.core.BlockPos;
@@ -31,8 +32,8 @@ public final class ZhangshaoPracticeGameTests {
         try {
             for (int index = 0; index < ChefBlocks.COOKING_STATIONS.size(); index++) {
                 helper.assertTrue(ZhangshaoPracticeEvents.practiceStation(
-                        ChefBlocks.COOKING_STATIONS.get(index).get().defaultBlockState(), player) == (index < 3 ? -1 : index / 3 + 1),
-                        "Production fryers keep their menu; remaining stations offer practice");
+                        ChefBlocks.COOKING_STATIONS.get(index).get().defaultBlockState(), player) == -1,
+                        "Every cooking station keeps its production menu");
             }
             helper.assertTrue(ZhangshaoPracticeEvents.practiceStation(Blocks.STONE.defaultBlockState(), player) == -1,
                     "Unrelated blocks must keep their interaction");
@@ -46,11 +47,11 @@ public final class ZhangshaoPracticeGameTests {
                 InteractionResult interaction = player.gameMode.useItemOn(player, helper.getLevel(),
                         player.getMainHandItem(), InteractionHand.MAIN_HAND,
                         new BlockHitResult(Vec3.atCenterOf(position), Direction.UP, position, false));
-                helper.assertTrue(interaction == InteractionResult.SUCCESS,
+                helper.assertTrue(interaction.consumesAction() && player.containerMenu instanceof FryerMenu,
                         "Station menu entry must consume the real Forge interaction with " + held);
                 helper.assertTrue(ItemStack.matches(player.getMainHandItem(), held)
                                 && !player.isUsingItem() && player.totalExperience == experience,
-                        "Practice entry must preserve held items, avoid item use, and grant no experience");
+                        "Production entry must preserve held items, avoid item use, and grant no experience");
             }
             player.setShiftKeyDown(true);
             player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.STONE, 2));

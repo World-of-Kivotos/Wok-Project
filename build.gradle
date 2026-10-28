@@ -108,6 +108,7 @@ mixin {
     add sourceSets.main, "${mod_id}.refmap.json"
     config "${mod_id}.mixins.json"
     config "${mod_id}.compat.mixins.json"
+    config "${mod_id}.chef.mixins.json"
     config "${mod_id}.district.mixins.json"
     config "${mod_id}.district.create.mixins.json"
     config "${mod_id}.district.flan.mixins.json"
@@ -263,7 +264,7 @@ tasks.named('jar', Jar).configure {
             'Implementation-Title'    : project.name,
             'Implementation-Version'  : project.jar.archiveVersion,
             'Implementation-Vendor'   : mod_authors,
-            'MixinConfigs'            : "${mod_id}.mixins.json,${mod_id}.compat.mixins.json," +
+            'MixinConfigs'            : "${mod_id}.mixins.json,${mod_id}.compat.mixins.json,${mod_id}.chef.mixins.json," +
                     "${mod_id}.district.mixins.json,${mod_id}.district.create.mixins.json," +
                     "${mod_id}.district.flan.mixins.json,${mod_id}.fryer.mixins.json",
         ])

@@ -61,11 +61,8 @@ public final class ZhangshaoPracticeEvents {
                     && player.getMainHandItem().isEmpty() && player.getOffhandItem().isEmpty()) {
                 return -1;
             }
-            return switch (station.kind()) {
-                case DEEP_FRYER -> -1;
-                case BAKING_OVEN -> 2;
-                case PREP_COUNTER -> 3;
-            };
+            // 九种外观都先打开正式生产菜单, 练习从菜单按钮进入。
+            return -1;
         }
         return -1;
     }

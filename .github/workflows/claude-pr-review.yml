@@ -219,9 +219,9 @@ jobs:
           mkdir -p build/claude-review
           gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json number,title,body,author,baseRefName,headRefName,files \
             > build/claude-review/pr.json
-          # 标签定义取默认分支的版本, 和 publish 用的同一份(理由见 publish 取发布脚本那一步);
+          # 标签定义取默认分支的版本, 和 publish 用的同一份(理由与写完整引用名的原因见 publish 取发布脚本那一步);
           # 结构化输出的枚举由它生成, Claude 打不出未定义的标签。
-          if ! git show "origin/$DEFAULT_BRANCH:.github/labels.json" > build/claude-review/labels.json; then
+          if ! git show "refs/remotes/origin/$DEFAULT_BRANCH:.github/labels.json" > build/claude-review/labels.json; then
             echo "::error::默认分支 $DEFAULT_BRANCH 上没有 .github/labels.json"
             exit 1
           fi
@@ -574,12 +574,14 @@ jobs:
 
       # 发布脚本拿着可写的 App 令牌跑, 只用默认分支上的版本。不能取 base 分支: 堆叠 PR 的 base 是作者自己的分支,
       # 取它就等于让作者决定 App 令牌执行什么; 默认分支有规则集保护, 改它要走 PR 和代码所有者批准。
+      # 必须写完整引用名: 检出会拉下全部 tag, 短名 origin/<分支> 遇到同名 tag 时 git 只警告一句就取 tag,
+      # 有推送权限的人推一个叫 origin/dev 的 tag 就能换掉这里取到的脚本。
       - name: 取默认分支的发布脚本与标签定义
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          git show "origin/$DEFAULT_BRANCH:.github/scripts/claude_publish.py" > "$RUNNER_TEMP/claude_publish.py"
-          git show "origin/$DEFAULT_BRANCH:.github/labels.json" > "$RUNNER_TEMP/labels.json"
+          git show "refs/remotes/origin/$DEFAULT_BRANCH:.github/scripts/claude_publish.py" > "$RUNNER_TEMP/claude_publish.py"
+          git show "refs/remotes/origin/$DEFAULT_BRANCH:.github/labels.json" > "$RUNNER_TEMP/labels.json"
 
       # Claude 在这里只是换令牌的载体: 唯一允许的工具就是原样执行发布脚本, 脚本做完才写完成标记。
       # 路径变量放在步骤级: runner 上下文在 job 级 env 里不可用。

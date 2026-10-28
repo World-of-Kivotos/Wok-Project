@@ -11,6 +11,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.inventory.ClickType;
+import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
@@ -310,6 +313,86 @@ public final class WineCellarGameTests {
         helper.assertTrue(!WineNbt.isSpoiled(settled),
                 "wine must not spoil: the 2000 legacy debt would otherwise have eaten all 64 fuel");
         helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void stackedBottlesPayFuelForEveryBottle(GameTestHelper helper) {
+        BrewerConfig.ensureLoadedForTest();
+        BlockPos rel = new BlockPos(1, 1, 1);
+        helper.setBlock(rel, WineCellarRegistry.WINE_CELLAR.get().defaultBlockState());
+        WineCellarBlockEntity cellar = requireCellar(helper, rel);
+        ItemStack bottles = testWine(16);
+        cellar.inventory().insertItem(0, bottles, false);
+        cellar.inventory().setStackInSlot(WineCellarBlockEntity.FUEL_SLOT,
+                new ItemStack(BrewerItems.DRIED_WHEAT.get(), 512));
+        cellar.settleElapsed(DAY, NO_MOON);
+        helper.assertTrue(cellar.inventory().getStackInSlot(0).getCount() == 16, "all 16 bottles survive");
+        helper.assertTrue(Math.abs(WineNbt.readVintage(cellar.inventory().getStackInSlot(0)) - 1.0D) < EPS,
+                "the whole stack ages one year");
+        helper.assertTrue(cellar.inventory().getStackInSlot(WineCellarBlockEntity.FUEL_SLOT).getCount() == 256,
+                "16 bottles owe 16 * 16 = 256 fuel, not one bottle's 16");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void openingSettlesOldWineBeforeNewBottlesEnter(GameTestHelper helper) {
+        BrewerConfig.ensureLoadedForTest();
+        BlockPos rel = new BlockPos(1, 1, 1);
+        helper.setBlock(rel, WineCellarRegistry.WINE_CELLAR.get().defaultBlockState());
+        WineCellarBlockEntity cellar = requireCellar(helper, rel);
+        cellar.inventory().setStackInSlot(0, testWine(1));
+        cellar.inventory().setStackInSlot(WineCellarBlockEntity.FUEL_SLOT,
+                new ItemStack(BrewerItems.DRIED_WHEAT.get(), 64));
+        restoreOfflineDay(cellar);
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        try {
+            cellar.createMenu(1, player.getInventory(), player);
+            cellar.inventory().insertItem(1, testWine(1), false);
+            cellar.createMenu(2, player.getInventory(), player);
+            helper.assertTrue(WineNbt.readVintage(cellar.inventory().getStackInSlot(0)) >= 1.0D,
+                    "existing wine receives its offline year before the inventory can change");
+            helper.assertTrue(WineNbt.readVintage(cellar.inventory().getStackInSlot(1)) < 0.001D,
+                    "new wine must not inherit the old bottle's offline year");
+        } finally {
+            MockGameTestPlayers.logout(player);
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void openMenuTopUpCannotRetroactivelyFeedStarvedWine(GameTestHelper helper) {
+        BrewerConfig.ensureLoadedForTest();
+        BlockPos rel = new BlockPos(1, 1, 1);
+        helper.setBlock(rel, WineCellarRegistry.WINE_CELLAR.get().defaultBlockState());
+        WineCellarBlockEntity cellar = requireCellar(helper, rel);
+        cellar.inventory().setStackInSlot(0, testWine(1));
+        ServerPlayer player = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        try {
+            WineCellarMenu menu = (WineCellarMenu) cellar.createMenu(1, player.getInventory(), player);
+            restoreOfflineDay(cellar);
+            menu.setCarried(new ItemStack(BrewerItems.DRIED_WHEAT.get(), 64));
+            menu.clicked(WineCellarBlockEntity.FUEL_SLOT, 0, ClickType.PICKUP, player);
+            helper.assertTrue(WineNbt.isSpoiled(cellar.inventory().getStackInSlot(0)),
+                    "wine already starved before this click; newly added fuel cannot rescue the past");
+            helper.assertTrue(cellar.inventory().getStackInSlot(WineCellarBlockEntity.FUEL_SLOT).getCount() == 64,
+                    "new fuel is reserved for future aging");
+        } finally {
+            MockGameTestPlayers.logout(player);
+        }
+        helper.succeed();
+    }
+
+    private static ItemStack testWine(int count) {
+        ItemStack bottles = new ItemStack(BrewerItems.itemFor(WineType.VODKA), count);
+        WineNbt.stamp(bottles, WineQuality.LOW, UUID.randomUUID());
+        return bottles;
+    }
+
+    private static void restoreOfflineDay(WineCellarBlockEntity cellar) {
+        CompoundTag saved = new CompoundTag();
+        cellar.saveAdditional(saved);
+        saved.putLong("LastSettleEpochMillis", System.currentTimeMillis() - DAY);
+        cellar.load(saved);
     }
 
     private static WineCellarBlockEntity requireCellar(GameTestHelper helper, BlockPos rel) {

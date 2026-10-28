@@ -165,9 +165,6 @@ public final class FryerBlockEntity extends BlockEntity implements MenuProvider 
         ItemStack output = inventory.getStackInSlot(FryerRecipe.OUTPUT_SLOT);
         return phase == 3 && !output.isEmpty() ? ForgeRegistries.ITEMS.getKey(output.getItem()) : null;
     }
-    public static @Nullable FryerRecipe findRecipe(Level level, ItemStackHandler inventory) {
-        return findRecipe(level, inventory, CookingStationBlock.Kind.DEEP_FRYER);
-    }
     public static @Nullable FryerRecipe findRecipe(Level level, ItemStackHandler inventory, CookingStationBlock.Kind kind) {
         SimpleContainer container = snapshot(inventory);
         return level.getRecipeManager().getAllRecipesFor(FryerRecipeRegistry.recipeType(kind)).stream()

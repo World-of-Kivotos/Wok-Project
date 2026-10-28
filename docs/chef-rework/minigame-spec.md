@@ -805,7 +805,7 @@ range(lo, hi) = lo + rnd(hi - lo + 1)  // 含两端
 |---|---|---|
 | C2S | `ZhangshaoStart` | pos、做法（掌勺/批量/快手/家常）、份数 |
 | S2C | `ZhangshaoSession` | roundId、seed、simVersion、参数块 int[]（§18.4）、参数哈希（FNV-1a）、展示信息（菜 id、★、台、翻面次数、节拍图标列表）。**不含瓶的种类** |
-| S2C | `ZhangshaoBottle`（v2） | roundId、gold（0/1）。服务端按墙钟在瓶预计出现前约 0.3 秒发（`1000 + bAt × 50 − 300` ms，`bAt` 服务端也能从种子算出）；晚到时客户端先画普通瓶，收到后再变金。本局没有瓶就不发 |
+| S2C | `ZhangshaoBottle`（v2） | roundId、gold（0/1）。客户端在瓶出现的模拟 tick 立即发送当前输入批；服务端回放实际输入，确认瓶已出现后、结算前只发送一次。收到前客户端先画普通瓶，金瓶揭晓通常有一次网络往返延迟；备餐摆料冻结时不按墙钟提前揭晓。本局没有瓶就不发 |
 | C2S | `ZhangshaoInput` | roundId、seq、firstTick、RLE 段（varint 长度 + 1 字节输入值）、本包末 tick 的状态哈希；末包另带 `final=1`、`clientEndTick`、`clientDigest` |
 | C2S | `ZhangshaoAbort` | roundId（二次 Esc） |
 | S2C | `ZhangshaoResult` | roundId、结局、品质、负面列表、准度、本台扣分、瓶状态、Perfect、经验、手熟进度、个人最佳、标记位 |

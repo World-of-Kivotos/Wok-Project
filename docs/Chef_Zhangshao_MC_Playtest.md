@@ -109,6 +109,18 @@
 
 同款切片重组选择保留来源合成、排除掌勺迁移；不把没有新增食材的重组计入经验、手熟或 CHEF_DISH。按原 JAR 核实 11 组整件与切片关系，通过 `reassemblyItem` 匹配实际原料，覆盖改名配方、有形、无形和条件包装，保留来源条件及数量。鳕鱼卷等使用切片制作不同菜品的配方继续迁移。已为水果沙拉的真实资源断言加 Farmer's Delight 守卫，原版蛋糕测试始终执行。金瓶保留模拟出现后回放确认的实现并同步规格，删除失效右键分流和无调用重载，管理员练习命令与真实交互测试保留。
 
-用户授权将 #100、#99、#101 依序 rebase 到 `dev` 的 `fdbc5e71`，前两层的 range-diff 均为相同补丁，没有混入本轮修复；所有旧提交保留本地备份。
+上一轮对齐时，用户授权将 #100、#99、#101 依序 rebase 到 `dev` 的 `fdbc5e71`，当时前两层的 range-diff 均为相同补丁，没有混入该轮修复；所有旧提交保留本地备份。
 
 无 Farmer's Delight 环境执行编译、模块检查和完整 GameTest，通过日志原文为 `All 2123 required tests passed :)`，日志 `D:\Wok\tmp\chef-review-without-fd.log`。测试期间仅临时移出本工作区的可选开发 JAR，完成后已恢复并核对 SHA-256。带 Farmer's Delight 1.3.2 环境编译与模块检查通过，但完整测试在 `manualOvenAndDrinkParametersAndAbortAreServerOwned` 的账本 `.tmp` 原子替换处有一项失败；本轮新增迁移断言没有失败，日志 `D:\Wok\tmp\chef-review-with-fd.log` 保留。F 盘本轮也出现该文件替换问题，先前探针成功不能保证后续不会发生；生产写盘策略未改动，也未加入重试或吞错。带依赖全量不能标记为本地通过，须结合更新后的 CI 与维护者质量门确认。
+
+## 2026-10-28 五项复审修复与最终验证
+
+#100 支撑层修复检查点累计和退款异常，玩家 journal v3 保留已发布 v2 的全部记录。普通库存按 tick 合并后台压缩、fsync 和原子替换，同一世界最多一份在途快照；开局、结算、拆台与关服保存仍等待持久化。只有真实区块 store 与 flush 成功才按写入 token、快照身份回收；区块合并写入使旧 token 失效。加载较新版本时跳过旧日志但不提前删除。新放置以高版本空快照覆盖旧墓碑，防止旧区块复活已掉落库存。
+
+#99 删除无效资格判断，普通菜全员默认厨师 L1 可掌勺，战斗菜原有设计限制保留。菜单按当前查看者及配方、活动菜品或待取出品读取个人等级、手熟和最佳，不改变操作者或内核。#101 已继承这些修复并保留九槽、旧库存迁移和 11 组切片保护。用户已明确接受普通取放的原版硬崩服回退窗口，不承诺背包与台子跨文件原子。
+
+使用 Minecraft 1.20.1 / Forge 47.3.0 / JDK 17.0.19、Farmer's Delight 1.3.2：#100 独立编译、模块检查和完整 GameTest 通过，日志 `D:\Wok\tmp\chef-support-v2b-validation.log` 原文为 `All 2112 required tests passed :)`。最终 #101 完整链编译、模块检查、GameTest、jarJar、reobfJarJar 通过，日志 `D:\Wok\tmp\chef-production-v2-validation.log` 原文为 `All 2130 required tests passed :)`。产物为 `miningdim-1.20.1-1.0.42-chef-review-all.jar`，未部署。
+
+#99 独立编译和模块检查通过；两次独立全量各有一项 Windows journal 原子替换失败，分别在方块朝向和重复撂勺用例，日志 `D:\Wok\tmp\chef-fryer-v2-validation.log`、`chef-fryer-v2b-validation.log` 保留。最终 #101 无 FD 的额外一轮同样在外观预览用例发生一次原子替换失败，日志 `D:\Wok\tmp\chef-production-v2-no-fd-validation.log` 保留；这些轮次不能标为全绿，且完整链通过不冒充 #99 独立通过。未再通过重复全量碰运气，没有添加生产重试或吞错；需要更新后独立 CI 与维护者质量门确认。
+
+无 FD 验证结束后开发依赖已恢复，SHA-256 为 `47aed94bb9192c4978fe199f9d3ca5895aeccfbe5b5a0869fdf3aa011c2641f7`。独立静态复核和集成复核未发现指定范围内残留的 Critical/Major。客户端布局、手感、全来源 MOD 整合包及硬崩服实机演练尚未验收。

@@ -1,0 +1,219 @@
+{
+  "purpose": "Static source audit only; recipes are migrated from the final runtime data, not these JARs.",
+  "sources": [
+    {
+      "path": "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\BrewinAndChewin-1.20.1-3.2.1.jar",
+      "sha256": "d06edc7a145e8808903b7bd06e0639458a817fbc4ee589be239c0af77a6367db"
+    },
+    {
+      "path": "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\casualness_delight-p6Z5Qd84.jar",
+      "sha256": "bd28edfcea990939df2a114d4d0f233c462a14a7a001ffce2091ffb405a2769c"
+    },
+    {
+      "path": "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\crabbersdelight-9NT9IkSs.jar",
+      "sha256": "5b57ea850233424b7b60076d76935c18aaa3e3dbf0f84cdefb7dd87f56ac3049"
+    },
+    {
+      "path": "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\culturaldelights-0.16.5.jar",
+      "sha256": "db2d71b625f353a9a9d21233682340cd6de3352dd48ad73fe355cb602beb39e8"
+    },
+    {
+      "path": "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar",
+      "sha256": "b4cc8808db58ab96440d79a509d72c52a71cc97450d8437d8072d32a278994f4"
+    },
+    {
+      "path": "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Dumplings Delight-fhqaCHuw.jar",
+      "sha256": "57982b7bf7d1a6d9efcd339942d794f4d3ad643c162d1ae2d41f099927c1c864"
+    },
+    {
+      "path": "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\FarmersDelight-1.20.1-1.2.9.jar",
+      "sha256": "45e8e4daf04283fc5a7fec955e6a1e622ee0e9d4e1b5e79dbcf5b095bb510082"
+    },
+    {
+      "path": "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\moredelight-GrLDJ8lO.jar",
+      "sha256": "f3110c724a06b1a0537d87dd94ea4597ad89c75a3d3dadc9087d421f6624993f"
+    },
+    {
+      "path": "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\oceansdelight-9jLLNENb.jar",
+      "sha256": "ea6ae6bd1459046b7d7fd2c515a80b6966ff2c629bdf22d6298f0a73432b932d"
+    },
+    {
+      "path": "D:\\WOK测试\\versions\\1.20.1-Forge_47.4.20\\mods\\FarmersDelight-1.20.1-1.3.2.jar",
+      "sha256": "47aed94bb9192c4978fe199f9d3ca5895aeccfbe5b5a0869fdf3aa011c2641f7"
+    },
+    {
+      "path": "D:\\WOK测试\\versions\\1.20.1-Forge_47.4.20\\1.20.1-Forge_47.4.20.jar",
+      "sha256": "56b71336d2b4fdffd197f56595b0da93e32a946f78f382a299b8f4b92758bb0f"
+    }
+  ],
+  "conflicting_candidate_recipe_ids": [
+    {
+      "path": "data/brewinandchewin/recipes/ham_and_cheese_sandwich.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\BrewinAndChewin-1.20.1-3.2.1.jar",
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar"
+      ]
+    },
+    {
+      "path": "data/brewinandchewin/recipes/pizza.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\BrewinAndChewin-1.20.1-3.2.1.jar",
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar"
+      ]
+    },
+    {
+      "path": "data/brewinandchewin/recipes/pizza_from_slices.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\BrewinAndChewin-1.20.1-3.2.1.jar",
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar"
+      ]
+    },
+    {
+      "path": "data/brewinandchewin/recipes/quiche_from_bacon.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\BrewinAndChewin-1.20.1-3.2.1.jar",
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar"
+      ]
+    },
+    {
+      "path": "data/brewinandchewin/recipes/quiche_from_mushroom.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\BrewinAndChewin-1.20.1-3.2.1.jar",
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar"
+      ]
+    },
+    {
+      "path": "data/brewinandchewin/recipes/quiche_from_slices.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\BrewinAndChewin-1.20.1-3.2.1.jar",
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar"
+      ]
+    },
+    {
+      "path": "data/casualness_delight/recipes/crafting_shaped/donkey_burger.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\casualness_delight-p6Z5Qd84.jar",
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar"
+      ]
+    },
+    {
+      "path": "data/casualness_delight/recipes/crafting_shaped/green_tongue.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\casualness_delight-p6Z5Qd84.jar",
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar"
+      ]
+    },
+    {
+      "path": "data/culturaldelights/recipes/calamari_roll.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\culturaldelights-0.16.5.jar",
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar"
+      ]
+    },
+    {
+      "path": "data/culturaldelights/recipes/eggplant_burger.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\culturaldelights-0.16.5.jar",
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar"
+      ]
+    },
+    {
+      "path": "data/culturaldelights/recipes/mutton_sandwich.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\culturaldelights-0.16.5.jar",
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar"
+      ]
+    },
+    {
+      "path": "data/farmersdelight/recipes/bacon_sandwich.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\moredelight-GrLDJ8lO.jar",
+        "D:\\WOK测试\\versions\\1.20.1-Forge_47.4.20\\mods\\FarmersDelight-1.20.1-1.3.2.jar"
+      ]
+    },
+    {
+      "path": "data/farmersdelight/recipes/cake_from_milk_bottle.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar",
+        "D:\\WOK测试\\versions\\1.20.1-Forge_47.4.20\\mods\\FarmersDelight-1.20.1-1.3.2.jar"
+      ]
+    },
+    {
+      "path": "data/farmersdelight/recipes/chocolate_pie.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar",
+        "D:\\WOK测试\\versions\\1.20.1-Forge_47.4.20\\mods\\FarmersDelight-1.20.1-1.3.2.jar"
+      ]
+    },
+    {
+      "path": "data/farmersdelight/recipes/hamburger.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar",
+        "D:\\WOK测试\\versions\\1.20.1-Forge_47.4.20\\mods\\FarmersDelight-1.20.1-1.3.2.jar"
+      ]
+    },
+    {
+      "path": "data/farmersdelight/recipes/melon_popsicle.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar",
+        "D:\\WOK测试\\versions\\1.20.1-Forge_47.4.20\\mods\\FarmersDelight-1.20.1-1.3.2.jar"
+      ]
+    },
+    {
+      "path": "data/farmersdelight/recipes/mutton_wrap.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\culturaldelights-0.16.5.jar",
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar",
+        "D:\\WOK测试\\versions\\1.20.1-Forge_47.4.20\\mods\\FarmersDelight-1.20.1-1.3.2.jar"
+      ]
+    },
+    {
+      "path": "data/farmersdelight/recipes/stuffed_potato.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar",
+        "D:\\WOK测试\\versions\\1.20.1-Forge_47.4.20\\mods\\FarmersDelight-1.20.1-1.3.2.jar"
+      ]
+    },
+    {
+      "path": "data/minecraft/recipes/pumpkin_pie.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar",
+        "D:\\WOK测试\\versions\\1.20.1-Forge_47.4.20\\1.20.1-Forge_47.4.20.jar"
+      ]
+    },
+    {
+      "path": "data/moredelight/recipes/chocolate_popsicle.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar",
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\moredelight-GrLDJ8lO.jar"
+      ]
+    },
+    {
+      "path": "data/moredelight/recipes/hamburger_with_egg.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar",
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\moredelight-GrLDJ8lO.jar"
+      ]
+    },
+    {
+      "path": "data/moredelight/recipes/loaded_hamburger.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar",
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\moredelight-GrLDJ8lO.jar"
+      ]
+    },
+    {
+      "path": "data/moredelight/recipes/simple_hamburger.json",
+      "sources": [
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\Delightful-HbEQIqIu.jar",
+        "D:\\Wok\\tmp\\chef-playtest-20261021\\asset-jars\\moredelight-GrLDJ8lO.jar"
+      ]
+    }
+  ],
+  "not_runtime_authority": [
+    "FarmersDelight-1.20.1-1.2.9.jar",
+    "Dumplings Delight-fhqaCHuw.jar"
+  ],
+  "disabled_fryer_recipe_id": "casualness_delight:crafting_shaped/deep_frying_pan",
+  "disabled_fryer_output_id": "casualness_delight:deep_frying_pan"
+}

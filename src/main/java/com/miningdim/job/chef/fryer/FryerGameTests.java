@@ -170,7 +170,7 @@ public final class FryerGameTests {
             helper.assertTrue(f.fryer.start(f.player, false), "Real starter fish recipe must start");
             helper.assertTrue(f.fryer.inventory().getStackInSlot(0).getCount() == 1, "One fish moves into the reservation");
             for (int i = 0; i < 200; i++) f.fryer.serverTick();
-            ItemStack output = f.fryer.inventory().getStackInSlot(8);
+            ItemStack output = f.fryer.inventory().getStackInSlot(FryerRecipe.OUTPUT_SLOT);
             helper.assertTrue(output.is(Items.COOKED_COD) && output.getCount() == 1 && !ChefQualityNbt.hasQuality(output),
                     "Home cooking produces one ordinary cooked fish");
             helper.assertTrue(balance(f.player) == money && xp(f.player) == experience, "Home cooking is free and grants no XP");
@@ -179,12 +179,12 @@ public final class FryerGameTests {
                     new FryerRecipe.Input(Ingredient.of(Items.COD, Items.SALMON), 1),
                     new FryerRecipe.Input(Ingredient.of(Items.COD), 2)), Ingredient.of(Items.BOWL), 1,
                     new ItemStack(Items.COOKED_COD), 1, 4, 200);
-            SimpleContainer ingredients = new SimpleContainer(9);
+            SimpleContainer ingredients = new SimpleContainer(FryerRecipe.INVENTORY_SLOTS);
             ingredients.setItem(0, new ItemStack(Items.COD, 2)); ingredients.setItem(1, new ItemStack(Items.SALMON));
             helper.assertTrue(overlapping.allocation(ingredients) == null, "Missing container refuses the actual recipe");
-            ingredients.setItem(6, new ItemStack(Items.BOWL));
+            ingredients.setItem(FryerRecipe.CONTAINER_SLOT, new ItemStack(Items.BOWL));
             int[] taken = overlapping.allocation(ingredients);
-            helper.assertTrue(taken != null && taken[0] == 2 && taken[1] == 1 && taken[6] == 1,
+            helper.assertTrue(taken != null && taken[0] == 2 && taken[1] == 1 && taken[FryerRecipe.CONTAINER_SLOT] == 1,
                     "Overlapping ingredients consume exactly the required fish and separate bowl");
             helper.succeed();
         } finally { MockGameTestPlayers.logout(f.player); }
@@ -196,10 +196,10 @@ public final class FryerGameTests {
         try {
             fund(f.player);
             long money = balance(f.player);
-            f.fryer.inventory().setStackInSlot(8, new ItemStack(Items.COOKED_SALMON, 64));
+            f.fryer.inventory().setStackInSlot(FryerRecipe.OUTPUT_SLOT, new ItemStack(Items.COOKED_SALMON, 64));
             helper.assertTrue(!f.fryer.start(f.player, true) && balance(f.player) == money
                     && f.fryer.inventory().getStackInSlot(0).getCount() == 2, "Full output keeps ingredients and money");
-            f.fryer.inventory().extractItem(8, 64, false);
+            f.fryer.inventory().extractItem(FryerRecipe.OUTPUT_SLOT, 64, false);
             f.fryer.inventory().setStackInSlot(0, new ItemStack(Items.STONE));
             helper.assertTrue(!f.fryer.start(f.player, true) && balance(f.player) == money, "No recipe cannot charge");
             f.fryer.inventory().setStackInSlot(0, new ItemStack(Items.COD, 2));
@@ -260,7 +260,7 @@ public final class FryerGameTests {
             if (f.fryer.data().get(0) == 3) {
                 finished[0] = true;
                 try {
-                    ItemStack output = f.fryer.inventory().getStackInSlot(8);
+                    ItemStack output = f.fryer.inventory().getStackInSlot(FryerRecipe.OUTPUT_SLOT);
                     helper.assertTrue(output.is(Items.COOKED_COD) && output.getCount() == 1 && ChefQualityNbt.hasQuality(output),
                             "Accepted real-time inputs produce exactly one quality dish");
                     ZhangshaoKernel.Result expected = ZhangshaoKernel.result(local, null);
@@ -290,7 +290,7 @@ public final class FryerGameTests {
             f.fryer.acceptInput(f.player, round, 0, 0, new byte[]{4}, 0, false);
             f.fryer.abort(f.player, round, "重复关闭");
             f.fryer.acceptInput(f.player, round, 0, 0, new byte[]{4}, 0, false);
-            ItemStack result = f.fryer.inventory().getStackInSlot(8);
+            ItemStack result = f.fryer.inventory().getStackInSlot(FryerRecipe.OUTPUT_SLOT);
             helper.assertTrue(result.is(Items.COOKED_COD) && result.getCount() == 1 && !ChefQualityNbt.hasQuality(result),
                     "Invalid input settles one home dish without a quality stamp");
             helper.assertTrue(balance(f.player) == money - ChefConfig.seasoningCreditCost() && xp(f.player) == experience,
@@ -298,7 +298,7 @@ public final class FryerGameTests {
             f.fryer.setRemoved();
             FryerBlockEntity restored = new FryerBlockEntity(f.pos, f.fryer.getBlockState());
             restored.load(oldChunk); helper.getLevel().setBlockEntity(restored); restored.serverTick();
-            helper.assertTrue(restored.inventory().getStackInSlot(8).is(Items.COOKED_COD)
+            helper.assertTrue(restored.inventory().getStackInSlot(FryerRecipe.OUTPUT_SLOT).is(Items.COOKED_COD)
                     && restored.inventory().getStackInSlot(0).getCount() == 1,
                     "Completed journal restores the dish even when chunk still contains pre-charge ingredients");
             f.player.containerMenu = new FryerMenu(32, f.player.getInventory(), restored);
@@ -306,7 +306,7 @@ public final class FryerGameTests {
             helper.assertTrue(f.player.getInventory().countItem(Items.COOKED_COD) == 1,
                     "Shift collection delivers exactly one dish to the player after the fryer checkpoint");
             restored.load(oldChunk); restored.serverTick();
-            helper.assertTrue(collected.getCount() == 1 && restored.inventory().getStackInSlot(8).isEmpty()
+            helper.assertTrue(collected.getCount() == 1 && restored.inventory().getStackInSlot(FryerRecipe.OUTPUT_SLOT).isEmpty()
                     && balance(f.player) == money - ChefConfig.seasoningCreditCost(),
                     "Collected output cannot reappear or refund when the old chunk is loaded again");
             List<ItemStack> drops = restored.breakAndDrop();
@@ -333,7 +333,7 @@ public final class FryerGameTests {
             // 区块恢复后旧菜单仍会走关闭生命周期，不能再用已卸载实体的 held 结算另一份菜。
             f.player.containerMenu.removed(f.player);
             helper.assertTrue(restored.inventory().getStackInSlot(0).is(Items.COD)
-                    && restored.inventory().getStackInSlot(0).getCount() == 2 && restored.inventory().getStackInSlot(8).isEmpty(),
+                    && restored.inventory().getStackInSlot(0).getCount() == 2 && restored.inventory().getStackInSlot(FryerRecipe.OUTPUT_SLOT).isEmpty(),
                     "Journal overrides stale chunk and restores the exact raw ingredients without a dish");
             helper.assertTrue(balance(f.player) == money, "Recovery refunds the reserved fee exactly once");
             CompoundTag saved = restored.saveWithoutMetadata(); restored.load(saved); restored.serverTick();

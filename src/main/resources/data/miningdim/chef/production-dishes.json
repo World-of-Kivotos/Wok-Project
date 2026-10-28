@@ -1,0 +1,986 @@
+{
+  "schemaVersion": 1,
+  "dishes": [
+    {
+      "id": "delightful:baklava",
+      "station": 2,
+      "star": 7,
+      "motion": 0,
+      "flips": 2,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:dumpling_medley",
+      "station": 3,
+      "star": 6,
+      "motion": 0,
+      "flips": 0,
+      "beats": 8,
+      "drink": false
+    },
+    {
+      "id": "brewinandchewin:quiche",
+      "station": 2,
+      "star": 6,
+      "motion": 0,
+      "flips": 2,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:exotic_roll_medley",
+      "station": 3,
+      "star": 6,
+      "motion": 1,
+      "flips": 0,
+      "beats": 7,
+      "drink": false
+    },
+    {
+      "id": "brewinandchewin:pizza",
+      "station": 2,
+      "star": 6,
+      "motion": 2,
+      "flips": 2,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:chicken_taco",
+      "station": 3,
+      "star": 6,
+      "motion": 0,
+      "flips": 0,
+      "beats": 7,
+      "drink": false
+    },
+    {
+      "id": "delightful:deluxe_cheeseburger",
+      "station": 3,
+      "star": 6,
+      "motion": 0,
+      "flips": 0,
+      "beats": 8,
+      "drink": false
+    },
+    {
+      "id": "casualness_delight:quiche_lorraine",
+      "station": 2,
+      "star": 5,
+      "motion": 0,
+      "flips": 2,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "casualness_delight:stargazy_pie",
+      "station": 2,
+      "star": 5,
+      "motion": 2,
+      "flips": 2,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "delightful:smore",
+      "station": 2,
+      "star": 5,
+      "motion": 0,
+      "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "delightful:cheeseburger",
+      "station": 3,
+      "star": 5,
+      "motion": 0,
+      "flips": 0,
+      "beats": 7,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:honey_glazed_ham_block",
+      "station": 2,
+      "star": 5,
+      "motion": 3,
+      "flips": 2,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "delightful:salmonberry_pie",
+      "station": 2,
+      "star": 5,
+      "motion": 2,
+      "flips": 2,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:roast_chicken_block",
+      "station": 2,
+      "star": 5,
+      "motion": 3,
+      "flips": 2,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:chocolate_pie",
+      "station": 2,
+      "star": 5,
+      "motion": 2,
+      "flips": 2,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:rice_roll_medley_block",
+      "station": 3,
+      "star": 5,
+      "motion": 1,
+      "flips": 0,
+      "beats": 6,
+      "drink": false
+    },
+    {
+      "id": "moredelight:loaded_hamburger",
+      "station": 3,
+      "star": 5,
+      "motion": 0,
+      "flips": 0,
+      "beats": 8,
+      "drink": false
+    },
+    {
+      "id": "casualness_delight:plate_of_fried_dumpling",
+      "station": 1,
+      "star": 4,
+      "motion": 4,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:beef_burrito",
+      "station": 3,
+      "star": 4,
+      "motion": 0,
+      "flips": 0,
+      "beats": 5,
+      "drink": false
+    },
+    {
+      "id": "delightful:berry_matcha_latte",
+      "station": 3,
+      "star": 4,
+      "motion": 4,
+      "flips": 0,
+      "beats": 6,
+      "drink": true
+    },
+    {
+      "id": "farmersdelight:apple_pie",
+      "station": 2,
+      "star": 4,
+      "motion": 2,
+      "flips": 2,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:nether_salad",
+      "station": 3,
+      "star": 4,
+      "motion": 2,
+      "flips": 0,
+      "beats": 3,
+      "drink": false
+    },
+    {
+      "id": "minecraft:cake",
+      "station": 2,
+      "star": 4,
+      "motion": 2,
+      "flips": 2,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "minecraft:pumpkin_pie",
+      "station": 2,
+      "star": 4,
+      "motion": 2,
+      "flips": 2,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "casualness_delight:spring_roll_medley",
+      "station": 1,
+      "star": 4,
+      "motion": 4,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "casualness_delight:donkey_burger",
+      "station": 2,
+      "star": 4,
+      "motion": 0,
+      "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:empanada",
+      "station": 1,
+      "star": 4,
+      "motion": 4,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:hearty_salad",
+      "station": 3,
+      "star": 4,
+      "motion": 2,
+      "flips": 0,
+      "beats": 5,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:midori_roll",
+      "station": 3,
+      "star": 4,
+      "motion": 1,
+      "flips": 0,
+      "beats": 5,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:eggplant_burger",
+      "station": 3,
+      "star": 4,
+      "motion": 0,
+      "flips": 0,
+      "beats": 5,
+      "drink": false
+    },
+    {
+      "id": "delightful:nut_butter_and_jam_sandwich",
+      "station": 3,
+      "star": 4,
+      "motion": 0,
+      "flips": 0,
+      "beats": 5,
+      "drink": false
+    },
+    {
+      "id": "delightful:field_salad",
+      "station": 3,
+      "star": 4,
+      "motion": 2,
+      "flips": 0,
+      "beats": 6,
+      "drink": false
+    },
+    {
+      "id": "delightful:crab_rangoon",
+      "station": 1,
+      "star": 4,
+      "motion": 1,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:hamburger",
+      "station": 3,
+      "star": 4,
+      "motion": 0,
+      "flips": 0,
+      "beats": 6,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:shepherds_pie_block",
+      "station": 2,
+      "star": 4,
+      "motion": 2,
+      "flips": 2,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:sweet_berry_cheesecake",
+      "station": 2,
+      "star": 4,
+      "motion": 2,
+      "flips": 2,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "oceansdelight:cabbage_wrapped_elder_guardian",
+      "station": 3,
+      "star": 4,
+      "motion": 2,
+      "flips": 0,
+      "beats": 5,
+      "drink": false
+    },
+    {
+      "id": "brewinandchewin:ham_and_cheese_sandwich",
+      "station": 3,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
+      "beats": 4,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:fish_taco",
+      "station": 3,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
+      "beats": 5,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:pork_wrap",
+      "station": 3,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
+      "beats": 5,
+      "drink": false
+    },
+    {
+      "id": "delightful:salmonberry_ice_cream",
+      "station": 3,
+      "star": 3,
+      "motion": 4,
+      "flips": 0,
+      "beats": 6,
+      "drink": true
+    },
+    {
+      "id": "delightful:salmonberry_milkshake",
+      "station": 3,
+      "star": 3,
+      "motion": 4,
+      "flips": 0,
+      "beats": 6,
+      "drink": true
+    },
+    {
+      "id": "delightful:matcha_ice_cream",
+      "station": 3,
+      "star": 3,
+      "motion": 4,
+      "flips": 0,
+      "beats": 6,
+      "drink": true
+    },
+    {
+      "id": "delightful:matcha_milkshake",
+      "station": 3,
+      "star": 3,
+      "motion": 4,
+      "flips": 0,
+      "beats": 6,
+      "drink": true
+    },
+    {
+      "id": "farmersdelight:mutton_wrap",
+      "station": 3,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
+      "beats": 5,
+      "drink": false
+    },
+    {
+      "id": "oceansdelight:cooked_stuffed_cod",
+      "station": 2,
+      "star": 3,
+      "motion": 0,
+      "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "oceansdelight:elder_guardian_roll",
+      "station": 3,
+      "star": 3,
+      "motion": 1,
+      "flips": 0,
+      "beats": 3,
+      "drink": false
+    },
+    {
+      "id": "casualness_delight:fried_dumpling",
+      "station": 1,
+      "star": 3,
+      "motion": 4,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "casualness_delight:green_tongue",
+      "station": 3,
+      "star": 3,
+      "motion": 4,
+      "flips": 0,
+      "beats": 6,
+      "drink": true
+    },
+    {
+      "id": "crabbersdelight:frog_leg_kebob",
+      "station": 2,
+      "star": 3,
+      "motion": 0,
+      "flips": 3,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:rice_ball",
+      "station": 3,
+      "star": 3,
+      "motion": 1,
+      "flips": 0,
+      "beats": 5,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:chicken_roll",
+      "station": 3,
+      "star": 3,
+      "motion": 1,
+      "flips": 0,
+      "beats": 5,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:tropical_roll",
+      "station": 3,
+      "star": 3,
+      "motion": 1,
+      "flips": 0,
+      "beats": 4,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:calamari_roll",
+      "station": 3,
+      "star": 3,
+      "motion": 1,
+      "flips": 0,
+      "beats": 4,
+      "drink": false
+    },
+    {
+      "id": "delightful:cantaloupe_bread",
+      "station": 2,
+      "star": 3,
+      "motion": 2,
+      "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:roasted_mutton_chops",
+      "station": 2,
+      "star": 3,
+      "motion": 3,
+      "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:steak_and_potatoes",
+      "station": 2,
+      "star": 3,
+      "motion": 3,
+      "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "moredelight:hamburger_with_egg",
+      "station": 3,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
+      "beats": 4,
+      "drink": false
+    },
+    {
+      "id": "moredelight:hamburger_with_cheese",
+      "station": 3,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
+      "beats": 4,
+      "drink": false
+    },
+    {
+      "id": "casualness_delight:spring_roll",
+      "station": 1,
+      "star": 2,
+      "motion": 4,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "casualness_delight:fish_and_chips",
+      "station": 1,
+      "star": 2,
+      "motion": 4,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "crabbersdelight:surf_and_turf",
+      "station": 3,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 4,
+      "drink": false
+    },
+    {
+      "id": "crabbersdelight:squid_kebob",
+      "station": 2,
+      "star": 2,
+      "motion": 0,
+      "flips": 3,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:pufferfish_roll",
+      "station": 3,
+      "star": 2,
+      "motion": 1,
+      "flips": 0,
+      "beats": 3,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:egg_roll",
+      "station": 3,
+      "star": 2,
+      "motion": 1,
+      "flips": 0,
+      "beats": 4,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:mutton_sandwich",
+      "station": 3,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 5,
+      "drink": false
+    },
+    {
+      "id": "delightful:glow_jam_cookie",
+      "station": 2,
+      "star": 2,
+      "motion": 0,
+      "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "delightful:cantaloupe_popsicle",
+      "station": 3,
+      "star": 2,
+      "motion": 4,
+      "flips": 0,
+      "beats": 6,
+      "drink": true
+    },
+    {
+      "id": "farmersdelight:kelp_roll",
+      "station": 3,
+      "star": 2,
+      "motion": 1,
+      "flips": 0,
+      "beats": 4,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:chicken_sandwich",
+      "station": 3,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 5,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:bacon_sandwich",
+      "station": 3,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 5,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:fruit_salad",
+      "station": 3,
+      "star": 2,
+      "motion": 2,
+      "flips": 0,
+      "beats": 5,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:grilled_salmon",
+      "station": 2,
+      "star": 2,
+      "motion": 0,
+      "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "moredelight:chicken_sandwich_with_egg_and_tomato",
+      "station": 3,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 5,
+      "drink": false
+    },
+    {
+      "id": "moredelight:chicken_salad",
+      "station": 3,
+      "star": 2,
+      "motion": 2,
+      "flips": 0,
+      "beats": 5,
+      "drink": false
+    },
+    {
+      "id": "moredelight:simple_hamburger",
+      "station": 3,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 3,
+      "drink": false
+    },
+    {
+      "id": "moredelight:toast_with_cheese",
+      "station": 2,
+      "star": 2,
+      "motion": 0,
+      "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "moredelight:chocolate_popsicle",
+      "station": 3,
+      "star": 2,
+      "motion": 4,
+      "flips": 0,
+      "beats": 6,
+      "drink": true
+    },
+    {
+      "id": "oceansdelight:fugu_roll",
+      "station": 3,
+      "star": 2,
+      "motion": 1,
+      "flips": 0,
+      "beats": 3,
+      "drink": false
+    },
+    {
+      "id": "oceansdelight:squid_rings",
+      "station": 1,
+      "star": 2,
+      "motion": 1,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "casualness_delight:roast_gluten",
+      "station": 2,
+      "star": 2,
+      "motion": 0,
+      "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "crabbersdelight:sea_pickle_juice",
+      "station": 3,
+      "star": 2,
+      "motion": 4,
+      "flips": 0,
+      "beats": 6,
+      "drink": true
+    },
+    {
+      "id": "crabbersdelight:shrimp_skewer",
+      "station": 2,
+      "star": 2,
+      "motion": 0,
+      "flips": 3,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "crabbersdelight:coral_crunch",
+      "station": 3,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 3,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:avocado_toast",
+      "station": 2,
+      "star": 2,
+      "motion": 0,
+      "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "delightful:wrapped_cantaloupe",
+      "station": 3,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 3,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:honey_cookie",
+      "station": 2,
+      "star": 2,
+      "motion": 0,
+      "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:salmon_roll",
+      "station": 3,
+      "star": 2,
+      "motion": 1,
+      "flips": 0,
+      "beats": 3,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:mixed_salad",
+      "station": 3,
+      "star": 2,
+      "motion": 2,
+      "flips": 0,
+      "beats": 4,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:barbecue_stick",
+      "station": 2,
+      "star": 2,
+      "motion": 0,
+      "flips": 3,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:stuffed_potato",
+      "station": 3,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 4,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:melon_popsicle",
+      "station": 3,
+      "star": 2,
+      "motion": 4,
+      "flips": 0,
+      "beats": 6,
+      "drink": true
+    },
+    {
+      "id": "farmersdelight:cod_roll",
+      "station": 3,
+      "star": 2,
+      "motion": 1,
+      "flips": 0,
+      "beats": 3,
+      "drink": false
+    },
+    {
+      "id": "moredelight:toast_with_honey",
+      "station": 2,
+      "star": 2,
+      "motion": 2,
+      "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "moredelight:steak_sandwich",
+      "station": 3,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 4,
+      "drink": false
+    },
+    {
+      "id": "moredelight:egg_with_bacon_sandwich",
+      "station": 3,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 4,
+      "drink": false
+    },
+    {
+      "id": "moredelight:toast_with_chocolate",
+      "station": 2,
+      "star": 2,
+      "motion": 0,
+      "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "moredelight:toast_with_glow_berries",
+      "station": 2,
+      "star": 2,
+      "motion": 0,
+      "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "moredelight:porkchop_sandwich",
+      "station": 3,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 4,
+      "drink": false
+    },
+    {
+      "id": "oceansdelight:honey_fried_kelp",
+      "station": 1,
+      "star": 2,
+      "motion": 4,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "minecraft:cookie",
+      "station": 2,
+      "star": 2,
+      "motion": 0,
+      "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "crabbersdelight:kelp_shake",
+      "station": 3,
+      "star": 1,
+      "motion": 4,
+      "flips": 0,
+      "beats": 6,
+      "drink": true
+    },
+    {
+      "id": "farmersdelight:egg_sandwich",
+      "station": 3,
+      "star": 1,
+      "motion": 0,
+      "flips": 0,
+      "beats": 3,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:bacon_and_eggs",
+      "station": 3,
+      "star": 1,
+      "motion": 0,
+      "flips": 0,
+      "beats": 3,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:sweet_berry_cookie",
+      "station": 2,
+      "star": 1,
+      "motion": 0,
+      "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:melon_juice",
+      "station": 3,
+      "star": 1,
+      "motion": 4,
+      "flips": 0,
+      "beats": 6,
+      "drink": true
+    },
+    {
+      "id": "moredelight:tomato_sandwich",
+      "station": 3,
+      "star": 1,
+      "motion": 0,
+      "flips": 0,
+      "beats": 3,
+      "drink": false
+    },
+    {
+      "id": "moredelight:toast_with_egg",
+      "station": 2,
+      "star": 1,
+      "motion": 2,
+      "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "moredelight:toast_with_sweet_berries",
+      "station": 2,
+      "star": 1,
+      "motion": 2,
+      "flips": 1,
+      "beats": 0,
+      "drink": false
+    }
+  ]
+}

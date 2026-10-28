@@ -3,6 +3,7 @@ package com.miningdim.job.chef.fryer;
 import com.miningdim.job.chef.ChefConfig;
 import com.miningdim.job.chef.ChefExperience;
 import com.miningdim.job.chef.SeasoningTag;
+import com.miningdim.job.chef.station.CookingStationBlock;
 import com.miningdim.menu.AbstractMiningMenu;
 import com.miningdim.menu.MenuValidity;
 import net.minecraft.core.BlockPos;
@@ -23,13 +24,14 @@ import net.minecraftforge.items.SlotItemHandler;
 
 /** 炸锅生产容器；客户端库存只接收菜单同步，不写客户端世界中的方块实体。 */
 public final class FryerMenu extends AbstractMiningMenu {
-    public static final int INPUT_START = 0, INPUT_END = 6, CONTAINER = 6, SEASONING = 7, OUTPUT = 8, SLOTS = 9;
+    public static final int INPUT_START = 0, INPUT_END = FryerRecipe.INPUT_SLOTS, CONTAINER = FryerRecipe.CONTAINER_SLOT, SEASONING = FryerRecipe.SEASONING_SLOT, OUTPUT = FryerRecipe.OUTPUT_SLOT, SLOTS = FryerRecipe.INVENTORY_SLOTS;
     public static final int DATA_SIZE = 15;
     private final FryerBlockEntity blockEntity;
     private final ItemStackHandler inventory;
     private final ContainerData data;
     private final BlockPos pos;
     private final Level level;
+    private final CookingStationBlock.Kind kind;
     private final DataSlot[] costParts = {DataSlot.standalone(), DataSlot.standalone()};
 
     public FryerMenu(int id, Inventory playerInventory, FryerBlockEntity be) {
@@ -40,6 +42,7 @@ public final class FryerMenu extends AbstractMiningMenu {
         data = viewerData(be, playerInventory.player);
         pos = be.getBlockPos();
         level = playerInventory.player.level();
+        kind = be.kind();
         addSlots(playerInventory);
     }
 
@@ -52,6 +55,7 @@ public final class FryerMenu extends AbstractMiningMenu {
         data = new SimpleContainerData(DATA_SIZE);
         this.pos = pos.immutable();
         level = playerInventory.player.level();
+        kind = ((CookingStationBlock) level.getBlockState(pos).getBlock()).kind();
         addSlots(playerInventory);
     }
 
@@ -77,9 +81,9 @@ public final class FryerMenu extends AbstractMiningMenu {
     }
     private void addSlots(Inventory playerInventory) {
         for (int index = INPUT_START; index < INPUT_END; index++) addProductionSlot(index, 18 + index * 18, 48);
-        addProductionSlot(CONTAINER, 144, 48);
-        addProductionSlot(SEASONING, 180, 48);
-        addProductionSlot(OUTPUT, 216, 48);
+        addProductionSlot(CONTAINER, 180, 48);
+        addProductionSlot(SEASONING, 216, 48);
+        addProductionSlot(OUTPUT, 252, 48);
         addPlayerInventory(playerInventory, 9, 156);
         addDataSlots(data);
         for (DataSlot part : costParts) addDataSlot(part);
@@ -115,7 +119,8 @@ public final class FryerMenu extends AbstractMiningMenu {
     public int value(int index) { return data.get(index); }
     public int phase() { return value(0); }
     public boolean busy() { return blockEntity != null ? blockEntity.busy() : phase() == 1 || phase() == 2; }
-    public FryerRecipe previewRecipe() { return FryerBlockEntity.findRecipe(level, inventory); }
+    public CookingStationBlock.Kind kind() { return kind; }
+    public FryerRecipe previewRecipe() { return FryerBlockEntity.findRecipe(level, inventory, kind()); }
 
     public int cost() {
         int cost = 0;
@@ -150,7 +155,7 @@ public final class FryerMenu extends AbstractMiningMenu {
         super.removed(player);
         if (player instanceof ServerPlayer serverPlayer && blockEntity != null && blockEntity.busy()
                 && blockEntity.isOperator(serverPlayer)) {
-            blockEntity.abort(serverPlayer, blockEntity.roundId(), "关闭炸锅界面，本锅按家常结算。");
+            blockEntity.abort(serverPlayer, blockEntity.roundId(), "关闭烹饪台界面，本锅按家常结算。");
         }
     }
 
@@ -184,8 +189,8 @@ public final class FryerMenu extends AbstractMiningMenu {
         }
         if (busy()) return ItemStack.EMPTY;
         int start = INPUT_START, end = INPUT_END;
-        if (SeasoningTag.isSeasoning(original)) { start = SEASONING; end = SEASONING + 1; }
-        else if (isRecipeContainer(original)) { start = CONTAINER; end = CONTAINER + 1; }
+        if (isRecipeContainer(original)) { start = CONTAINER; end = CONTAINER + 1; }
+        else if (SeasoningTag.isSeasoning(original) && !isRecipeIngredient(original)) { start = SEASONING; end = SEASONING + 1; }
         for (int target = start; target < end; target++) {
             ItemStack simulated = inventory.insertItem(target, original, true);
             if (simulated.getCount() == original.getCount()) continue;
@@ -201,7 +206,12 @@ public final class FryerMenu extends AbstractMiningMenu {
     }
 
     private boolean isRecipeContainer(ItemStack stack) {
-        return level.getRecipeManager().getAllRecipesFor(FryerRecipeRegistry.recipeType()).stream()
+        return level.getRecipeManager().getAllRecipesFor(FryerRecipeRegistry.recipeType(kind())).stream()
                 .anyMatch(recipe -> recipe.containerMatches(stack));
+    }
+
+    private boolean isRecipeIngredient(ItemStack stack) {
+        return level.getRecipeManager().getAllRecipesFor(FryerRecipeRegistry.recipeType(kind())).stream()
+                .anyMatch(recipe -> recipe.inputs().stream().anyMatch(input -> input.ingredient().test(stack)));
     }
 }

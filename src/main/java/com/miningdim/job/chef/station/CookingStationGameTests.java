@@ -62,7 +62,7 @@ import java.util.Optional;
 /**
  * 九台烹饪台的方块层契约: 放置朝向、预览开关、炉上油锅的热源与托架 (含计划刻复核)、冷藏备餐台的掀盖避让、
  * 各方案说明里的形状/遮挡/光照、碰撞箱不得是严格整格、粒子出生点的旋转口径、旋转/镜像、掉落、挖掘工具标签、
- * 合成配方 (暂时关着, 但按格子摆得出来) 与中英文名/物品提示。资源 (方块状态/模型/贴图) 的完整性见
+ * 合成配方与中英文名/物品提示。资源 (方块状态/模型/贴图) 的完整性见
  * {@link CookingStationAssetGameTests}。烹饪逻辑接入后另起用例。
  */
 @GameTestHolder(MiningConstants.MODID)
@@ -156,7 +156,7 @@ public final class CookingStationGameTests {
                 helper.assertTrue(useOn(helper, creative, pos).consumesAction() && !isLit(helper, pos),
                         id + ": 再按一次应切回待机");
 
-                InteractionResult normalUse = entry.get() instanceof FryerStationBlock ? InteractionResult.CONSUME : InteractionResult.PASS;
+                InteractionResult normalUse = InteractionResult.CONSUME;
                 creative.setShiftKeyDown(false);
                 helper.assertTrue(useOn(helper, creative, pos) == normalUse && !isLit(helper, pos),
                         id + ": 没潜行时不得切换");
@@ -580,10 +580,10 @@ public final class CookingStationGameTests {
     }
 
     /**
-     * 炸锅已开放生存合成，其余六台继续关闭。全部配方仍须按实际格子匹配自身，避免开放时抢占别的配方。
+     * 九台都开放生存合成，配方按实际格子匹配自身，避免抢占别的配方。
      */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void recipesStayClosedButCraftFromAGrid(GameTestHelper helper) {
+    public static void recipesAreOpenAndCraftFromAGrid(GameTestHelper helper) {
         AbstractContainerMenu menu = new AbstractContainerMenu(null, -1) {
             @Override
             public ItemStack quickMoveStack(Player player, int index) {
@@ -599,12 +599,8 @@ public final class CookingStationGameTests {
             String id = entry.getId().getPath();
             ResourceLocation recipeId = new ResourceLocation(MiningConstants.MODID, "chef/" + id);
             JsonObject json = loadJsonResource("/data/miningdim/recipes/chef/" + id + ".json");
-            boolean recipesOpen = id.startsWith("deep_fryer_");
-
-            helper.assertTrue(hasFalseCondition(json) != recipesOpen, recipeId
-                    + (recipesOpen ? " 已开放, 不该再带 forge:false 条件" : " 在烹饪逻辑接入前必须带 forge:false 条件关着"));
-            helper.assertTrue(helper.getLevel().getRecipeManager().byKey(recipeId).isPresent() == recipesOpen,
-                    recipeId + (recipesOpen ? " 应已加载" : " 关着时 RecipeManager 里不该找得到"));
+            helper.assertFalse(hasFalseCondition(json), recipeId + " 已开放, 不该再带 forge:false 条件");
+            helper.assertTrue(helper.getLevel().getRecipeManager().byKey(recipeId).isPresent(), recipeId + " 应已加载");
 
             JsonObject key = json.getAsJsonObject("key");
             for (Map.Entry<String, JsonElement> symbol : key.entrySet()) {
@@ -646,13 +642,8 @@ public final class CookingStationGameTests {
 
             Optional<CraftingRecipe> claimed = helper.getLevel().getRecipeManager()
                     .getRecipeFor(RecipeType.CRAFTING, grid, helper.getLevel());
-            if (recipesOpen) {
-                helper.assertTrue(claimed.isPresent() && claimed.get().getId().equals(recipeId),
-                        recipeId + " 的这一格应由它自己合出, 实为 " + claimed.map(CraftingRecipe::getId));
-            } else {
-                helper.assertTrue(claimed.isEmpty(), recipeId + " 的这一格已被别的配方占用, 开放时会冲突: "
-                        + claimed.map(CraftingRecipe::getId));
-            }
+            helper.assertTrue(claimed.isPresent() && claimed.get().getId().equals(recipeId),
+                    recipeId + " 的这一格应由它自己合出, 实为 " + claimed.map(CraftingRecipe::getId));
         }
         helper.succeed();
     }
@@ -685,7 +676,7 @@ public final class CookingStationGameTests {
             }
             helper.assertTrue(keys.get(0).equals(CookingStationItem.kindKey(block.kind())),
                     entry.getId() + " 的第一行提示应写功能种类");
-            helper.assertTrue(keys.contains(CookingStationItem.WIP_KEY) == (block.kind() != CookingStationBlock.Kind.DEEP_FRYER), entry.getId() + " 只有尚未开放生产的台子提示未开放");
+            helper.assertFalse(keys.contains(CookingStationItem.WIP_KEY), entry.getId() + " 已开放生产，不应提示未开放");
             helper.assertTrue(keys.contains(CookingStationItem.NEEDS_HEAT_KEY) == (entry == ChefItems.DEEP_FRYER_RUSTIC),
                     entry.getId() + " 的\"要热源\"提示只属于炉上油锅");
             boolean risesAbove = entry == ChefItems.PREP_COUNTER_RUSTIC || entry == ChefItems.PREP_COUNTER_CHINESE

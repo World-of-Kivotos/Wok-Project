@@ -1,0 +1,23 @@
+{
+  "counts": {
+    "1": 9,
+    "2": 37,
+    "3": 63
+  },
+  "original_station_counts": {
+    "frying": 4,
+    "baking": 37,
+    "preparing": 63
+  },
+  "station_count_note": "stations.md says baking 36 / preparing 64; its category list is not an item-by-item mapping. The practice classification places avocado_toast in baking along with six More Delight toasts, a likely source of the one-dish difference.",
+  "additional_frying_ids": [
+    "casualness_delight:fish_and_chips",
+    "culturaldelights:empanada",
+    "delightful:crab_rangoon",
+    "oceansdelight:honey_fried_kelp",
+    "oceansdelight:squid_rings"
+  ],
+  "star_discrepancies": [],
+  "disabled_fryer_recipe_id": "casualness_delight:crafting_shaped/deep_frying_pan",
+  "disabled_fryer_output_id": "casualness_delight:deep_frying_pan"
+}

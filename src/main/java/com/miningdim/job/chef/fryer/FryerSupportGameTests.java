@@ -48,12 +48,12 @@ public final class FryerSupportGameTests {
             FryerRecipeSerializer serializer = new FryerRecipeSerializer();
             serializer.toNetwork(buf, recipe);
             FryerRecipe decoded = serializer.fromNetwork(id, buf);
-            SimpleContainer inv = new SimpleContainer(9);
+            SimpleContainer inv = new SimpleContainer(FryerRecipe.INVENTORY_SLOTS);
             inv.setItem(0, new ItemStack(Items.COD, 2)); inv.setItem(1, new ItemStack(Items.SALMON));
             helper.assertTrue(decoded.allocation(inv) == null, "Missing bowl prevents the recipe");
-            inv.setItem(6, new ItemStack(Items.BOWL));
+            inv.setItem(FryerRecipe.CONTAINER_SLOT, new ItemStack(Items.BOWL));
             int[] taken = decoded.allocation(inv);
-            helper.assertTrue(taken != null && taken[0] == 2 && taken[1] == 1 && taken[6] == 1
+            helper.assertTrue(taken != null && taken[0] == 2 && taken[1] == 1 && taken[FryerRecipe.CONTAINER_SLOT] == 1
                     && decoded.result().is(Items.COOKED_COD) && decoded.cookTime() == 200,
                     "Round trip preserves recipe and overlapping ingredients allocate correctly");
             helper.succeed();

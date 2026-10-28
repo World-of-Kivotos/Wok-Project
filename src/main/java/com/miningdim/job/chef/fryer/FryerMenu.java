@@ -1,11 +1,14 @@
 package com.miningdim.job.chef.fryer;
 
 import com.miningdim.job.chef.ChefConfig;
+import com.miningdim.job.chef.ChefExperience;
 import com.miningdim.job.chef.SeasoningTag;
 import com.miningdim.menu.AbstractMiningMenu;
 import com.miningdim.menu.MenuValidity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.ContainerData;
@@ -34,7 +37,7 @@ public final class FryerMenu extends AbstractMiningMenu {
                 ContainerLevelAccess.create(be.getLevel(), be.getBlockPos()), be.getBlockState().getBlock()));
         blockEntity = be;
         inventory = be.inventory();
-        data = be.data();
+        data = viewerData(be, playerInventory.player);
         pos = be.getBlockPos();
         level = playerInventory.player.level();
         addSlots(playerInventory);
@@ -52,6 +55,26 @@ public final class FryerMenu extends AbstractMiningMenu {
         addSlots(playerInventory);
     }
 
+    private static ContainerData viewerData(FryerBlockEntity be, Player viewer) {
+        ContainerData station = be.data();
+        return new ContainerData() {
+            @Override public int get(int index) {
+                if (index == 14) return ChefExperience.level(viewer);
+                if (index != 5 && index != 6 && index != 12) return station.get(index);
+                ResourceLocation dish = be.displayDishId();
+                if (dish == null) return 0;
+                FryerPlayerData records = FryerPlayerData.get((ServerLevel) viewer.level());
+                return switch (index) {
+                    case 5 -> records.mastery(viewer.getUUID(), dish);
+                    case 6 -> records.best(viewer.getUUID(), dish);
+                    case 12 -> Math.min(100, records.progress(viewer.getUUID(), dish));
+                    default -> throw new IllegalStateException("Fryer viewer data " + index);
+                };
+            }
+            @Override public void set(int index, int value) { station.set(index, value); }
+            @Override public int getCount() { return station.getCount(); }
+        };
+    }
     private void addSlots(Inventory playerInventory) {
         for (int index = INPUT_START; index < INPUT_END; index++) addProductionSlot(index, 18 + index * 18, 48);
         addProductionSlot(CONTAINER, 144, 48);
@@ -139,7 +162,7 @@ public final class FryerMenu extends AbstractMiningMenu {
         ItemStack original = slot.getItem().copy();
         if (index < SLOTS) {
             // 每次只交付一个目标槽；原版 QUICK_MOVE 循环会继续处理剩余栈。
-            // 先提交炸锅的移出记录，再改玩家背包，不能先入账后补检查点。
+            // 单次只规划一个目标槽，物品转移后由本 tick 的后台检查点合并保存。
             for (int pass = 0; pass < 2; pass++) {
                 for (int target = slots.size() - 1; target >= SLOTS; target--) {
                     Slot destination = slots.get(target);
@@ -166,7 +189,7 @@ public final class FryerMenu extends AbstractMiningMenu {
         for (int target = start; target < end; target++) {
             ItemStack simulated = inventory.insertItem(target, original, true);
             if (simulated.getCount() == original.getCount()) continue;
-            // 用副本规划，成功持久化该目标槽后才减少玩家源槽。
+            // 用副本规划目标槽，成功接收后才减少玩家源槽。
             ItemStack remainder = inventory.insertItem(target, original.copy(), false);
             int transferred = original.getCount() - remainder.getCount();
             if (transferred == 0) return ItemStack.EMPTY;

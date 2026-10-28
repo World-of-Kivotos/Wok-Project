@@ -56,6 +56,90 @@ public final class FryerGameTests {
     private static void fund(ServerPlayer player) { EconomyServices.economyService().grant(player, Currency.CREDIT, 1000); }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer")
+    public static void inventoryCoalescesAndNewerChunkDoesNotReplayOldJournal(GameTestHelper helper) throws IOException {
+        Fixture f = fixture(helper);
+        try {
+            FryerPlayerData data = FryerPlayerData.get(helper.getLevel()); data.sync();
+            Path journal = helper.getLevel().getServer().getWorldPath(LevelResource.ROOT)
+                    .resolve("data/miningdim_fryer_players.dat");
+            byte[] before = Files.readAllBytes(journal);
+            for (int i = 0; i < 100; i++) f.fryer.inventory().setStackInSlot(0, new ItemStack(Items.COD, 1 + i % 64));
+            f.fryer.inventory().setStackInSlot(0, new ItemStack(Items.COD, 4));
+            helper.assertTrue(Arrays.equals(before, Files.readAllBytes(journal)),
+                    "One hundred ordinary slot changes do not synchronously rewrite the journal");
+            data.flushAsync();
+            f.fryer.inventory().setStackInSlot(0, new ItemStack(Items.COD, 6));
+            data.sync();
+            FryerPlayerData disk = FryerPlayerData.load(net.minecraft.nbt.NbtIo.readCompressed(journal.toFile()).getCompound("data"));
+            CompoundTag snapshot = disk.checkpoint(helper.getLevel(), f.pos);
+            helper.assertTrue(snapshot.getCompound("Inventory").getList("Items", 10).getCompound(0).getByte("Count") == 6,
+                    "The synchronous boundary waits for the immutable background snapshot and commits the latest inventory");
+            CompoundTag newer = f.fryer.saveWithoutMetadata();
+            long oldRevision = snapshot.getLong("FryerRevision");
+            // 磁盘边界：区块已含下一版本，旧 journal 的清理仍可能尚未提交，或区块仍在待写缓存中。
+            newer.putLong("FryerRevision", oldRevision + 1);
+            f.fryer.setRemoved();
+            FryerBlockEntity restored = new FryerBlockEntity(f.pos, f.fryer.getBlockState());
+            restored.load(newer); helper.getLevel().setBlockEntity(restored);
+            helper.assertTrue(restored.inventory().getStackInSlot(0).getCount() == 6
+                    && restored.saveWithoutMetadata().getLong("FryerRevision") == oldRevision + 1
+                    && data.checkpoint(helper.getLevel(), f.pos).getLong("FryerRevision") == oldRevision,
+                    "A newer chunk skips the stale journal without deleting its recovery evidence before a write receipt");
+            restored.inventory().setStackInSlot(0, new ItemStack(Items.COD, 7));
+            helper.assertTrue(restored.saveWithoutMetadata().getLong("FryerRevision") > oldRevision + 1,
+                    "The next checkpoint advances beyond the loaded chunk revision");
+            helper.succeed();
+        } finally { MockGameTestPlayers.logout(f.player); }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer")
+    public static void menusShowEachViewerCurrentDishRecords(GameTestHelper helper) {
+        Fixture f = fixture(helper);
+        ServerPlayer other = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
+        try {
+            other.setPos(f.pos.getX() + .5, f.pos.getY() + .5, f.pos.getZ() + 1.5);
+            FryerMenu first = (FryerMenu) f.player.containerMenu;
+            FryerMenu second = new FryerMenu(32, other.getInventory(), f.fryer);
+            other.containerMenu = second;
+            MiningCapabilities.get(f.player).orElseThrow().jobProgress(JobId.CHEF).setLevel(5);
+            MiningCapabilities.get(other).orElseThrow().jobProgress(JobId.CHEF).setLevel(9);
+            FryerPlayerData records = FryerPlayerData.get(helper.getLevel());
+            ResourceLocation cod = new ResourceLocation("minecraft", "cooked_cod");
+            ResourceLocation salmon = new ResourceLocation("minecraft", "cooked_salmon");
+            long now = System.currentTimeMillis();
+            for (int i = 0; i < 3; i++) records.record(f.player.getUUID(), cod, 1, 350, now);
+            records.record(other.getUUID(), cod, 1, 700, now);
+            records.record(other.getUUID(), salmon, 1, 450, now);
+            first.broadcastChanges(); second.broadcastChanges();
+            helper.assertTrue(first.value(14) == 5 && first.value(5) == 1 && first.value(12) == 3 && first.value(6) == 350,
+                    "First viewer sees their own chef level and cod record");
+            helper.assertTrue(second.value(14) == 9 && second.value(5) == 0 && second.value(12) == 1 && second.value(6) == 700,
+                    "Second viewer sees their own chef level and cod record");
+            f.fryer.inventory().setStackInSlot(0, new ItemStack(Items.SALMON));
+            first.broadcastChanges(); second.broadcastChanges();
+            helper.assertTrue(first.value(12) == 0 && first.value(6) == 0 && second.value(12) == 1 && second.value(6) == 450,
+                    "Changing the ingredients switches both viewers to their own salmon record");
+            f.fryer.inventory().setStackInSlot(0, ItemStack.EMPTY);
+            second.broadcastChanges();
+            helper.assertTrue(second.value(5) == 0 && second.value(12) == 0 && second.value(6) == 0 && second.value(14) == 9,
+                    "No matched recipe clears dish records without clearing viewer level");
+            f.fryer.inventory().setStackInSlot(0, new ItemStack(Items.COD));
+            fund(f.player);
+            helper.assertTrue(f.fryer.start(f.player, true), "Operator starts with the last cod reserved");
+            int hash = ZhangshaoKernel.hash(f.fryer.sessionState());
+            first.broadcastChanges(); second.broadcastChanges();
+            helper.assertTrue(second.value(12) == 1 && second.value(6) == 700 && first.value(12) == 3,
+                    "Active dish remains visible after its last ingredient is reserved");
+            helper.assertTrue(f.fryer.isOperator(f.player) && !f.fryer.isOperator(other)
+                    && ZhangshaoKernel.hash(f.fryer.sessionState()) == hash,
+                    "Viewing does not alter the operator or session state");
+            f.fryer.abort(f.player, f.fryer.roundId(), "Test finished");
+            helper.assertTrue(second.value(12) == 1 && second.value(6) == 700 && first.value(12) == 3,
+                    "The finished dish keeps each viewer's records visible until the output is taken");
+            helper.succeed();
+        } finally { MockGameTestPlayers.logout(other); MockGameTestPlayers.logout(f.player); }
+    }
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer")
     public static void removedFryerMenuSynchronizesAndClosesWithoutCrash(GameTestHelper helper) {
         Fixture f = fixture(helper);
         try {
@@ -125,24 +209,24 @@ public final class FryerGameTests {
                     "Insufficient balance keeps all ingredients and leaves no active transaction");
             helper.assertTrue(!f.fryer.busy(), "Rejected start does not lock the fryer");
             CompoundTag beforeIo = f.fryer.saveWithoutMetadata();
-            f.player.getInventory().setItem(0, new ItemStack(Items.COD));
+            fund(f.player); money = balance(f.player);
+            FryerPlayerData.get(helper.getLevel()).sync();
             Path blockedJournal = helper.getLevel().getServer().getWorldPath(LevelResource.ROOT)
                     .resolve("data/miningdim_fryer_players.dat.tmp");
             // 暂存路径不可写会真实触发 journal IOException，不替换生产持久化实现。
             Files.createDirectory(blockedJournal);
             boolean refusedWrite = false;
-            try { f.player.containerMenu.quickMoveStack(f.player, FryerMenu.SLOTS + 27); }
+            try { f.fryer.start(f.player, true); }
             catch (UncheckedIOException expected) { refusedWrite = true; }
             finally { Files.delete(blockedJournal); }
-            helper.assertTrue(refusedWrite && f.player.getInventory().getItem(0).getCount() == 1
-                    && f.fryer.inventory().getStackInSlot(0).getCount() == 2,
-                    "Failed ingredient checkpoint neither consumes player items nor inserts an uncommitted copy");
+            helper.assertTrue(refusedWrite && balance(f.player) == money && f.fryer.busy(),
+                    "Failed transaction persistence prevents charging and keeps the reservation locked for recovery");
             FryerPlayerData.get(helper.getLevel()).sync();
             f.fryer.setRemoved();
             FryerBlockEntity restored = new FryerBlockEntity(f.pos, f.fryer.getBlockState());
             restored.load(beforeIo); helper.getLevel().setBlockEntity(restored); restored.serverTick();
             helper.assertTrue(restored.inventory().getStackInSlot(0).getCount() == 2,
-                    "Retrying journal save cannot persist an inventory mutation that failed before delivery");
+                    "Reloading after the failed start restores the exact raw ingredients without charging");
             helper.succeed();
         } finally { MockGameTestPlayers.logout(f.player); }
     }

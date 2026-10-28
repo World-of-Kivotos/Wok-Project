@@ -181,3 +181,17 @@ Farmer's Delight 保持可选依赖，已按实际 JAR 的版本声明将 `mods.
 本轮最终产物为 `build/libs/miningdim-1.20.1-1.0.45-chef-pot-review-fix-all.jar`，SHA-256 为 `B38E7FC583093DD8C0ACCBAD4079834069501730AA13EE46F5D55F212BF01197`。未部署，实机验收状态不变。
 
 同一源码通过临时脚本排除 FD 运行时后，编译、模块检查和完整 GameTest 再次成功，原文为 `All 2140 required tests passed :)`，且运行前 classpath 断言确认 FD 不存在。日志为 `build/chef-pot-review-synced-without-fd-validation.log` 与 `build/chef-pot-review-synced-without-fd-server.log`。这些结果包含新前置层的七项新增用例，替代前述 2133 项作为本轮推送的最终验证结果。
+
+## 2026-10-28 PR102 第二轮跟进：厨锅物品序列化
+
+进一步复核发现 `writeMeal` 的物品导出复用了区块 `onSave`，使空锅取样与原生 loot 额外携带 `FryerRevision`，带菜厨锅也保留了原位置的检查点编号。补充回归后，两项真实路径分别明确失败：`An empty pot preview must remain a plain native item without checkpoint NBT` 和 `A carried meal must not retain the source block's checkpoint revision`。日志保留于 `build/chef-pot-review-r2-nbt-red.log` 与 `build/chef-pot-review-r2-nbt-red-server.log`。
+
+区块保存继续写入 revision、活动事务和预留食材；厨锅物品导出改用独立入口，只附加可携带的待盛出菜品，并排除检查点、拆除标记和活动事务。回归同时检查空锅取样及生存掉落与原生物品 NBT 一致、活动取样不结算、带菜厨锅不带原位置 revision，以及放回原位后菜品和待盛出份数不丢失。
+
+针对 `817166b3` 的自动复审已给出未发现需要修复的问题、可以在 #101 后合入的结论，并在 FD 1.3.2 下独立通过 2140 项必需测试；见 [复审记录](https://github.com/World-of-Kivotos/Wok-Project/pull/102#issuecomment-6478426714)。本节物品 NBT 修复来自额外本地复核。
+
+修复后使用同一锁定环境执行 `compileJava verifyModuleBoundaries runGameTestServer jarJar reobfJarJar -Pmod_version=1.0.46-chef-pot-review-fix` 全部成功，服务器原文为 `All 2140 required tests passed :)`。完整构建与服务器日志分别为 `build/chef-pot-review-r2-validation.log` 和 `build/chef-pot-review-r2-server.log`。
+
+产物为 `build/libs/miningdim-1.20.1-1.0.46-chef-pot-review-fix-all.jar`，SHA-256 为 `A2A668D3655ECD6B9E2ACC69FF575906418C7489D301988317C3673D5374AC9E`。已核对本体 modId、204 道菜及 95 道厨锅菜、内嵌 SQLite、FD 精确版本范围与三项生产注入映射。未部署，真人客户端与完整来源 MOD 逐菜实机验收状态不变。
+
+同一源码通过临时脚本仅排除 FD 运行时后，编译、模块检查及完整 GameTest 同样成功，原文为 `All 2140 required tests passed :)`，运行前确认 FD 不在测试 classpath。日志为 `build/chef-pot-review-r2-without-fd-validation.log` 与 `build/chef-pot-review-r2-without-fd-server.log`；生产 Gradle 配置未改动。

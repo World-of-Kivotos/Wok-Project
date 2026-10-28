@@ -126,20 +126,27 @@ public final class PotCraftService {
     public static void onSave(CookingPotBlockEntity pot, CompoundTag tag) {
         PotState s = state(pot);
         tag.putLong("FryerRevision", s.revision);
-        if (!s.pending.isEmpty()) {
-            ListTag pending = new ListTag();
-            for (ItemStack item : s.pending) pending.add(item.save(new CompoundTag()));
-            tag.put("WokPotPending", pending);
-            tag.put("Container", ((PotBridge) pot).wok$mealContainer().save(new CompoundTag()));
-            if (!tag.contains("Inventory", Tag.TAG_COMPOUND)) tag.put("Inventory", new ItemStackHandler(9).serializeNBT());
-        }
+        savePending(pot, s, tag);
         Round r = s.round;
-        if (r == null || s.previewing) return;
+        if (r == null) return;
         CompoundTag txn = new CompoundTag();
         txn.putUUID("Owner", r.owner); txn.putUUID("Operation", r.operation); txn.putBoolean("Charged", r.charged);
         ListTag held = new ListTag();
         for (ItemStack stack : r.held) held.add(stack.isEmpty() ? new CompoundTag() : stack.save(new CompoundTag()));
         txn.put("Held", held); tag.put("WokPotRound", txn);
+    }
+    /** Only portable servings belong in a pot item; position checkpoints and reservations stay in block saves. */
+    public static void onPack(CookingPotBlockEntity pot, CompoundTag tag) {
+        tag.remove("FryerRevision"); tag.remove("FryerRemoved"); tag.remove("WokPotRound");
+        savePending(pot, state(pot), tag);
+    }
+    private static void savePending(CookingPotBlockEntity pot, PotState s, CompoundTag tag) {
+        if (s.pending.isEmpty()) return;
+        ListTag pending = new ListTag();
+        for (ItemStack item : s.pending) pending.add(item.save(new CompoundTag()));
+        tag.put("WokPotPending", pending);
+        tag.put("Container", ((PotBridge) pot).wok$mealContainer().save(new CompoundTag()));
+        if (!tag.contains("Inventory", Tag.TAG_COMPOUND)) tag.put("Inventory", new ItemStackHandler(9).serializeNBT());
     }
     public static void ensureHydrated(CookingPotBlockEntity pot) {
         if (pot.isRemoved()) return;

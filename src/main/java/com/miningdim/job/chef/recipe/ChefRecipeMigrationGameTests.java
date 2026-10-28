@@ -151,4 +151,46 @@ public final class ChefRecipeMigrationGameTests {
                 "Fresh pie ingredients and slices used for a different dish remain productive recipes");
         helper.succeed();
     }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_migration")
+    public static void allDesignedDishesIncludeNativeCookingPot(GameTestHelper helper) {
+        Map<ResourceLocation, ChefDishCatalog.Dish> dishes = ChefDishCatalog.all();
+        helper.assertTrue(dishes.size() == 204, "All 204 designed dishes must have production metadata");
+        int[] expected = {95, 9, 37, 63};
+        for (int station = 0; station < expected.length; station++) {
+            int current = station;
+            long count = dishes.values().stream().filter(dish -> dish.station() == current).count();
+            helper.assertTrue(count == expected[station], "Production station " + station + " covers " + expected[station] + " dishes, got " + count);
+        }
+        ChefDishCatalog.Dish stew = ChefDishCatalog.find(id("minecraft:mushroom_stew"));
+        helper.assertTrue(stew != null && stew.station() == 0 && stew.star() == 1,
+                "The real mushroom-stew output is eligible for cooking-pot mastery");
+        if (net.minecraftforge.fml.ModList.get().isLoaded("farmersdelight")) {
+            var nativeStew = helper.getLevel().getRecipeManager().byKey(id("farmersdelight:cooking/mushroom_stew")).orElseThrow();
+            helper.assertTrue(nativeStew.getType().toString().equals("farmersdelight:cooking") && !(nativeStew instanceof FryerRecipe),
+                    "The native FD cooking recipe must remain available for home cooking and hoppers");
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_migration")
+    public static void cookingPotConditionsContainersAndCountsStayNative(GameTestHelper helper) {
+        ResourceLocation key = id("test:native_pot");
+        JsonObject source = json("""
+                {"type":"forge:conditional","recipes":[
+                  {"conditions":[{"type":"forge:true"}],"recipe":{"type":"farmersdelight:cooking",
+                    "ingredients":[{"item":"minecraft:red_mushroom"},{"item":"minecraft:brown_mushroom"}],
+                    "container":{"item":"minecraft:bowl"},"result":{"item":"minecraft:mushroom_stew","count":1},
+                    "cookingtime":180,"experience":0.35}}
+                ]}
+                """);
+        Map<ResourceLocation, ChefRecipeMigration.Dish> dishes = Map.of(id("minecraft:mushroom_stew"),
+                new ChefRecipeMigration.Dish(1, 0, 2, 0, 0, false));
+        Map<ResourceLocation, JsonElement> migrated = ChefRecipeMigration.migrate(Map.of(key, source), dishes);
+        helper.assertTrue(migrated.get(key).equals(source),
+                "Cooking-pot selection must preserve native ingredients, conditions, container, output, time and experience");
+        helper.assertTrue(ChefRecipeMigration.migrate(migrated, dishes).equals(migrated),
+                "Reloading native cooking-pot recipes must be idempotent");
+        helper.succeed();
+    }
 }

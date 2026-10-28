@@ -90,14 +90,16 @@ def post_comment(repo, number, body, mark):
     log("审查评论: 已发出")
 
 
-def label_definitions(policy):
+def label_definitions(policy, head_sha):
     defs = {}
     for group in ("type", "risk", "review"):
         for entry in policy[group]:
             defs[entry["name"]] = entry
     for key in ("static_only", "ingame"):
         defs[policy[key]["name"]] = policy[key]
-    registry = json.loads(git("show", "HEAD:docs/modules/module-registry.json"))
+    # 模块清单取被审提交的版本, 与 review 校验 area 标签用的同一份: PR 新登记的模块也能当 area 用。
+    # publish 的工作目录是默认分支, 不能读 HEAD。
+    registry = json.loads(git("show", f"{head_sha}:docs/modules/module-registry.json"))
     for module in registry["modules"]:
         name = "area:" + module["id"].removeprefix("wok-")
         defs[name] = {"name": name, "color": policy["area"]["color"],
@@ -108,11 +110,11 @@ def label_definitions(policy):
     return defs
 
 
-def sync_labels(repo, number, policy, wanted):
-    defs = label_definitions(policy)
+def sync_labels(repo, number, policy, wanted, head_sha):
+    defs = label_definitions(policy, head_sha)
     unknown = [name for name in wanted if name not in defs]
     if unknown:
-        raise RuntimeError(f"标签不在默认分支的 labels.json 与模块清单里: {unknown}")
+        raise RuntimeError(f"标签不在默认分支的 labels.json 与被审提交的模块清单里: {unknown}")
     for name in wanted:
         entry = defs[name]
         gh("label", "create", name, "--repo", repo, "--color", entry["color"],
@@ -190,7 +192,7 @@ def main():
         if route == "B":
             push_fixes(out, repo, head_sha, os.environ["HEAD_REF"])
         post_comment(repo, number, comment, marker(head_sha, digest, "comment"))
-        sync_labels(repo, number, policy, result["labels"])
+        sync_labels(repo, number, policy, result["labels"], head_sha)
         post_inline(repo, number, head_sha, result["inline_comments"], digest)
     except Exception as error:
         log(f"发布中断: {error!r}")

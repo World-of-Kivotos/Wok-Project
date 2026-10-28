@@ -53,6 +53,12 @@ public abstract class CookingPotMenuStatusMixin extends RecipeBookMenu<RecipeWra
         super.broadcastChanges();
     }
 
+    @Inject(method = "stillValid", at = @At("HEAD"), cancellable = true, remap = true)
+    private void wok$rejectRemovedMenu(Player player, CallbackInfoReturnable<Boolean> callback) {
+        if (blockEntity.isRemoved() || blockEntity.getLevel() == null
+                || blockEntity.getLevel().getBlockEntity(blockEntity.getBlockPos()) != blockEntity) callback.setReturnValue(false);
+    }
+
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
         if (player.level().isClientSide) { super.clicked(slotId, button, clickType, player); return; }

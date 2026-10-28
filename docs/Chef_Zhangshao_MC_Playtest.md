@@ -143,3 +143,41 @@ FD 1.3.2 原生厨锅菜单新增「掌勺」，保留原六输入、热源、�
 在同一 Minecraft 1.20.1 / Forge 47.3.0 / Farmer's Delight 1.3.2 / JDK 17.0.19 环境重新执行 `compileJava verifyModuleBoundaries runGameTestServer jarJar reobfJarJar -Pmod_version=1.0.42-chef-pot-review`，全部成功。服务器日志原文为 `All 2130 required tests passed :)`；完整构建日志保留于 `build/chef-pot-pr-validation.log`，`run/logs/latest.log` 快照保留于 `build/chef-pot-pr-server.log`。本轮继续使用上述 JDK 本地 socket 临时目录配置。
 
 新产物为 `build/libs/miningdim-1.20.1-1.0.42-chef-pot-review-all.jar`，SHA-256 为 `048BEBBB4E502CFC8D9559629ABB14241FD9F866010B046BB873C0FFBEA32869`。已核对本体 modId、内嵌 SQLite、204 道菜表、95 道厨锅菜、11 组重组关系及厨锅三类生产 refmap。实机验收和部署状态与上一节相同。
+
+## 2026-10-28 PR102 跟进：拆锅旧菜单隔离
+
+等待首轮自动审查时，本地复核发现拆锅后的旧菜单同步会重新创建已清除的库存检查点，可能使已掉落食材进入同位置的新锅。新增回归用例在修复前明确失败：`Synchronizing the removed menu must not recreate the dropped inventory checkpoint`；本轮只有该项失败，日志保留于 `build/chef-pot-review-regression-red.log` 和 `build/chef-pot-review-regression-red-server.log`。
+
+修复禁止已移除的厨锅恢复或写入检查点，并锁定旧库存处理器；菜单有效性同时检查方块实体身份，替换为同类新锅也会使旧菜单失效。回归用例覆盖拆锅、旧菜单同步和点击、同位置放新锅及玩家 tick 关闭旧菜单。
+
+使用同一锁定环境执行 `compileJava verifyModuleBoundaries runGameTestServer jarJar reobfJarJar -Pmod_version=1.0.43-chef-pot-review-fix`，全部成功，服务器日志原文为 `All 2131 required tests passed :)`。构建与服务器日志分别保留于 `build/chef-pot-review-fix-validation.log` 和 `build/chef-pot-review-fix-server.log`。新菜单有效性注入的生产 refmap 已核对为 `m_6875_`，JAR 内仍为 204 道菜与 95 道厨锅菜。
+
+产物为 `build/libs/miningdim-1.20.1-1.0.43-chef-pot-review-fix-all.jar`，SHA-256 为 `775A06BC0EB0CAA5E865F2CBB15864A94052B8727CB6A21DD11A4974892FF6FB`。本轮未部署，实机验收状态不变。
+
+## 2026-10-28 PR102 首轮审查问题修复
+
+首轮审查针对 `4a6bb879` 提出三项问题：生存玩家缺碗拆锅会额外掉落一个厨锅、Farmer's Delight 版本声明宽于已验证范围、客户端和集成服务端并发修改静态 `IdentityHashMap`。本地补充的真实 `player.gameMode.destroyBlock` 用例已复现多锅掉落，另一条原生取方块用例复现取样提前结算。两项失败和完整失败现场保留于 `build/chef-pot-review-break-red.log` 与 `build/chef-pot-review-break-red-server.log`；取样的独立失败记录为 `build/chef-pot-review-pick-red.log` 与对应 `-server.log`。
+
+拆锅恢复 Farmer's Delight 原生回收规则：`onRemove` 仅结算未结束的掌勺，厨锅物品及锅内菜品由原生 loot 和 `copy_meal` 一次性保存，不再自行额外生成厨锅或提前清空锅内菜品。待盛出的菜继续写入该厨锅物品；状态改由每个方块实体独立持有，移除共享静态 Map，也使原生在移除方块实体后执行 loot 时仍能读取待盛出的菜。回归覆盖无碗的免费家常制作、进行中掌勺的生存拆锅及含品质的待盛出菜保存，检查厨锅数量增量为 1。
+
+取方块使用单独的只读序列化范围，既不结算或退款，也不将操作 ID、预留食材等活动事务写入取样物品；实际拆锅仍按上述原生流程结算。旧菜单检查点隔离修复继续保留。
+
+Farmer's Delight 保持可选依赖，已按实际 JAR 的版本声明将 `mods.toml` 收紧为 `[1.20.1-1.3.2]`，保留厨锅注入失败时拒绝启动的检查；其他 FD 版本需另行验证后扩展声明。该选择不改变单份费用、品质或职业成长规则。
+
+带 FD 1.3.2 的最终代码执行 `compileJava verifyModuleBoundaries runGameTestServer jarJar reobfJarJar -Pmod_version=1.0.44-chef-pot-review-fix` 全部成功，日志原文为 `All 2133 required tests passed :)`。构建和服务器快照分别保留于 `build/chef-pot-review-final-validation.log` 与 `build/chef-pot-review-final-server.log`；厨锅八项用例均通过。已核对 `stillValid` 与 `getCloneItemStack` 的生产 refmap 分别指向 `m_6875_` 与 `m_7397_`，并核对菜表 204 道、厨锅 95 道、内嵌 SQLite 及 FD 精确依赖范围。
+
+最终产物为 `build/libs/miningdim-1.20.1-1.0.44-chef-pot-review-fix-all.jar`，SHA-256 为 `287BCCAE2FFC51117831823B692FF189FBC6F987FE3476DD45F067A0C2C5E5B2`。本轮未部署，真人客户端与完整来源 MOD 逐菜实机验收仍待执行。
+
+另外通过本地临时 Gradle 初始化脚本，仅从测试运行时排除 FD，保留其编译 API，重新执行编译、模块检查和完整 GameTest 成功，日志原文同为 `All 2133 required tests passed :)`。运行前断言测试 classpath 中没有 FD JAR，加载日志也确认 FD 缺失；这轮验证可选依赖与无 FD 类加载，厨锅具体业务由上述带 FD 套件覆盖。日志保留于 `build/chef-pot-review-without-fd-validation.log` 与 `build/chef-pot-review-without-fd-server.log`。临时脚本最初的任务注册时序错误保留于 `build/chef-pot-review-without-fd-init-r1.log`，修正后重跑通过；生产 Gradle 配置未改动。
+
+## 2026-10-28 同步前置复审后的厨锅验证
+
+推送前发现前置层已整理到 `bd5ca38d`，厨锅两条提交随之 rebase；旧提交保留在 `codex/chef-stack-06-pot-before-review-sync`。保留前置的五项复审修复、区块写入 mixin、默认厨师 L1 规则和完整验证记录，厨锅仅追加自己的增量。
+
+厨锅同步适配 journal v3 与真实区块落盘回执：保存 `FryerRevision`，按 revision 比较区块与 journal，普通库存按 tick 后台合并，关键交易继续同步保存。拆除写入高版本空墓碑，原生厨锅物品放回时在 `setPlacedBy` 保存新版本，保留物品携带的菜品并覆盖旧墓碑。生存拆锅回归已补上从真实掉落物到物品放回原位的路径；旧菜单用例同时检查它不能把空墓碑换回已掉落库存。
+
+同步后的代码在 FD 1.3.2 环境执行 `compileJava verifyModuleBoundaries runGameTestServer jarJar reobfJarJar -Pmod_version=1.0.45-chef-pot-review-fix` 全部成功，原文为 `All 2140 required tests passed :)`。完整日志为 `build/chef-pot-review-synced-validation.log`，服务器快照为 `build/chef-pot-review-synced-server.log`。新增放置注入的生产映射已核对为 `m_6402_`，两套厨师 mixin 配置均保留。
+
+本轮最终产物为 `build/libs/miningdim-1.20.1-1.0.45-chef-pot-review-fix-all.jar`，SHA-256 为 `B38E7FC583093DD8C0ACCBAD4079834069501730AA13EE46F5D55F212BF01197`。未部署，实机验收状态不变。
+
+同一源码通过临时脚本排除 FD 运行时后，编译、模块检查和完整 GameTest 再次成功，原文为 `All 2140 required tests passed :)`，且运行前 classpath 断言确认 FD 不存在。日志为 `build/chef-pot-review-synced-without-fd-validation.log` 与 `build/chef-pot-review-synced-without-fd-server.log`。这些结果包含新前置层的七项新增用例，替代前述 2133 项作为本轮推送的最终验证结果。

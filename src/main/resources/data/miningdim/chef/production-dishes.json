@@ -2,6 +2,15 @@
   "schemaVersion": 1,
   "dishes": [
     {
+      "id": "brewinandchewin:fiery_fondue_pot",
+      "station": 0,
+      "star": 7,
+      "motion": 2,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "delightful:baklava",
       "station": 2,
       "star": 7,
@@ -12,12 +21,30 @@
       "reassemblyItem": "delightful:baklava_slice"
     },
     {
+      "id": "brewinandchewin:scarlet_pierogi",
+      "station": 0,
+      "star": 6,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "dumplings_delight:dumpling_medley",
       "station": 3,
       "star": 6,
       "motion": 0,
       "flips": 0,
       "beats": 8,
+      "drink": false
+    },
+    {
+      "id": "brewinandchewin:horror_lasagna",
+      "station": 0,
+      "star": 6,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
       "drink": false
     },
     {
@@ -31,12 +58,30 @@
       "reassemblyItem": "brewinandchewin:quiche_slice"
     },
     {
+      "id": "culturaldelights:eggplant_parmesan_block",
+      "station": 0,
+      "star": 6,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "culturaldelights:exotic_roll_medley",
       "station": 3,
       "star": 6,
       "motion": 1,
       "flips": 0,
       "beats": 7,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:fungus_boiled_dumpling",
+      "station": 0,
+      "star": 6,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
       "drink": false
     },
     {
@@ -48,6 +93,15 @@
       "beats": 0,
       "drink": false,
       "reassemblyItem": "brewinandchewin:pizza_slice"
+    },
+    {
+      "id": "culturaldelights:spicy_curry",
+      "station": 0,
+      "star": 6,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
     },
     {
       "id": "culturaldelights:chicken_taco",
@@ -97,6 +151,15 @@
       "drink": false
     },
     {
+      "id": "delightful:cactus_chili",
+      "station": 0,
+      "star": 5,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "delightful:cheeseburger",
       "station": 3,
       "star": 5,
@@ -115,6 +178,24 @@
       "drink": false
     },
     {
+      "id": "casualness_delight:sweet_rice",
+      "station": 0,
+      "star": 5,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "crabbersdelight:clam_bake",
+      "station": 0,
+      "star": 5,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "delightful:salmonberry_pie",
       "station": 2,
       "star": 5,
@@ -123,6 +204,15 @@
       "beats": 0,
       "drink": false,
       "reassemblyItem": "delightful:salmonberry_pie_slice"
+    },
+    {
+      "id": "delightful:stuffed_cantaloupe_block",
+      "station": 0,
+      "star": 5,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
     },
     {
       "id": "farmersdelight:roast_chicken_block",
@@ -153,6 +243,15 @@
       "drink": false
     },
     {
+      "id": "farmersdelight:stuffed_pumpkin_block",
+      "station": 0,
+      "star": 5,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "moredelight:loaded_hamburger",
       "station": 3,
       "star": 5,
@@ -162,10 +261,28 @@
       "drink": false
     },
     {
+      "id": "casualness_delight:bobo_chicken",
+      "station": 0,
+      "star": 4,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "casualness_delight:plate_of_fried_dumpling",
       "station": 1,
       "star": 4,
       "motion": 4,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "casualness_delight:paper_wrapped_fish",
+      "station": 0,
+      "star": 4,
+      "motion": 1,
       "flips": 0,
       "beats": 0,
       "drink": false
@@ -189,6 +306,15 @@
       "drink": true
     },
     {
+      "id": "dumplings_delight:rabbit_meat_boiled_dumpling",
+      "station": 0,
+      "star": 4,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "farmersdelight:apple_pie",
       "station": 2,
       "star": 4,
@@ -205,6 +331,15 @@
       "motion": 2,
       "flips": 0,
       "beats": 3,
+      "drink": false
+    },
+    {
+      "id": "oceansdelight:guardian_soup",
+      "station": 0,
+      "star": 4,
+      "motion": 2,
+      "flips": 0,
+      "beats": 0,
       "drink": false
     },
     {
@@ -228,6 +363,15 @@
       "reassemblyItem": "farmersdelight:pumpkin_pie_slice"
     },
     {
+      "id": "brewinandchewin:cheesy_pasta",
+      "station": 0,
+      "star": 4,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "casualness_delight:spring_roll_medley",
       "station": 1,
       "star": 4,
@@ -242,6 +386,24 @@
       "star": 4,
       "motion": 0,
       "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "crabbersdelight:seafood_gumbo",
+      "station": 0,
+      "star": 4,
+      "motion": 2,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "crabbersdelight:crab_cakes",
+      "station": 0,
+      "star": 4,
+      "motion": 1,
+      "flips": 0,
       "beats": 0,
       "drink": false
     },
@@ -309,6 +471,51 @@
       "drink": false
     },
     {
+      "id": "dumplings_delight:pork_cabbage_wonton",
+      "station": 0,
+      "star": 4,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:eggplant_egg_boiled_dumpling",
+      "station": 0,
+      "star": 4,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:pork_mushroom_wonton",
+      "station": 0,
+      "star": 4,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:calamari_boiled_dumpling",
+      "station": 0,
+      "star": 4,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:pork_fennel_boiled_dumpling",
+      "station": 0,
+      "star": 4,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "farmersdelight:hamburger",
       "station": 3,
       "star": 4,
@@ -352,6 +559,69 @@
       "motion": 0,
       "flips": 0,
       "beats": 4,
+      "drink": false
+    },
+    {
+      "id": "brewinandchewin:vegetable_omelet",
+      "station": 0,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "casualness_delight:beef_noodles",
+      "station": 0,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "casualness_delight:phantom_puff",
+      "station": 0,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "crabbersdelight:coconut_pudding",
+      "station": 0,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "crabbersdelight:bisque",
+      "station": 0,
+      "star": 3,
+      "motion": 2,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "crabbersdelight:shrimp_fried_rice",
+      "station": 0,
+      "star": 3,
+      "motion": 1,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:poached_eggplants",
+      "station": 0,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
       "drink": false
     },
     {
@@ -409,12 +679,129 @@
       "drink": true
     },
     {
+      "id": "delightful:rock_candy",
+      "station": 0,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:pork_cabbage_boiled_dumpling",
+      "station": 0,
+      "star": 3,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:tomato_egg_boiled_dumpling",
+      "station": 0,
+      "star": 3,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:beef_tomato_boiled_dumpling",
+      "station": 0,
+      "star": 3,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:pufferfish_boiled_dumpling",
+      "station": 0,
+      "star": 3,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:pork_carrot_wonton",
+      "station": 0,
+      "star": 3,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:mushroom_boiled_dumpling",
+      "station": 0,
+      "star": 3,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:chicken_mushroom_boiled_dumpling",
+      "station": 0,
+      "star": 3,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:cod_boiled_dumpling",
+      "station": 0,
+      "star": 3,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:pork_kelp_boiled_dumpling",
+      "station": 0,
+      "star": 3,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:pork_potato_boiled_dumpling",
+      "station": 0,
+      "star": 3,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:fried_rice",
+      "station": 0,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "farmersdelight:mutton_wrap",
       "station": 3,
       "star": 3,
       "motion": 0,
       "flips": 0,
       "beats": 5,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:squid_ink_pasta",
+      "station": 0,
+      "star": 3,
+      "motion": 1,
+      "flips": 0,
+      "beats": 0,
       "drink": false
     },
     {
@@ -436,10 +823,28 @@
       "drink": false
     },
     {
+      "id": "brewinandchewin:creamy_onion_soup",
+      "station": 0,
+      "star": 3,
+      "motion": 2,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "casualness_delight:fried_dumpling",
       "station": 1,
       "star": 3,
       "motion": 4,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "casualness_delight:phantom_dumplings",
+      "station": 0,
+      "star": 3,
+      "motion": 3,
       "flips": 0,
       "beats": 0,
       "drink": false
@@ -452,6 +857,15 @@
       "flips": 0,
       "beats": 6,
       "drink": true
+    },
+    {
+      "id": "crabbersdelight:clam_chowder",
+      "station": 0,
+      "star": 3,
+      "motion": 2,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
     },
     {
       "id": "crabbersdelight:frog_leg_kebob",
@@ -499,11 +913,65 @@
       "drink": false
     },
     {
+      "id": "delightful:sinigang",
+      "station": 0,
+      "star": 3,
+      "motion": 2,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "delightful:matcha_latte",
+      "station": 0,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "delightful:cantaloupe_bread",
       "station": 2,
       "star": 3,
       "motion": 2,
       "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:garlic_chive_egg_boiled_dumpling",
+      "station": 0,
+      "star": 3,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:dandelion_leaf_boiled_dumpling",
+      "station": 0,
+      "star": 3,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:glow_berry_custard",
+      "station": 0,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:dumplings",
+      "station": 0,
+      "star": 3,
+      "motion": 3,
+      "flips": 0,
       "beats": 0,
       "drink": false
     },
@@ -517,11 +985,47 @@
       "drink": false
     },
     {
+      "id": "farmersdelight:noodle_soup",
+      "station": 0,
+      "star": 3,
+      "motion": 2,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "farmersdelight:steak_and_potatoes",
       "station": 2,
       "star": 3,
       "motion": 3,
       "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:pasta_with_meatballs",
+      "station": 0,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:vegetable_noodles",
+      "station": 0,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:pasta_with_mutton_chop",
+      "station": 0,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
       "beats": 0,
       "drink": false
     },
@@ -544,10 +1048,46 @@
       "drink": false
     },
     {
+      "id": "moredelight:creamy_pasta_with_ham",
+      "station": 0,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "moredelight:creamy_pasta_with_chicken_cuts",
+      "station": 0,
+      "star": 3,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "minecraft:rabbit_stew",
+      "station": 0,
+      "star": 3,
+      "motion": 2,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "casualness_delight:spring_roll",
       "station": 1,
       "star": 2,
       "motion": 4,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "casualness_delight:spicy_strips",
+      "station": 0,
+      "star": 2,
+      "motion": 0,
       "flips": 0,
       "beats": 0,
       "drink": false
@@ -568,6 +1108,15 @@
       "motion": 0,
       "flips": 0,
       "beats": 4,
+      "drink": false
+    },
+    {
+      "id": "crabbersdelight:stuffed_nautilus_shell",
+      "station": 0,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
       "drink": false
     },
     {
@@ -616,6 +1165,15 @@
       "drink": false
     },
     {
+      "id": "delightful:nut_butter_bottle",
+      "station": 0,
+      "star": 2,
+      "motion": 4,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "delightful:cantaloupe_popsicle",
       "station": 3,
       "star": 2,
@@ -625,12 +1183,57 @@
       "drink": true
     },
     {
+      "id": "delightful:cactus_soup",
+      "station": 0,
+      "star": 2,
+      "motion": 2,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "delightful:lavender_tea",
+      "station": 0,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:salmon_boiled_dumpling",
+      "station": 0,
+      "star": 2,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "dumplings_delight:mutton_boiled_dumpling",
+      "station": 0,
+      "star": 2,
+      "motion": 3,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "farmersdelight:kelp_roll",
       "station": 3,
       "star": 2,
       "motion": 1,
       "flips": 0,
       "beats": 4,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:baked_cod_stew",
+      "station": 0,
+      "star": 2,
+      "motion": 2,
+      "flips": 0,
+      "beats": 0,
       "drink": false
     },
     {
@@ -643,12 +1246,48 @@
       "drink": false
     },
     {
+      "id": "farmersdelight:mushroom_rice",
+      "station": 0,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:pumpkin_soup",
+      "station": 0,
+      "star": 2,
+      "motion": 2,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "farmersdelight:bacon_sandwich",
       "station": 3,
       "star": 2,
       "motion": 0,
       "flips": 0,
       "beats": 5,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:hot_cocoa",
+      "station": 0,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:vegetable_soup",
+      "station": 0,
+      "star": 2,
+      "motion": 2,
+      "flips": 0,
+      "beats": 0,
       "drink": false
     },
     {
@@ -666,6 +1305,24 @@
       "star": 2,
       "motion": 0,
       "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:fish_stew",
+      "station": 0,
+      "star": 2,
+      "motion": 2,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "moredelight:diced_potatoes_with_egg_and_tomato",
+      "station": 0,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
       "beats": 0,
       "drink": false
     },
@@ -733,6 +1390,15 @@
       "drink": false
     },
     {
+      "id": "brewinandchewin:glow_berry_marmalade",
+      "station": 0,
+      "star": 2,
+      "motion": 4,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "casualness_delight:roast_gluten",
       "station": 2,
       "star": 2,
@@ -766,6 +1432,24 @@
       "motion": 0,
       "flips": 0,
       "beats": 3,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:elote",
+      "station": 0,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "culturaldelights:creamed_corn",
+      "station": 0,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
       "drink": false
     },
     {
@@ -814,11 +1498,38 @@
       "drink": false
     },
     {
+      "id": "farmersdelight:chicken_soup",
+      "station": 0,
+      "star": 2,
+      "motion": 2,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:beef_stew",
+      "station": 0,
+      "star": 2,
+      "motion": 2,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "farmersdelight:barbecue_stick",
       "station": 2,
       "star": 2,
       "motion": 0,
       "flips": 3,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:ratatouille",
+      "station": 0,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
       "beats": 0,
       "drink": false
     },
@@ -850,6 +1561,24 @@
       "drink": false
     },
     {
+      "id": "moredelight:diced_potatoes_with_chicken_cuts",
+      "station": 0,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "moredelight:cooked_rice_with_chicken_cuts",
+      "station": 0,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "moredelight:toast_with_honey",
       "station": 2,
       "star": 2,
@@ -865,6 +1594,24 @@
       "motion": 0,
       "flips": 0,
       "beats": 4,
+      "drink": false
+    },
+    {
+      "id": "moredelight:diced_potatoes_with_beef",
+      "station": 0,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "moredelight:cooked_rice_with_beef",
+      "station": 0,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
       "drink": false
     },
     {
@@ -886,11 +1633,29 @@
       "drink": false
     },
     {
+      "id": "moredelight:potato_salad",
+      "station": 0,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "moredelight:toast_with_glow_berries",
       "station": 2,
       "star": 2,
       "motion": 0,
       "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "moredelight:diced_potatoes_with_porkchop",
+      "station": 0,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
       "beats": 0,
       "drink": false
     },
@@ -904,10 +1669,28 @@
       "drink": false
     },
     {
+      "id": "moredelight:cooked_rice_with_porkchop",
+      "station": 0,
+      "star": 2,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "oceansdelight:honey_fried_kelp",
       "station": 1,
       "star": 2,
       "motion": 4,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "oceansdelight:braised_sea_pickle",
+      "station": 0,
+      "star": 2,
+      "motion": 2,
       "flips": 0,
       "beats": 0,
       "drink": false
@@ -922,6 +1705,24 @@
       "drink": false
     },
     {
+      "id": "brewinandchewin:apple_jelly",
+      "station": 0,
+      "star": 1,
+      "motion": 4,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "brewinandchewin:sweet_berry_jam",
+      "station": 0,
+      "star": 1,
+      "motion": 4,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "crabbersdelight:kelp_shake",
       "station": 3,
       "star": 1,
@@ -929,6 +1730,15 @@
       "flips": 0,
       "beats": 6,
       "drink": true
+    },
+    {
+      "id": "farmersdelight:bone_broth",
+      "station": 0,
+      "star": 1,
+      "motion": 2,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
     },
     {
       "id": "farmersdelight:egg_sandwich",
@@ -940,12 +1750,30 @@
       "drink": false
     },
     {
+      "id": "farmersdelight:cabbage_rolls",
+      "station": 0,
+      "star": 1,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "farmersdelight:bacon_and_eggs",
       "station": 3,
       "star": 1,
       "motion": 0,
       "flips": 0,
       "beats": 3,
+      "drink": false
+    },
+    {
+      "id": "farmersdelight:apple_cider",
+      "station": 0,
+      "star": 1,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
       "drink": false
     },
     {
@@ -976,6 +1804,15 @@
       "drink": false
     },
     {
+      "id": "moredelight:carrot_soup",
+      "station": 0,
+      "star": 1,
+      "motion": 2,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
       "id": "moredelight:toast_with_egg",
       "station": 2,
       "star": 1,
@@ -990,6 +1827,24 @@
       "star": 1,
       "motion": 2,
       "flips": 1,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "moredelight:mashed_potatoes",
+      "station": 0,
+      "star": 1,
+      "motion": 0,
+      "flips": 0,
+      "beats": 0,
+      "drink": false
+    },
+    {
+      "id": "minecraft:mushroom_stew",
+      "station": 0,
+      "star": 1,
+      "motion": 2,
+      "flips": 0,
       "beats": 0,
       "drink": false
     }

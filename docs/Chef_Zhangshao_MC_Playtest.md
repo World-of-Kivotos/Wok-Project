@@ -1,14 +1,14 @@
 # WOK 本体掌勺小游戏 MC 测试
 
-产品线为 WOK 本体，modId `miningdim`，Minecraft 1.20.1 / Forge 47.x。源码在 `com.miningdim.job.chef.zhangshao` 和 `com.miningdim.job.chef.fryer`。
+产品线为 WOK 本体，modId `miningdim`，Minecraft 1.20.1 / Forge 47.x。源码在 `com.miningdim.job.chef.zhangshao`、`com.miningdim.job.chef.fryer` 和 `com.miningdim.job.chef.pot`。
 
-当前提交分支为 `codex/chef-stack-05-production`，直接基于 #99 的 `codex/chef-stack-04-fryer`。九台外观均开放生存合成与单份正式生产，共用九原料槽、容器、调料和出品槽。炸锅压火、烤炉翻面、备餐台摆料和冷饮节拍均由服务端选择参数并重演输入。家常免费且无经验，掌勺默认每份 5 信用点。下文 1.0.35 至 1.0.39 的包、六槽菜单和六道菜谱为历史记录，本轮新源码尚未部署到本体测试目录。
+当前提交分支为 `codex/chef-stack-06-pot`，直接基于 #101 的 `codex/chef-stack-05-production`。九台外观均开放生存合成与单份正式生产，共用九原料槽、容器、调料和出品槽；FD 厨锅沿用原六输入和盛菜槽。厨锅攒火候、炸锅压火、烤炉翻面、备餐台摆料和冷饮节拍均由服务端选择参数并重演输入。家常免费且无经验，掌勺默认每份 5 信用点。下文 1.0.35 至 1.0.40 的包和验证为历史记录，本轮新源码尚未部署到本体测试目录。
 
 所有玩家默认厨师 L1，普通菜无需额外入职或激活即可掌勺；战斗菜既有等级规则保留。
 
-练习模式从各正式菜单的「练习」按钮进入，使用网页原型 simVersion 2 的同一 Java 内核与参数；练习不扣料、不扣信用点、不产出菜品、经验或手熟。41 种新固定职业效果、批量与快手、FD 厨锅正式掌勺接管仍在后续范围。
+练习模式从各正式菜单的「练习」按钮进入，使用网页原型 simVersion 2 的同一 Java 内核与参数；练习不扣料、不扣信用点、不产出菜品、经验或手熟。FD 厨锅单份正式掌勺已接入，验证见本文末节；41 种新固定职业效果、批量与快手仍在后续范围。
 
-本轮迁移表覆盖 109 个菜品 ID（炸锅 9、烤炉 37、备餐台及冷饮 63），在 RecipeManager 对最终选中的 JSON 反序列化前按同 ID 改为对应台子类型。保留来源条件、实际食材、容器、产量和时间，覆盖同一道菜的工作台、熔炉、烟熏炉、营火、厨锅和旧炸锅入口。旧炸锅设备合成及四条 WOK 临时重复菜谱按精确 ID 移除，两条原版鱼基础菜保留。无来源 MOD 时不伪造菜谱。版本 2 的炸锅库存和未完成事务按槽位迁移为版本 3。
+本轮菜表覆盖 204 个菜品 ID，其中 95 道保留 FD 厨锅原配方并接显式掌勺，另外 109 道（炸锅 9、烤炉 37、备餐台及冷饮 63）在 RecipeManager 对最终选中的 JSON 反序列化前按同 ID 改为对应台子类型。保留来源条件、实际食材、容器、产量和时间。旧炸锅设备合成及四条 WOK 临时重复菜谱按精确 ID 移除，两条原版鱼基础菜在表外保留。无来源 MOD 时不伪造菜谱。版本 2 的三台库存和未完成事务按槽位迁移为版本 3，厨锅保留 FD 原生 NBT 并附加掌勺事务。
 
 ## 进入
 
@@ -95,7 +95,7 @@
 
 三类工作台均接入单份家常制作与掌勺生产。家常制作免费、不授予经验；掌勺默认每份 5 信用点，服务端在开局暂存食材和容器，并通过输入回放计算品质。掌勺时关闭菜单或糊锅结算家常菜，不退原料和已扣费用。历史版本部署不代表本轮源码已部署。
 
-下一阶段包括 41 种新固定职业效果、批量与快手、FD 厨锅正式掌勺接管及旧调味系统后续迁移。旧调味存量兼容仍须保留。正式局不暂停世界，也不提供免费 R 重开；练习帮助的暂停只影响练习局。生产与效果数据仍以对应设计规格为准，JAR/TSV 配料差异只记录在审计中，不改动真源表。最终测试包只部署到 WOK 本体测试目录。
+下一阶段包括 41 种新固定职业效果、批量与快手及旧调味系统后续迁移。旧调味存量兼容仍须保留。正式局不暂停世界，也不提供免费 R 重开；练习帮助的暂停只影响练习局。生产与效果数据仍以对应设计规格为准，JAR/TSV 配料差异只记录在审计中，不改动真源表。最终测试包只部署到 WOK 本体测试目录。
 
 ## 2026-10-28 三类正式生产验证
 
@@ -124,3 +124,22 @@
 #99 独立编译和模块检查通过；两次独立全量各有一项 Windows journal 原子替换失败，分别在方块朝向和重复撂勺用例，日志 `D:\Wok\tmp\chef-fryer-v2-validation.log`、`chef-fryer-v2b-validation.log` 保留。最终 #101 无 FD 的额外一轮同样在外观预览用例发生一次原子替换失败，日志 `D:\Wok\tmp\chef-production-v2-no-fd-validation.log` 保留；这些轮次不能标为全绿，且完整链通过不冒充 #99 独立通过。未再通过重复全量碰运气，没有添加生产重试或吞错；需要更新后独立 CI 与维护者质量门确认。
 
 无 FD 验证结束后开发依赖已恢复，SHA-256 为 `47aed94bb9192c4978fe199f9d3ca5895aeccfbe5b5a0869fdf3aa011c2641f7`。独立静态复核和集成复核未发现指定范围内残留的 Critical/Major。客户端布局、手感、全来源 MOD 整合包及硬崩服实机演练尚未验收。
+## 2026-10-28 厨锅单份掌勺验证
+
+FD 1.3.2 原生厨锅菜单新增「掌勺」，保留原六输入、热源、盛碗和自动家常路径。剩余 95 道厨锅菜接入同一元数据目录，设计表共 204 个唯一 ID 全覆盖：厨锅 95、炸锅 9、烤炉 37、备餐台及冷饮 63。清单外另有两道基础鱼菜；来源 MOD 和有效配方仍须存在。
+
+使用 Minecraft 1.20.1 / Forge 47.3.0 / Farmer's Delight 1.3.2 / JDK 17.0.19 执行 `compileJava verifyModuleBoundaries runGameTestServer jarJar reobfJarJar -Pmod_version=1.0.41-chef-pot`，全部成功。最终服务器日志原文为 `All 2128 required tests passed :)`，保留于 `build/chef-pot-final-server.log`；构建完整日志为 `build/chef-pot-final-validation.log`。新增五条厨锅 GameTest 覆盖真实实时回放、费用和经验、漏斗及第二玩家隔离、关闭菜单及拆锅、原生家常恢复、重载退款幂等、余桶、盛宴和双份饺子；另两条菜表用例核对 204 道覆盖与 FD 原配方保留。
+
+生成产物为 `build/libs/miningdim-1.20.1-1.0.41-chef-pot-all.jar`，已核对 `modId=miningdim`、SQLite 内嵌驱动、204 道菜表、FD mixin 配置和生产 SRG refmap。SHA-256：`D207286F08BB003B2259E863256D1D427817504A9B2466CE26381B0FCBDD1E4F`。菜表生成器重复运行得到相同哈希。
+
+验证环境的默认 Windows 短 TEMP 路径导致 JDK AF_UNIX 连接失败，按该 JDK 附带源码支持的配置，将本次进程 `JAVA_TOOL_OPTIONS` 设置为 `-Djdk.net.unixdomain.tmpdir=F:\CODEX\worktrees\chef-pot-production\Wok\build\sockets` 后运行；没有修改生产网络或错误处理策略。启动时发现的 Mixin 数组初始化不兼容、重载时合法空预留槽编码误判均已修复，原失败日志保留于 `build/chef-pot-gametest-r1-server.log` 和 `build/chef-pot-gametest-r2-server.log`。
+
+本层掌勺通道协议升级为 3，客户端与服务端须一起更新。原生厨锅没有新增调料槽；41 种固定职业效果、批量与快手仍属后续范围。未执行真人客户端视觉验收和装齐全部来源 MOD 的逐菜实机制作，也未替换当前综合测试包。Context7 当前不可用，第三方接口以锁定 FD、Forge、Mixin 的实际 JAR、映射及 JDK 源码核对。
+
+## 2026-10-28 厨锅 PR 审查前同步验证
+
+厨锅层已同步前置 PR #101 的 `fa4a8173`，保留 11 组同款切片重组元数据和两项新增回归用例。204 道元数据断言始终执行，原生厨锅资源断言仅在 Farmer's Delight 存在时执行，保持可选依赖环境兼容。
+
+在同一 Minecraft 1.20.1 / Forge 47.3.0 / Farmer's Delight 1.3.2 / JDK 17.0.19 环境重新执行 `compileJava verifyModuleBoundaries runGameTestServer jarJar reobfJarJar -Pmod_version=1.0.42-chef-pot-review`，全部成功。服务器日志原文为 `All 2130 required tests passed :)`；完整构建日志保留于 `build/chef-pot-pr-validation.log`，`run/logs/latest.log` 快照保留于 `build/chef-pot-pr-server.log`。本轮继续使用上述 JDK 本地 socket 临时目录配置。
+
+新产物为 `build/libs/miningdim-1.20.1-1.0.42-chef-pot-review-all.jar`，SHA-256 为 `048BEBBB4E502CFC8D9559629ABB14241FD9F866010B046BB873C0FFBEA32869`。已核对本体 modId、内嵌 SQLite、204 道菜表、95 道厨锅菜、11 组重组关系及厨锅三类生产 refmap。实机验收和部署状态与上一节相同。

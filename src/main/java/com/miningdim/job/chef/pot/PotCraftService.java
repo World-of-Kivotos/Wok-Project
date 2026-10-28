@@ -4,8 +4,6 @@ import com.miningdim.economy.EconomyOperationDomain;
 import com.miningdim.core.auth.PlayerLoginGate;
 import com.miningdim.economy.EconomyOperationStatus;
 import com.miningdim.economy.EconomyServices;
-import com.miningdim.job.JobId;
-import com.miningdim.job.JobServices;
 import com.miningdim.job.chef.*;
 import com.miningdim.job.chef.fryer.FryerNetwork;
 import com.miningdim.job.chef.fryer.FryerPlayerData;
@@ -29,25 +27,23 @@ import vectorwing.farmersdelight.common.block.entity.CookingPotBlockEntity;
 import vectorwing.farmersdelight.common.block.entity.container.CookingPotMenu;
 import vectorwing.farmersdelight.common.crafting.CookingPotRecipe;
 import vectorwing.farmersdelight.common.registry.ModRecipeTypes;
-import vectorwing.farmersdelight.common.registry.ModItems;
 
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.IdentityHashMap;
-import java.util.Map;
 import java.util.UUID;
 
 /** Single-serving production on FD's original pot and recipe inventory. */
 public final class PotCraftService {
     private static final SecureRandom RANDOM = new SecureRandom();
-    private static final Map<CookingPotBlockEntity, PotState> STATES = new IdentityHashMap<>();
-    private static final class PotState {
+    /** Owned by one block entity, including while native loot serializes a removed pot. */
+    public static final class PotState {
         boolean hydrated, loading, internal, failed;
         int batch;
         boolean dirty;
-        boolean packaged;
+        boolean previewing;
+        long revision;
         final List<ItemStack> pending = new ArrayList<>();
         Round round;
     }
@@ -66,12 +62,13 @@ public final class PotCraftService {
     public record Status(boolean busy, int progress, long cost) {}
 
     private PotCraftService() {}
-    private static PotState state(CookingPotBlockEntity pot) { return STATES.computeIfAbsent(pot, ignored -> new PotState()); }
+    private static PotState state(CookingPotBlockEntity pot) { return ((PotBridge) pot).wok$productionState(); }
     private static ItemStackHandler raw(CookingPotBlockEntity pot) { return ((PotBridge) pot).wok$rawInventory(); }
-    public static boolean internal(CookingPotBlockEntity pot) { return state(pot).internal; }
-    public static boolean locked(CookingPotBlockEntity pot) { return state(pot).round != null || state(pot).failed; }
+    public static boolean internal(CookingPotBlockEntity pot) { return !pot.isRemoved() && state(pot).internal; }
+    public static boolean locked(CookingPotBlockEntity pot) { return pot.isRemoved() || state(pot).round != null || state(pot).failed; }
     public static boolean canServe(CookingPotBlockEntity pot) { return !locked(pot); }
     public static Status status(CookingPotBlockEntity pot) {
+        if (pot.isRemoved()) return new Status(true, 0, ChefConfig.seasoningCreditCost());
         ensureHydrated(pot);
         PotState s = state(pot);
         Round r = s.round;
@@ -88,6 +85,9 @@ public final class PotCraftService {
         PotState s = state(pot);
         s.loading = true;
         try {
+            if (tag.contains("FryerRevision") && (!tag.contains("FryerRevision", Tag.TAG_LONG) || tag.getLong("FryerRevision") < 0))
+                throw new IllegalArgumentException("Invalid chef pot checkpoint revision");
+            s.revision = tag.getLong("FryerRevision");
             s.round = null;
             if (tag.contains("WokPotRound", Tag.TAG_COMPOUND)) {
                 CompoundTag txn = tag.getCompound("WokPotRound");
@@ -125,6 +125,7 @@ public final class PotCraftService {
     }
     public static void onSave(CookingPotBlockEntity pot, CompoundTag tag) {
         PotState s = state(pot);
+        tag.putLong("FryerRevision", s.revision);
         if (!s.pending.isEmpty()) {
             ListTag pending = new ListTag();
             for (ItemStack item : s.pending) pending.add(item.save(new CompoundTag()));
@@ -133,7 +134,7 @@ public final class PotCraftService {
             if (!tag.contains("Inventory", Tag.TAG_COMPOUND)) tag.put("Inventory", new ItemStackHandler(9).serializeNBT());
         }
         Round r = s.round;
-        if (r == null) return;
+        if (r == null || s.previewing) return;
         CompoundTag txn = new CompoundTag();
         txn.putUUID("Owner", r.owner); txn.putUUID("Operation", r.operation); txn.putBoolean("Charged", r.charged);
         ListTag held = new ListTag();
@@ -141,12 +142,13 @@ public final class PotCraftService {
         txn.put("Held", held); tag.put("WokPotRound", txn);
     }
     public static void ensureHydrated(CookingPotBlockEntity pot) {
+        if (pot.isRemoved()) return;
         PotState s = state(pot);
         if (s.hydrated || s.loading || !(pot.getLevel() instanceof ServerLevel level)) return;
         s.loading = s.internal = true;
         try {
             CompoundTag snapshot = FryerPlayerData.get(level).checkpoint(level, pot.getBlockPos());
-            if (snapshot != null) { pot.load(snapshot); s.loading = true; }
+            if (snapshot != null && snapshot.getLong("FryerRevision") >= s.revision) { pot.load(snapshot); s.loading = true; }
             s.hydrated = true;
             if (s.round != null) recover(pot, s.round);
             else checkpoint(pot);
@@ -156,24 +158,41 @@ public final class PotCraftService {
     public static void endBatch(CookingPotBlockEntity pot) {
         PotState s = state(pot);
         if (s.batch == 0) return;
-        if (--s.batch == 0 && s.dirty) { s.dirty = false; checkpoint(pot); }
+        if (--s.batch == 0 && s.dirty) { s.dirty = false; checkpoint(pot, false); }
     }
     public static void changed(CookingPotBlockEntity pot) {
+        if (pot.isRemoved()) return;
         PotState s = state(pot);
         if (s.loading || !(pot.getLevel() instanceof ServerLevel)) return;
         ensureHydrated(pot);
         if (s.internal) return;
-        if (s.batch > 0) s.dirty = true; else checkpoint(pot);
+        if (s.batch > 0) s.dirty = true; else checkpoint(pot, false);
     }
-    private static void checkpoint(CookingPotBlockEntity pot) {
+    private static void checkpoint(CookingPotBlockEntity pot) { checkpoint(pot, true); }
+    private static void checkpoint(CookingPotBlockEntity pot, boolean sync) {
+        if (pot.isRemoved()) return;
         PotState s = state(pot);
         if (!(pot.getLevel() instanceof ServerLevel level) || s.failed) return;
         boolean done = false;
         try {
             FryerPlayerData data = FryerPlayerData.get(level);
-            data.checkpoint(level, pot.getBlockPos(), pot.saveWithoutMetadata());
-            data.sync(); done = true;
+            s.revision = data.checkpoint(level, pot.getBlockPos(), pot.saveWithoutMetadata());
+            if (sync) data.sync();
+            pot.setChanged(); done = true;
         } finally { if (!done) s.failed = true; }
+    }
+    public static void placed(CookingPotBlockEntity pot) {
+        if (!(pot.getLevel() instanceof ServerLevel)) return;
+        state(pot).hydrated = true;
+        checkpoint(pot);
+    }
+    public static void tombstone(ServerLevel level, BlockPos pos) {
+        CompoundTag empty = new CompoundTag();
+        empty.put("Inventory", new ItemStackHandler(9).serializeNBT());
+        empty.put("Container", ItemStack.EMPTY.save(new CompoundTag()));
+        empty.putBoolean("FryerRemoved", true);
+        FryerPlayerData data = FryerPlayerData.get(level);
+        data.checkpoint(level, pos, empty); data.sync();
     }
     private static void reject(ServerPlayer player, String reason) { player.displayClientMessage(Component.literal(reason), true); }
     private static boolean controls(ServerPlayer player, CookingPotBlockEntity pot) {
@@ -196,7 +215,6 @@ public final class PotCraftService {
         if (s.failed) { reject(player, "厨锅存档失败，事务已锁定"); return false; }
         if (s.round != null || !s.pending.isEmpty()) { reject(player, "这口锅还有待盛出的菜"); return false; }
         if (!pot.isHeated()) { reject(player, "厨锅尚未加热"); return false; }
-        if (JobServices.jobService().progress(player, JobId.CHEF) == null) { reject(player, "非厨师只能制作家常菜"); return false; }
         ItemStackHandler inv = raw(pot);
         if (!inv.getStackInSlot(6).isEmpty() || !inv.getStackInSlot(8).isEmpty()) { reject(player, "请先取走锅中的菜"); return false; }
         CookingPotRecipe recipe = recipe(pot);
@@ -303,46 +321,27 @@ public final class PotCraftService {
         return true;
     }
     public static void beforeRemoval(CookingPotBlockEntity pot) {
+        if (!(pot.getLevel() instanceof ServerLevel) || pot.isRemoved()) return;
         ensureHydrated(pot);
         if (state(pot).failed) throw new IllegalStateException("Chef pot journal failed at " + pot.getBlockPos());
         Round r = state(pot).round;
         if (r != null) { ZhangshaoKernel.abandon(r.game); settle(pot, null, "厨锅拆除"); }
     }
     public static void beforePackaging(CookingPotBlockEntity pot) {
-        beforeRemoval(pot);
-        state(pot).packaged = true;
+        if (pot.getLevel() instanceof ServerLevel && !state(pot).previewing) beforeRemoval(pot);
     }
-    public static void dropMealOnBreak(CookingPotBlockEntity pot) {
-        beforeRemoval(pot);
+    public static CompoundTag previewMeal(CookingPotBlockEntity pot, CompoundTag tag) {
+        if (pot.isRemoved()) return tag;
+        ensureHydrated(pot);
         PotState s = state(pot);
-        if (s.packaged) return;
-        s.internal = true;
-        try {
-            ItemStackHandler inv = raw(pot);
-            ItemStack meal = inv.getStackInSlot(6).copy();
-            int servings = meal.getCount();
-            for (ItemStack item : s.pending) servings += item.getCount();
-            ItemStack required = ((PotBridge) pot).wok$mealContainer();
-            ItemStack available = inv.getStackInSlot(7);
-            if (servings > 0 && !required.isEmpty()
-                    && (!ItemStack.isSameItem(required, available) || available.getCount() < servings)) {
-                ItemStack packed = new ItemStack(ModItems.COOKING_POT.get());
-                CompoundTag tag = pot.writeMeal(new CompoundTag());
-                packed.addTagElement("BlockEntityTag", tag);
-                net.minecraft.world.level.block.Block.popResource(pot.getLevel(), pot.getBlockPos(), packed);
-            } else {
-                if (!required.isEmpty()) inv.extractItem(7, servings, false);
-                if (!meal.isEmpty()) net.minecraft.world.level.block.Block.popResource(pot.getLevel(), pot.getBlockPos(), meal);
-                for (ItemStack item : s.pending) net.minecraft.world.level.block.Block.popResource(pot.getLevel(), pot.getBlockPos(), item);
-            }
-            inv.setStackInSlot(6, ItemStack.EMPTY);
-            s.pending.clear();
-            checkpoint(pot);
-        } finally { s.internal = false; }
+        boolean previous = s.previewing;
+        s.previewing = true;
+        try { return pot.writeMeal(tag); }
+        finally { s.previewing = previous; }
     }
     public static void removed(CookingPotBlockEntity pot) {
-        PotState s = STATES.remove(pot);
-        if (s != null && s.round != null && pot.getLevel() instanceof ServerLevel level) {
+        PotState s = state(pot);
+        if (s.round != null && pot.getLevel() instanceof ServerLevel level) {
             FryerPlayerData.get(level).release(s.round.owner, pot, System.currentTimeMillis());
         }
     }

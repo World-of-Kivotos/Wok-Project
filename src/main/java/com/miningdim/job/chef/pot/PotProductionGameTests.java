@@ -8,6 +8,8 @@ import com.miningdim.job.JobServices;
 import com.miningdim.entry.MiningCapabilities;
 import com.miningdim.job.chef.ChefConfig;
 import com.miningdim.job.chef.ChefQualityNbt;
+import com.miningdim.job.chef.ChefQuality;
+import com.miningdim.job.chef.fryer.FryerPlayerData;
 import com.miningdim.job.chef.zhangshao.ZhangshaoKernel;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
@@ -15,14 +17,20 @@ import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 import net.minecraftforge.fml.ModList;
@@ -67,6 +75,24 @@ public final class PotProductionGameTests {
     public static void remainderAndFeastYieldArePreserved(GameTestHelper helper) {
         if (!ModList.get().isLoaded("farmersdelight")) { helper.succeed(); return; }
         WithFarmersDelight.remainderAndFeastYieldArePreserved(helper);
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_pot")
+    public static void removedMenuCannotRestoreDroppedInventory(GameTestHelper helper) {
+        if (!ModList.get().isLoaded("farmersdelight")) { helper.succeed(); return; }
+        WithFarmersDelight.removedMenuCannotRestoreDroppedInventory(helper);
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_pot")
+    public static void pickingPotDoesNotSettleOrSuppressMealDrop(GameTestHelper helper) {
+        if (!ModList.get().isLoaded("farmersdelight")) { helper.succeed(); return; }
+        WithFarmersDelight.pickingPotDoesNotSettleOrSuppressMealDrop(helper);
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_pot")
+    public static void playerBreakDoesNotDuplicatePotWithoutBowls(GameTestHelper helper) {
+        if (!ModList.get().isLoaded("farmersdelight")) { helper.succeed(); return; }
+        WithFarmersDelight.playerBreakDoesNotDuplicatePotWithoutBowls(helper);
     }
 
     private static final class WithFarmersDelight {
@@ -209,7 +235,8 @@ public final class PotProductionGameTests {
                         "Native home cooking resumes for the remaining ingredients without another fee or XP");
                 mushroomStew(broken.pot, 2);
                 helper.assertTrue(PotCraftService.start(broken.player, broken.pot), "Second pot starts before it is broken");
-                helper.assertTrue(helper.getLevel().destroyBlock(broken.pos, false), "Player breaks an active pot");
+                broken.player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.DIAMOND_PICKAXE));
+                helper.assertTrue(broken.player.gameMode.destroyBlock(broken.pos), "Survival player breaks an active pot");
                 List<ItemEntity> drops = helper.getLevel().getEntitiesOfClass(ItemEntity.class, new AABB(broken.pos).inflate(1));
                 int stew = 0, brown = 0, red = 0, bowls = 0;
                 for (ItemEntity entity : drops) {
@@ -219,8 +246,9 @@ public final class PotProductionGameTests {
                     if (stack.is(Items.RED_MUSHROOM)) red += stack.getCount();
                     if (stack.is(Items.BOWL)) bowls += stack.getCount();
                 }
-                helper.assertTrue(stew == 1 && brown == 1 && red == 1 && bowls == 1,
-                        "Breaking an active pot drops one home dish and all remaining inventory exactly once");
+                helper.assertTrue(stew == 0 && storedStewDrops(helper, broken.pos) == 1 && countPotDrops(helper, broken.pos) == 1
+                                && brown == 1 && red == 1 && bowls == 2,
+                        "Native loot retains one home dish in one pot and drops the unused ingredients and bowls exactly once");
                 helper.succeed();
             } finally { MockGameTestPlayers.logout(f.player); MockGameTestPlayers.logout(broken.player); }
         }
@@ -246,6 +274,145 @@ public final class PotProductionGameTests {
                         "Repeated load cannot duplicate ingredients, dish or refund");
                 helper.succeed();
             } finally { MockGameTestPlayers.logout(f.player); }
+        }
+
+        private static void removedMenuCannotRestoreDroppedInventory(GameTestHelper helper) {
+            Fixture f = fixture(helper, 1);
+            try {
+                mushroomStew(f.pot, 2);
+                helper.assertTrue(PotCraftService.start(f.player, f.pot), "Start a pot before breaking it with its menu open");
+                var oldMenu = f.player.containerMenu;
+                helper.assertTrue(helper.getLevel().destroyBlock(f.pos, false), "Break the pot while its menu remains open");
+                CompoundTag tombstone = FryerPlayerData.get(helper.getLevel()).checkpoint(helper.getLevel(), f.pos);
+                helper.assertTrue(tombstone != null && tombstone.getBoolean("FryerRemoved")
+                                && tombstone.getCompound("Inventory").getList("Items", Tag.TAG_COMPOUND).isEmpty(),
+                        "Breaking leaves a durable empty tombstone until the chunk is stored");
+                oldMenu.broadcastChanges();
+                helper.assertTrue(tombstone.equals(FryerPlayerData.get(helper.getLevel()).checkpoint(helper.getLevel(), f.pos)),
+                        "Synchronizing the removed menu must not replace the empty tombstone with dropped inventory");
+                helper.getLevel().setBlockAndUpdate(f.pos, f.pot.getBlockState());
+                CookingPotBlockEntity replacement = (CookingPotBlockEntity) helper.getLevel().getBlockEntity(f.pos);
+                oldMenu.clicked(0, 0, ClickType.PICKUP, f.player);
+                oldMenu.broadcastChanges();
+                helper.assertTrue(f.player.containerMenu.getCarried().isEmpty(), "An old menu cannot take dropped ingredients");
+                for (int i = 0; i < replacement.getInventory().getSlots(); i++) {
+                    helper.assertTrue(replacement.getInventory().getStackInSlot(i).isEmpty(),
+                            "A replacement pot must not inherit items already dropped by the old pot");
+                }
+                f.player.tick();
+                helper.assertTrue(f.player.containerMenu == f.player.inventoryMenu, "Player tick closes the removed pot menu");
+                helper.succeed();
+            } finally { MockGameTestPlayers.logout(f.player); }
+        }
+
+        private static void pickingPotDoesNotSettleOrSuppressMealDrop(GameTestHelper helper) {
+            Fixture f = fixture(helper, 1);
+            try {
+                mushroomStew(f.pot, 2);
+                helper.assertTrue(PotCraftService.start(f.player, f.pot), "Start a pot before requesting its pick-block preview");
+                long round = PotCraftService.roundId(f.pot), charged = balance(f.player), beforeXp = xp(f.player);
+                ItemStack preview = f.pot.getBlockState().getBlock().getCloneItemStack(helper.getLevel(), f.pos, f.pot.getBlockState());
+                helper.assertTrue(PotCraftService.roundId(f.pot) == round && f.pot.getMeal().isEmpty(),
+                        "Picking a block must not settle an active manual round");
+                CompoundTag previewData = preview.getTagElement("BlockEntityTag");
+                helper.assertTrue(previewData == null || !previewData.contains("WokPotRound"),
+                        "Pick-block previews must not copy the live transaction or reserved ingredients");
+                helper.assertTrue(balance(f.player) == charged && xp(f.player) == beforeXp,
+                        "Previewing cannot complete, refund or reward the active round");
+                PotCraftService.abort(f.player, f.pot, round, "test abandon");
+                f.pot.getBlockState().getBlock().getCloneItemStack(helper.getLevel(), f.pos, f.pot.getBlockState());
+                f.player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.DIAMOND_PICKAXE));
+                helper.assertTrue(f.player.gameMode.destroyBlock(f.pos), "Break a pot after previewing the finished meal");
+                helper.assertTrue(countPotDrops(helper, f.pos) == 1 && storedStewDrops(helper, f.pos) == 1,
+                        "A previous preview must not suppress the later native pot and meal drop");
+                helper.succeed();
+            } finally { MockGameTestPlayers.logout(f.player); }
+        }
+
+        private static void playerBreakDoesNotDuplicatePotWithoutBowls(GameTestHelper helper) {
+            Fixture f = fixture(helper, 1);
+            try {
+                mushroomStew(f.pot, 1);
+                f.pot.getInventory().setStackInSlot(CookingPotBlockEntity.CONTAINER_SLOT, ItemStack.EMPTY);
+                long before = balance(f.player), beforeXp = xp(f.player);
+                for (int i = 0; i < 201; i++) CookingPotBlockEntity.cookingTick(helper.getLevel(), f.pos, f.pot.getBlockState(), f.pot);
+                helper.assertTrue(f.pot.getMeal().is(Items.MUSHROOM_STEW), "Native home cooking leaves a meal in a pot without bowls");
+                int beforePots = countPotDrops(helper, f.pos);
+                f.player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.DIAMOND_PICKAXE));
+                helper.assertTrue(f.player.gameMode.destroyBlock(f.pos), "Break the pot through the real survival player path");
+                helper.assertTrue(countPotDrops(helper, f.pos) - beforePots == 1,
+                        "A survival player breaking a full pot without bowls must receive exactly one pot");
+                helper.assertTrue(storedStewDrops(helper, f.pos) == 1, "The one dropped pot retains exactly one home-cooked meal");
+                helper.assertTrue(balance(f.player) == before && xp(f.player) == beforeXp, "Native home cooking and breaking remain free of chef rewards");
+                ItemEntity droppedPot = helper.getLevel().getEntitiesOfClass(ItemEntity.class, new AABB(f.pos).inflate(1)).stream()
+                        .filter(entity -> ForgeRegistries.ITEMS.getKey(entity.getItem().getItem()).equals(new ResourceLocation("farmersdelight", "cooking_pot")))
+                        .findFirst().orElseThrow();
+                f.player.setItemInHand(InteractionHand.MAIN_HAND, droppedPot.getItem().copy()); droppedPot.discard();
+                var placed = f.player.getMainHandItem().useOn(new UseOnContext(f.player, InteractionHand.MAIN_HAND,
+                        new BlockHitResult(Vec3.atCenterOf(f.pos.below()).add(0, .5, 0), Direction.UP, f.pos.below(), false)));
+                helper.assertTrue(placed.consumesAction() && helper.getLevel().getBlockEntity(f.pos) instanceof CookingPotBlockEntity,
+                        "The dropped pot can be placed back through its real item path");
+                CookingPotBlockEntity replacement = (CookingPotBlockEntity) helper.getLevel().getBlockEntity(f.pos);
+                helper.assertTrue(replacement.getMeal().is(Items.MUSHROOM_STEW) && replacement.getMeal().getCount() == 1,
+                        "Placing a carried meal supersedes the old removal tombstone without losing or duplicating food");
+                pendingServingsSurviveNativeLoot(helper);
+                helper.succeed();
+            } finally { MockGameTestPlayers.logout(f.player); }
+        }
+
+        private static void pendingServingsSurviveNativeLoot(GameTestHelper helper) {
+            Fixture f = fixture(helper, 3);
+            try {
+                CompoundTag snapshot = f.pot.saveWithoutMetadata();
+                var inventory = new net.minecraftforge.items.ItemStackHandler(9);
+                ItemStack radiant = new ItemStack(Items.MUSHROOM_STEW), extra = new ItemStack(Items.MUSHROOM_STEW);
+                ChefQualityNbt.stamp(radiant, ChefQuality.RADIANT, List.of());
+                ChefQualityNbt.stamp(extra, ChefQuality.EXTRAORDINARY, List.of());
+                inventory.setStackInSlot(CookingPotBlockEntity.MEAL_DISPLAY_SLOT, radiant);
+                snapshot.put("Inventory", inventory.serializeNBT());
+                snapshot.put("Container", new ItemStack(Items.BOWL).save(new CompoundTag()));
+                ListTag pending = new ListTag(); pending.add(extra.save(new CompoundTag())); snapshot.put("WokPotPending", pending);
+                FryerPlayerData data = FryerPlayerData.get(helper.getLevel());
+                data.checkpoint(helper.getLevel(), f.pos, snapshot); data.sync();
+                f.pot.load(snapshot);
+                f.player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.DIAMOND_PICKAXE));
+                helper.assertTrue(f.player.gameMode.destroyBlock(f.pos), "Break a recovered radiant batch with a pending serving");
+                helper.assertTrue(countPotDrops(helper, f.pos) == 1 && storedStewDrops(helper, f.pos) == 1,
+                        "Native loot keeps the displayed serving in exactly one pot");
+                int savedPending = 0;
+                for (ItemEntity entity : helper.getLevel().getEntitiesOfClass(ItemEntity.class, new AABB(f.pos).inflate(1))) {
+                    CompoundTag meal = entity.getItem().getTagElement("BlockEntityTag");
+                    if (meal == null) continue;
+                    for (Tag entry : meal.getList("WokPotPending", Tag.TAG_COMPOUND)) {
+                        ItemStack serving = ItemStack.of((CompoundTag) entry);
+                        helper.assertTrue(serving.is(Items.MUSHROOM_STEW) && ChefQualityNbt.hasQuality(serving),
+                                "The pending serving keeps its dish and quality after native loot serializes the removed pot");
+                        savedPending += serving.getCount();
+                    }
+                }
+                helper.assertTrue(savedPending == 1, "Native loot retains exactly one pending serving after block-entity removal");
+            } finally { MockGameTestPlayers.logout(f.player); }
+        }
+
+        private static int countPotDrops(GameTestHelper helper, BlockPos pos) {
+            return helper.getLevel().getEntitiesOfClass(ItemEntity.class, new AABB(pos).inflate(1)).stream()
+                    .filter(entity -> ForgeRegistries.ITEMS.getKey(entity.getItem().getItem()).equals(new ResourceLocation("farmersdelight", "cooking_pot")))
+                    .mapToInt(entity -> entity.getItem().getCount()).sum();
+        }
+
+        private static int storedStewDrops(GameTestHelper helper, BlockPos pos) {
+            int count = 0;
+            for (ItemEntity entity : helper.getLevel().getEntitiesOfClass(ItemEntity.class, new AABB(pos).inflate(1))) {
+                ItemStack item = entity.getItem();
+                if (!ForgeRegistries.ITEMS.getKey(item.getItem()).equals(new ResourceLocation("farmersdelight", "cooking_pot"))) continue;
+                CompoundTag meal = item.getTagElement("BlockEntityTag");
+                if (meal == null) continue;
+                var inventory = new net.minecraftforge.items.ItemStackHandler(9);
+                inventory.deserializeNBT(meal.getCompound("Inventory"));
+                ItemStack stew = inventory.getStackInSlot(CookingPotBlockEntity.MEAL_DISPLAY_SLOT);
+                if (stew.is(Items.MUSHROOM_STEW)) count += stew.getCount();
+            }
+            return count;
         }
 
         private static void remainderAndFeastYieldArePreserved(GameTestHelper helper) {

@@ -191,7 +191,13 @@ public final class MarriageBackpackMenu extends AbstractMiningMenu {
      */
     @Override
     protected boolean moveItemStackTo(ItemStack stack, int startIndex, int endIndex, boolean reverseDirection) {
-        boolean moved = false;
+        // 同种食物的 Shift 快移合并 (Spoilage_Granary_DesignSpec mixin 清单 #9): 走核心接缝 —— 本模块不认识
+        // 腐烂底座 (接缝默认不做事), 装配时由那边把合并函数挂上来。
+        Boolean merged = com.miningdim.menu.ShiftMergeHooks.tryMerge(this, stack, startIndex, endIndex,
+                reverseDirection);
+        if (merged != null) {
+            return merged;
+        }        boolean moved = false;
         int i = reverseDirection ? endIndex - 1 : startIndex;
 
         if (stack.isStackable()) {

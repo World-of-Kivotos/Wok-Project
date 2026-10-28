@@ -1,0 +1,9 @@
+{
+  "parent": "miningdim:block/granary/template_vent",
+  "textures": {
+    "wood": "minecraft:block/warped_planks",
+    "trim": "minecraft:block/stripped_warped_stem",
+    "trim_top": "minecraft:block/stripped_warped_stem_top",
+    "particle": "minecraft:block/warped_planks"
+  }
+}

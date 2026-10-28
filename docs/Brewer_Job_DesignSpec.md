@@ -169,3 +169,20 @@ F028 全库审计复核确认: 九种闪耀永久层可同时叠满, 无职业�
 
 每期: 编译 (JDK17) + `runGameTestServer` 全绿 (验 `run/logs/latest.log` 的 `All N required tests passed`)
 后再提交。
+
+## 七、与腐烂底座的接线 (消费点, 提交 `39567343`)
+
+酿酒台是腐烂底座的**消费点**之一 (见 [`Spoilage_Granary_DesignSpec.md`](Spoilage_Granary_DesignSpec.md)
+「消费点改造 · 酿酒台」): **统计投料时跳过已腐烂的, 扣料先扣最老的**。
+
+- `BrewRecipes.match(input, nowMinute)` 与 `consume(input, type, nowMinute)`: 聚合投料计数时跳过已腐烂的槽
+  —— 拿烂料凑数凑不出配方 (配方是精确匹配), 于是烂料在酿酒台**开不了工**, 不用额外拦;
+  扣料按**剩余分钟从少到多**扣 (同一味料横跨几格时), 已腐烂的槽与统计同口径地不参与。
+- `BrewingStationBlockEntity` 开酿 / 推进 / 完成三帧与扣料都读同一个 `nowMinute()`
+  (私有方法, 取 `FreshnessClockData`; 客户端渲染不碰配方)。
+- 腐烂判定走 `FreshnessCheck.isRottenNow`, 不腐烂的东西永远不算烂。
+- **酒不盖章:** 九种酒都不在易腐类别标签里 (`freshness/*`), 参与腐烂的只有投料;
+  这与「酿酒师的产出不随放久变坏」一致 —— 陈酿本来就是这个职业的时间玩法。
+- 依赖: 本模块登记表与 `module-registry.json` 各多一条 `wok-freshness`。
+- 测试: `BrewingStationGameTests` 多 2 条 (烂料不计入; 先扣最老且不碰烂的),
+  全量 2255 条 required tests 全绿。

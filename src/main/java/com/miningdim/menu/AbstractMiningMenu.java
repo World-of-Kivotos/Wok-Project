@@ -92,12 +92,15 @@ public abstract class AbstractMiningMenu extends AbstractContainerMenu {
      * (空则返回 EMPTY 终止循环)。
      *
      * 分区: 索引 [0, containerSlotCount) = 容器槽; [containerSlotCount, end) = 玩家 36 槽。
+     *
+     * 起点槽先过 {@link Slot#mayPickup}: 原版这条路上不看 mayPickup, 于是「只取不放」的输出槽、事务进行中被
+     * 锁住的槽、开放名单里「只存」的槽都能被 Shift 整堆搬走 —— 权限槽形同虚设 (粮仓 27 格界面这一批踩到)。
      */
     @Override
     public ItemStack quickMoveStack(Player player, int index) {
         ItemStack moved = ItemStack.EMPTY;
         Slot slot = this.slots.get(index);
-        if (slot == null || !slot.hasItem()) {
+        if (slot == null || !slot.hasItem() || !slot.mayPickup(player)) {
             return ItemStack.EMPTY;
         }
         ItemStack stackInSlot = slot.getItem();
@@ -143,6 +146,12 @@ public abstract class AbstractMiningMenu extends AbstractContainerMenu {
      */
     @Override
     protected boolean moveItemStackTo(ItemStack stack, int startIndex, int endIndex, boolean reverseDirection) {
+        // 同种食物的 Shift 快移合并 (Spoilage_Granary_DesignSpec mixin 清单 #9): 这一处整段重写了 vanilla, 所以
+        // 不走 mixin, 走核心自己的接缝 (默认不做事; 腐烂底座装配时把合并函数挂上来)。
+        Boolean merged = ShiftMergeHooks.tryMerge(this, stack, startIndex, endIndex, reverseDirection);
+        if (merged != null) {
+            return merged;
+        }
         boolean moved = false;
         int i = reverseDirection ? endIndex - 1 : startIndex;
 

@@ -111,6 +111,8 @@ mixin {
     config "${mod_id}.district.mixins.json"
     config "${mod_id}.district.create.mixins.json"
     config "${mod_id}.district.flan.mixins.json"
+    config "${mod_id}.freshness.mixins.json"
+    config "${mod_id}.freshness.compat.mixins.json"
 }
 
 sourceSets.main.resources { srcDir 'src/generated/resources' }
@@ -162,6 +164,8 @@ configurations {
     }
 }
 
+def farmersDelightDevJar = file("libs/FarmersDelight-1.20.1-1.3.2.jar")
+
 dependencies {
     // Forge MDK 基础: forge 自带 Minecraft + 全部原版依赖
     minecraft "net.minecraftforge:forge:${forge_full_version}"
@@ -192,10 +196,12 @@ dependencies {
         runtimeOnly fg.deobf("maven.modrinth:jade:11.13.2+forge")
     }
 
-    // Optional in production; loaded in dev so Farmer's Delight crop paths receive real GameTests.
-    def farmersDelightDevJar = file("libs/FarmersDelight-1.20.1-1.3.2.jar")
-    if (farmersDelightDevJar.exists()) {
+    // Optional in production; required in dev for Farmer's Delight compile-time compatibility and GameTests.
+    // Keep this pinned to the locally approved 1.20.1-1.3.2 baseline; production still treats FD as optional.
+    if (farmersDelightDevJar.isFile()) {
         runtimeOnly fg.deobf("local:FarmersDelight-1.20.1:1.3.2")
+        // Production mixins remain optional; compiling FD signatures requires the pinned development JAR.
+        compileOnly fg.deobf("local:FarmersDelight-1.20.1:1.3.2")
     }
 
     // Flan 1.20.1-1.11.16 (Forge): 自管区的领地后端 (docs/District_Backend_Design.md 20.1)。
@@ -264,7 +270,8 @@ tasks.named('jar', Jar).configure {
             'Implementation-Vendor'   : mod_authors,
             'MixinConfigs'            : "${mod_id}.mixins.json,${mod_id}.compat.mixins.json," +
                     "${mod_id}.district.mixins.json,${mod_id}.district.create.mixins.json," +
-                    "${mod_id}.district.flan.mixins.json",
+                    "${mod_id}.district.flan.mixins.json," +
+                    "${mod_id}.freshness.mixins.json,${mod_id}.freshness.compat.mixins.json",
         ])
     }
     finalizedBy 'reobfJar'
@@ -364,7 +371,16 @@ tasks.register('verifyFlanArtifact') {
         logger.lifecycle(summary)
     }
 }
+// 静态登记检查不需要本地 MOD；只在实际编译（含开发启动）前要求 FD 依赖。
+tasks.register('verifyFarmersDelightDevDependency') {
+    doLast {
+        if (!farmersDelightDevJar.isFile()) {
+            throw new GradleException("Missing required development dependency: ${farmersDelightDevJar}. Copy the approved Farmer's Delight 1.20.1-1.3.2 JAR into libs/.")
+        }
+    }
+}
 tasks.named('compileJava').configure {
+    dependsOn tasks.named('verifyFarmersDelightDevDependency')
     dependsOn tasks.named('verifyFlanArtifact')
 }
 

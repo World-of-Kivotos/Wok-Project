@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "F",
+    "T",
+    "T"
+  ],
+  "key": {
+    "F": {
+      "item": "minecraft:acacia_fence"
+    },
+    "T": {
+      "item": "minecraft:acacia_trapdoor"
+    }
+  },
+  "result": {
+    "item": "miningdim:acacia_granary_vent",
+    "count": 2
+  }
+}

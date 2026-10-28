@@ -222,6 +222,13 @@ public final class PlayerWebUiActions {
         }
         WebUiItemJson.appendVariant(result, stack);
         WebUiItemDetailJson.appendDetail(result, stack);
+        /*
+         * 新鲜度三个标签 (规格「消费点改造 · 市场」末句: 物品详情新增 fresh.hours / fresh.rotten / fresh.untimed)。
+         *
+         * 补在这里而不是改 WebUiItemDetailJson: 那会给 wok-webui 新增一条到 wok-freshness 的依赖, 方向反了
+         * (底座与业务模块依赖 WebUI, WebUI 不依赖它们)。player.itemDetail 本来就在市场模块这一侧。
+         */
+        MarketFreshness.appendItemDetailTags(result, stack, MarketServices.marketEngine().nowMinute());
         return GSON.toJson(result);
     };
 

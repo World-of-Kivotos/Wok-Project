@@ -259,7 +259,8 @@
         "wok-economy",
         "wok-webui",
         "wok-job-core",
-        "wok-job-tarot"
+        "wok-job-tarot",
+        "wok-freshness"
       ],
       "optionalIntegrations": [
         "sqlite-jdbc"
@@ -372,7 +373,8 @@
         "wok-core",
         "wok-economy",
         "wok-webui",
-        "wok-enchant"
+        "wok-enchant",
+        "wok-freshness"
       ],
       "optionalIntegrations": [
         "tacz"
@@ -433,17 +435,32 @@
         "job/farmer"
       ],
       "resourcePaths": [
-        "data/miningdim/recipes/farmer"
+        "data/miningdim/recipes/farmer",
+        "assets/miningdim/textures/block/granary",
+        "assets/miningdim/models/block/granary"
       ],
       "resourceNamePrefixes": [
-        "farmer_"
+        "farmer_",
+        "granary_",
+        "acacia_granary_",
+        "bamboo_granary_",
+        "birch_granary_",
+        "cherry_granary_",
+        "crimson_granary_",
+        "dark_oak_granary_",
+        "jungle_granary_",
+        "mangrove_granary_",
+        "spruce_granary_",
+        "warped_granary_"
       ],
       "dependencies": [
         "wok-core",
         "wok-experience",
         "wok-job-core",
+        "wok-job-chef",
         "wok-economy",
-        "wok-webui"
+        "wok-webui",
+        "wok-freshness"
       ],
       "optionalIntegrations": [
         "farmersdelight"
@@ -590,6 +607,7 @@
         "wok-job-core",
         "wok-combat-core",
         "wok-job-farmer",
+        "wok-freshness",
         "wok-webui"
       ],
       "optionalIntegrations": [],
@@ -865,6 +883,35 @@
       "scope": "academy self-governed districts: academy rosters (one academy per player), district bindings and archives, public-area permission tables, resident plots (warden-drawn vacant plots, first-come direct purchase with an atomic wallet debit, owner friends and three-column permissions, 7-day freeze and reclaim), district and plot logs, the FlanGateway seam with the real Flan 1.20.1-1.11.16 gateway (startup self-check, fail-safe fallback, logical claim backups outside data/claims, diff-based writes, periodic reconciliation; only district/flan/real imports Flan) plus recording and disabled implementations, the miningdim-district.toml feature switch with the guard and Create ban sections, SQLite V9 tables, the zone index (district and plot by coordinate) with the plot-boundary guards (pistons, fluids, dispensers and droppers, falling blocks, sponges, lava ignition; vanilla mixins in district/mixin/world) and the Create ban (placement ban inside districts and their 8-block buffer with OP exemption, Create machinery kept off district land through optional @Pseudo mixins in district/mixin/create with no compile-time dependency, startup mixin check, /district machines), the personal claim limit (no new or enlarged personal Flan claims inside districts and their 8-block buffer, OP exemption, optional @Pseudo mixins on Flan's ClaimStorage.createClaim / resizeClaim in district/mixin/flan, existing buffer claims only reported through /district personalclaims), chat notices for residents, wardens, owners and friends (queued in the V9 district_notice table for offline players, delivered after login through a NoticeDeliveryGate seam that holds them back on offline-mode servers until the login-gate branch replaces it on merge), the district.* / plot.* / admin.district.* / admin.plot.* WebUI actions and the /district OP bootstrap and repair commands"
     },
     {
+      "id": "wok-freshness",
+      "name": "WOK-腐烂底座模块",
+      "category": "foundation",
+      "javaPackagePrefixes": [
+        "com.miningdim.freshness"
+      ],
+      "currentPaths": [
+        "freshness"
+      ],
+      "resourcePaths": [
+        "data/miningdim/tags/items/freshness",
+        "data/miningdim/tags/items/freshness_exempt.json",
+        "miningdim.freshness.mixins.json",
+        "miningdim.freshness.compat.mixins.json"
+      ],
+      "resourceNamePrefixes": [
+        "freshness_"
+      ],
+      "dependencies": [
+        "wok-core",
+        "wok-webui"
+      ],
+      "optionalIntegrations": [
+        "farmersdelight"
+      ],
+      "publicEntry": "com.miningdim.freshness.FreshnessModule",
+      "scope": "Freshness foundation: server clock and downtime compensation, MiningFresh item stamps, category and exemption tags, OFF/DRY_RUN/ON policy, rot replacement, observation and vanilla processing hooks, freshness-aware merging including shift transfers, migration, audit and operator commands, optional Farmer's Delight 1.3.2 cooking and stored-food settlement, and synced client tooltips/HUD reminders. Item decorations have been removed. Granary construction and one-click deposits belong to wok-job-farmer under job/farmer/granary."
+    },
+    {
       "id": "wok-app",
       "name": "WOK-综合装配模块",
       "category": "assembly",
@@ -911,7 +958,8 @@
         "wok-case-opening",
         "wok-stacking",
         "wok-achievement",
-        "wok-district"
+        "wok-district",
+        "wok-freshness"
       ],
       "optionalIntegrations": []
     }

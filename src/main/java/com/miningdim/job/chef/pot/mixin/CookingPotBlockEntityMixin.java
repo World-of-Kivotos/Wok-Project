@@ -66,7 +66,7 @@ public abstract class CookingPotBlockEntityMixin implements PotBridge {
     @Inject(method = "writeMeal(Lnet/minecraft/nbt/CompoundTag;)Lnet/minecraft/nbt/CompoundTag;", at = @At("HEAD"), remap = false)
     private void wok$package(CompoundTag tag, CallbackInfoReturnable<CompoundTag> callback) { PotCraftService.beforePackaging(wok$self()); }
     @Inject(method = "writeMeal(Lnet/minecraft/nbt/CompoundTag;)Lnet/minecraft/nbt/CompoundTag;", at = @At("RETURN"), remap = false)
-    private void wok$packagePending(CompoundTag tag, CallbackInfoReturnable<CompoundTag> callback) { PotCraftService.onSave(wok$self(), callback.getReturnValue()); }
+    private void wok$packagePending(CompoundTag tag, CallbackInfoReturnable<CompoundTag> callback) { PotCraftService.onPack(wok$self(), callback.getReturnValue()); }
     @Inject(method = "setRemoved()V", at = @At("TAIL"), remap = true)
     private void wok$removed(CallbackInfo callback) { PotCraftService.removed(wok$self()); }
     @Inject(method = "cookingTick(Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;Lvectorwing/farmersdelight/common/block/entity/CookingPotBlockEntity;)V", at = @At("HEAD"), cancellable = true, remap = false)

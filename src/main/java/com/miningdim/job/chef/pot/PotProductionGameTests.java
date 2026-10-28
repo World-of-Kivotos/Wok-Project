@@ -308,6 +308,10 @@ public final class PotProductionGameTests {
         private static void pickingPotDoesNotSettleOrSuppressMealDrop(GameTestHelper helper) {
             Fixture f = fixture(helper, 1);
             try {
+                ItemStack emptyPreview = f.pot.getBlockState().getBlock().getCloneItemStack(helper.getLevel(), f.pos, f.pot.getBlockState());
+                ItemStack nativePot = new ItemStack(ForgeRegistries.ITEMS.getValue(new ResourceLocation("farmersdelight", "cooking_pot")));
+                helper.assertTrue(ItemStack.isSameItemSameTags(emptyPreview, nativePot),
+                        "An empty pot preview must remain a plain native item without checkpoint NBT");
                 mushroomStew(f.pot, 2);
                 helper.assertTrue(PotCraftService.start(f.player, f.pot), "Start a pot before requesting its pick-block preview");
                 long round = PotCraftService.roundId(f.pot), charged = balance(f.player), beforeXp = xp(f.player);
@@ -317,6 +321,8 @@ public final class PotProductionGameTests {
                 CompoundTag previewData = preview.getTagElement("BlockEntityTag");
                 helper.assertTrue(previewData == null || !previewData.contains("WokPotRound"),
                         "Pick-block previews must not copy the live transaction or reserved ingredients");
+                helper.assertTrue(previewData == null || !previewData.contains("FryerRevision"),
+                        "Pick-block previews must not copy a block checkpoint revision");
                 helper.assertTrue(balance(f.player) == charged && xp(f.player) == beforeXp,
                         "Previewing cannot complete, refund or reward the active round");
                 PotCraftService.abort(f.player, f.pot, round, "test abandon");
@@ -325,6 +331,15 @@ public final class PotProductionGameTests {
                 helper.assertTrue(f.player.gameMode.destroyBlock(f.pos), "Break a pot after previewing the finished meal");
                 helper.assertTrue(countPotDrops(helper, f.pos) == 1 && storedStewDrops(helper, f.pos) == 1,
                         "A previous preview must not suppress the later native pot and meal drop");
+                Fixture empty = fixture(helper, 3);
+                try {
+                    empty.player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.DIAMOND_PICKAXE));
+                    helper.assertTrue(empty.player.gameMode.destroyBlock(empty.pos), "Break an empty pot through the native player path");
+                    ItemStack drop = helper.getLevel().getEntitiesOfClass(ItemEntity.class, new AABB(empty.pos).inflate(1)).stream()
+                            .map(ItemEntity::getItem).filter(item -> item.is(nativePot.getItem())).findFirst().orElseThrow();
+                    helper.assertTrue(ItemStack.isSameItemSameTags(drop, nativePot),
+                            "An empty pot loot drop must remain a plain native item without checkpoint NBT");
+                } finally { MockGameTestPlayers.logout(empty.player); }
                 helper.succeed();
             } finally { MockGameTestPlayers.logout(f.player); }
         }
@@ -347,6 +362,8 @@ public final class PotProductionGameTests {
                 ItemEntity droppedPot = helper.getLevel().getEntitiesOfClass(ItemEntity.class, new AABB(f.pos).inflate(1)).stream()
                         .filter(entity -> ForgeRegistries.ITEMS.getKey(entity.getItem().getItem()).equals(new ResourceLocation("farmersdelight", "cooking_pot")))
                         .findFirst().orElseThrow();
+                helper.assertTrue(!droppedPot.getItem().getTagElement("BlockEntityTag").contains("FryerRevision"),
+                        "A carried meal must not retain the source block's checkpoint revision");
                 f.player.setItemInHand(InteractionHand.MAIN_HAND, droppedPot.getItem().copy()); droppedPot.discard();
                 var placed = f.player.getMainHandItem().useOn(new UseOnContext(f.player, InteractionHand.MAIN_HAND,
                         new BlockHitResult(Vec3.atCenterOf(f.pos.below()).add(0, .5, 0), Direction.UP, f.pos.below(), false)));

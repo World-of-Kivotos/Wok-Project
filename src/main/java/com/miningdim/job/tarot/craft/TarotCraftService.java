@@ -81,12 +81,14 @@ public final class TarotCraftService {
         return switch (result) {
             case SUCCESS -> {
                 ItemStack product = TarotCardItem.create(TarotRegistry.TAROT_CARD.get(), cardId, to, upright, player.getUUID());
+                com.miningdim.job.tarot.codex.TarotCodex.record(player, product);
                 TarotLeveling.grantCraftXp(player);
                 yield new CraftOutcome(Result.SUCCESS, product, 0);
             }
             case REVERSE -> {
                 // 逆转: 升档且翻面 (闪耀无此分支, reverse=0 不会落入)。
                 ItemStack product = TarotCardItem.create(TarotRegistry.TAROT_CARD.get(), cardId, to, !upright, player.getUUID());
+                com.miningdim.job.tarot.codex.TarotCodex.record(player, product);
                 TarotLeveling.grantCraftXp(player);
                 yield new CraftOutcome(Result.REVERSE, product, 0);
             }

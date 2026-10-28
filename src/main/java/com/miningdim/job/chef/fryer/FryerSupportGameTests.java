@@ -11,6 +11,9 @@ import io.netty.buffer.Unpooled;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
@@ -25,6 +28,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @GameTestHolder(MiningConstants.MODID)
@@ -124,8 +128,59 @@ public final class FryerSupportGameTests {
         catch (IllegalArgumentException expected) {
             incompleteRejected = "Invalid fryer list Completions".equals(expected.getMessage());
         }
-        helper.assertTrue(incompleteRejected, "Version 2 requires the completions list");
+        helper.assertTrue(incompleteRejected, "Version 3 requires the completions list");
         helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer_support")
+    public static void legacyLargeJournalSurvivesMigration(GameTestHelper helper) {
+        CompoundTag legacy = new FryerPlayerData().save(new CompoundTag());
+        legacy.putInt("Version", 2); legacy.remove("NextRevision");
+        ListTag players = legacy.getList("Players", 10), checkpoints = legacy.getList("Checkpoints", 10);
+        for (int i = 0; i < 65537; i++) {
+            CompoundTag player = new CompoundTag(); player.putUUID("Player", new UUID(0, i));
+            player.putLong("Day", 0); player.putLong("RadiantAt", 0); player.putInt("RadiantCount", 0); player.putInt("Suspect", 0);
+            player.put("Dishes", new ListTag()); players.add(player);
+            CompoundTag checkpoint = new CompoundTag(); checkpoint.putString("Dimension", "minecraft:overworld");
+            checkpoint.putLong("Pos", new BlockPos(i, 0, 0).asLong()); checkpoint.put("Snapshot", new CompoundTag()); checkpoints.add(checkpoint);
+        }
+        legacy.put("Players", players); legacy.put("Checkpoints", checkpoints);
+        CompoundTag migrated = FryerPlayerData.load(legacy).save(new CompoundTag());
+        CompoundTag roundTrip = FryerPlayerData.load(migrated).save(new CompoundTag());
+        helper.assertTrue(roundTrip.getList("Players", 10).size() == 65537 && roundTrip.getList("Checkpoints", 10).size() == 65537,
+                "Legacy players and checkpoints survive migration and reload");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer_support")
+    public static void staleChunkReceiptDoesNotRemoveNewCheckpoint(GameTestHelper helper) {
+        FryerPlayerData data = new FryerPlayerData(); BlockPos pos = helper.absolutePos(new BlockPos(0, 0, 0));
+        CompoundTag first = new CompoundTag(); first.putInt("Value", 1);
+        data.checkpoint(helper.getLevel(), pos, first);
+        Map<BlockPos, CompoundTag> receipt = data.checkpointsInChunk(helper.getLevel(), new ChunkPos(pos));
+        CompoundTag second = new CompoundTag(); second.putInt("Value", 2);
+        data.checkpoint(helper.getLevel(), pos, second); data.acknowledgeChunk(helper.getLevel(), receipt);
+        helper.assertTrue(data.checkpoint(helper.getLevel(), pos).getInt("Value") == 2, "Stale receipt preserves newer checkpoint");
+        data.acknowledgeChunk(helper.getLevel(), data.checkpointsInChunk(helper.getLevel(), new ChunkPos(pos)));
+        helper.assertTrue(data.checkpoint(helper.getLevel(), pos) == null, "Current receipt removes checkpoint");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer_support")
+    public static void completedRefundIsReportedAndRemoved(GameTestHelper helper) {
+        ServerPlayer player = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
+        FryerPlayerData data = FryerPlayerData.get(helper.getLevel()); UUID operation = UUID.randomUUID();
+        try {
+            EconomyServices.economyService().grant(player, Currency.CREDIT, 100);
+            long before = EconomyServices.economyService().creditBalance(player);
+            helper.assertTrue(EconomyServices.economyService().tryChargeBundle(EconomyOperationDomain.CHEF_FRYER, player, operation, 30, 0) == EconomyOperationStatus.CHARGED, "Charge succeeds");
+            helper.assertTrue(EconomyServices.economyService().completeBundle(EconomyOperationDomain.CHEF_FRYER, player.getUUID(), operation) == EconomyOperationStatus.COMPLETED, "Operation completes");
+            data.enqueueRefund(operation, player.getUUID()); data.sync(); data.retryRefunds();
+            helper.assertTrue(EconomyServices.economyService().creditBalance(player) == before - 30
+                    && data.save(new CompoundTag()).getList("Refunds", 10).stream().noneMatch(t -> ((CompoundTag) t).getUUID("Operation").equals(operation)),
+                    "Completed refund is not paid and is removed after error logging");
+            helper.succeed();
+        } finally { MockGameTestPlayers.logout(player); }
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer_support")

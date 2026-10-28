@@ -7,6 +7,9 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ChunkPos;
+import com.mojang.logging.LogUtils;
+import org.slf4j.Logger;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.saveddata.SavedData;
@@ -17,6 +20,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -24,16 +28,19 @@ import java.nio.file.Path;
 
 /** 玩家手熟、最佳及闪耀限额保存在主世界，不随死亡重建。 */
 public final class FryerPlayerData extends SavedData {
+    private static final Logger LOGGER = LogUtils.getLogger();
     private static final String DATA_NAME = "miningdim_fryer_players";
     private static final int[] MASTERY = {0, 3, 10, 25, 50, 100};
     private final Map<UUID, PlayerRecord> players = new HashMap<>();
     private final Map<UUID, UUID> pendingRefunds = new HashMap<>();
     private final Map<UUID, UUID> pendingCompletions = new HashMap<>();
-    private final Map<StationKey, CompoundTag> checkpoints = new HashMap<>();
+    private final Map<ChunkKey, Map<BlockPos, CompoundTag>> checkpoints = new HashMap<>();
+    private long nextRevision;
+    private CompletableFuture<Void> pendingIO;
     private record ActiveSession(Object identity, UUID operation) {}
     private final Map<UUID, ActiveSession> active = new HashMap<>();
     private ServerLevel storageLevel;
-    private record StationKey(ResourceLocation dimension, long pos) {}
+    private record ChunkKey(ResourceLocation dimension, long chunk) {}
 
     private static final class DishRecord { int completed, best; }
     private static final class PlayerRecord {
@@ -48,7 +55,7 @@ public final class FryerPlayerData extends SavedData {
         ServerLevel overworld = level.getServer().overworld();
         Path journalPath = level.getServer().getWorldPath(LevelResource.ROOT).resolve("data").resolve(DATA_NAME + ".dat");
         FryerPlayerData data = loadFromStorage(overworld.getDataStorage(), journalPath);
-        data.storageLevel = overworld; return data;
+        data.storageLevel = overworld; data.checkPending(); return data;
     }
 
     static FryerPlayerData loadFromStorage(DimensionDataStorage storage, Path journalPath) {
@@ -61,22 +68,67 @@ public final class FryerPlayerData extends SavedData {
         }, DATA_NAME);
     }
 
+    private static ChunkKey chunkKey(ResourceLocation dimension, BlockPos pos) {
+        return new ChunkKey(dimension, new ChunkPos(pos).toLong());
+    }
     public CompoundTag checkpoint(ServerLevel level, BlockPos pos) {
-        CompoundTag snapshot = checkpoints.get(new StationKey(level.dimension().location(), pos.asLong()));
+        Map<BlockPos, CompoundTag> chunk = checkpoints.get(chunkKey(level.dimension().location(), pos));
+        CompoundTag snapshot = chunk == null ? null : chunk.get(pos);
         return snapshot == null ? null : snapshot.copy();
     }
-    public void checkpoint(ServerLevel level, BlockPos pos, CompoundTag snapshot) {
-        StationKey key = new StationKey(level.dimension().location(), pos.asLong());
-        if (!snapshot.equals(checkpoints.get(key))) { checkpoints.put(key, snapshot.copy()); setDirty(); }
+    public long checkpoint(ServerLevel level, BlockPos pos, CompoundTag snapshot) {
+        ChunkKey key = chunkKey(level.dimension().location(), pos);
+        Map<BlockPos, CompoundTag> chunk = checkpoints.computeIfAbsent(key, ignored -> new HashMap<>());
+        CompoundTag old = chunk.get(pos);
+        if (snapshot.equals(old)) return old.getLong("FryerRevision");
+        long revision = snapshot.contains("FryerRevision")
+                ? number(snapshot, "FryerRevision", Tag.TAG_LONG, 0, Long.MAX_VALUE) : 0;
+        nextRevision = Math.incrementExact(Math.max(nextRevision, revision));
+        CompoundTag copy = snapshot.copy(); copy.putLong("FryerRevision", nextRevision);
+        chunk.put(pos.immutable(), copy); setDirty(); return nextRevision;
     }
     public void clearCheckpoint(ServerLevel level, BlockPos pos) {
-        if (checkpoints.remove(new StationKey(level.dimension().location(), pos.asLong())) != null) { setDirty(); sync(); }
+        ChunkKey key = chunkKey(level.dimension().location(), pos);
+        Map<BlockPos, CompoundTag> chunk = checkpoints.get(key);
+        if (chunk != null && chunk.remove(pos) != null) {
+            if (chunk.isEmpty()) checkpoints.remove(key);
+            setDirty();
+        }
     }
-    public void sync() {
+    /** Values are internal identity receipts and must never be modified. */
+    public Map<BlockPos, CompoundTag> checkpointsInChunk(ServerLevel level, ChunkPos pos) {
+        Map<BlockPos, CompoundTag> chunk = checkpoints.get(new ChunkKey(level.dimension().location(), pos.toLong()));
+        return chunk == null ? Map.of() : Map.copyOf(chunk);
+    }
+    public void acknowledgeChunk(ServerLevel level, Map<BlockPos, CompoundTag> receipts) {
+        for (Map.Entry<BlockPos, CompoundTag> receipt : receipts.entrySet()) {
+            ChunkKey key = chunkKey(level.dimension().location(), receipt.getKey());
+            Map<BlockPos, CompoundTag> chunk = checkpoints.get(key);
+            if (chunk != null && chunk.get(receipt.getKey()) == receipt.getValue()) {
+                chunk.remove(receipt.getKey());
+                if (chunk.isEmpty()) checkpoints.remove(key);
+                setDirty();
+            }
+        }
+    }
+    private File journalFile() {
         if (storageLevel == null) throw new IllegalStateException("Fryer journal is not attached to a server");
-        save(storageLevel.getServer().getWorldPath(LevelResource.ROOT).resolve("data").resolve(DATA_NAME + ".dat").toFile());
+        return storageLevel.getServer().getWorldPath(LevelResource.ROOT).resolve("data").resolve(DATA_NAME + ".dat").toFile();
     }
+    private void checkPending() {
+        if (pendingIO != null && pendingIO.isCompletedExceptionally()) pendingIO.join();
+    }
+    public void flushAsync() {
+        checkPending();
+        if (pendingIO != null && !pendingIO.isDone()) return;
+        if (!isDirty()) return;
+        File file = journalFile(); CompoundTag snapshot = save(new CompoundTag());
+        setDirty(false);
+        pendingIO = CompletableFuture.runAsync(() -> FryerJournal.write(file, snapshot));
+    }
+    public void sync() { save(journalFile()); }
     @Override public void save(File file) {
+        if (pendingIO != null) { pendingIO.join(); pendingIO = null; }
         if (!isDirty()) return;
         FryerJournal.write(file, save(new CompoundTag())); setDirty(false);
     }
@@ -163,8 +215,12 @@ public final class FryerPlayerData extends SavedData {
     /** 账本按 operationId 幂等退款，玩家离线也会直接退回其账户。 */
     public void retryRefunds() {
         if (!EconomyServices.isRegistered()) return;
+        if (pendingCompletions.isEmpty() && pendingRefunds.entrySet().stream().allMatch(entry -> {
+            ActiveSession running = active.get(entry.getValue());
+            return running != null && entry.getKey().equals(running.operation());
+        })) return;
         // 上次检查点写盘失败时，内存队列仍可能较磁盘新；先持久化意图再改变账本终态。
-        if (isDirty()) sync();
+        if (isDirty() || pendingIO != null) sync();
         boolean changed = false;
         Iterator<Map.Entry<UUID, UUID>> completions = pendingCompletions.entrySet().iterator();
         while (completions.hasNext()) {
@@ -181,14 +237,18 @@ public final class FryerPlayerData extends SavedData {
             if (running != null && entry.getKey().equals(running.operation())) continue;
             EconomyOperationStatus result = EconomyServices.economyService().refundBundle(
                     EconomyOperationDomain.CHEF_FRYER, entry.getValue(), entry.getKey());
-            if (result == EconomyOperationStatus.REFUNDED || result == EconomyOperationStatus.NONE
-                    || result == EconomyOperationStatus.COMPLETED) { iterator.remove(); changed = true; }
+            if (result == EconomyOperationStatus.COMPLETED) {
+                LOGGER.error("Fryer refund encountered completed operation={} player={}", entry.getKey(), entry.getValue());
+                iterator.remove(); changed = true;
+            } else if (result == EconomyOperationStatus.REFUNDED || result == EconomyOperationStatus.NONE) {
+                iterator.remove(); changed = true;
+            } else throw new IllegalStateException("Cannot refund persisted fryer transaction " + entry.getKey() + ": " + result);
         }
         if (changed) { setDirty(); sync(); }
     }
 
     @Override public CompoundTag save(CompoundTag tag) {
-        tag.putInt("Version", 2);
+        tag.putInt("Version", 3); tag.putLong("NextRevision", nextRevision);
         ListTag playerList = new ListTag();
         players.forEach((id, record) -> {
             CompoundTag p = new CompoundTag(); p.putUUID("Player", id);
@@ -213,17 +273,19 @@ public final class FryerPlayerData extends SavedData {
         });
         tag.put("Completions", completions);
         ListTag snapshots = new ListTag();
-        checkpoints.forEach((key, snapshot) -> {
+        checkpoints.forEach((key, chunk) -> chunk.forEach((pos, snapshot) -> {
             CompoundTag checkpoint = new CompoundTag(); checkpoint.putString("Dimension", key.dimension().toString());
-            checkpoint.putLong("Pos", key.pos()); checkpoint.put("Snapshot", snapshot.copy()); snapshots.add(checkpoint);
-        });
+            checkpoint.putLong("Pos", pos.asLong()); checkpoint.put("Snapshot", snapshot.copy()); snapshots.add(checkpoint);
+        }));
         tag.put("Checkpoints", snapshots); return tag;
     }
 
     public static FryerPlayerData load(CompoundTag tag) {
-        if (!tag.contains("Version", Tag.TAG_INT) || tag.getInt("Version") != 2) throw new IllegalArgumentException("Invalid fryer player save version");
+        if (!tag.contains("Version", Tag.TAG_INT) || (tag.getInt("Version") != 2 && tag.getInt("Version") != 3)) throw new IllegalArgumentException("Invalid fryer player save version");
         FryerPlayerData data = new FryerPlayerData();
-        for (Tag entry : list(tag, "Players", 65536)) {
+        int version = tag.getInt("Version");
+        if (version == 3) data.nextRevision = number(tag, "NextRevision", Tag.TAG_LONG, 0, Long.MAX_VALUE);
+        for (Tag entry : list(tag, "Players")) {
             CompoundTag p = (CompoundTag) entry;
             if (!p.hasUUID("Player")) throw new IllegalArgumentException("Missing fryer player UUID");
             PlayerRecord r = new PlayerRecord();
@@ -241,29 +303,42 @@ public final class FryerPlayerData extends SavedData {
             }
             if (data.players.putIfAbsent(p.getUUID("Player"), r) != null) throw new IllegalArgumentException("Duplicate fryer player");
         }
-        for (Tag entry : list(tag, "Refunds", 65536)) {
+        for (Tag entry : list(tag, "Refunds")) {
             CompoundTag r = (CompoundTag) entry;
             if (!r.hasUUID("Operation") || !r.hasUUID("Player")) throw new IllegalArgumentException("Invalid fryer refund");
             if (data.pendingRefunds.putIfAbsent(r.getUUID("Operation"), r.getUUID("Player")) != null) throw new IllegalArgumentException("Duplicate fryer refund");
         }
-        for (Tag entry : list(tag, "Completions", 65536)) {
+        for (Tag entry : list(tag, "Completions")) {
             CompoundTag c = (CompoundTag) entry;
             if (!c.hasUUID("Operation") || !c.hasUUID("Player")) throw new IllegalArgumentException("Invalid fryer completion");
             UUID operation = c.getUUID("Operation");
             if (data.pendingRefunds.containsKey(operation) || data.pendingCompletions.putIfAbsent(operation, c.getUUID("Player")) != null) throw new IllegalArgumentException("Duplicate fryer completion");
         }
-        for (Tag entry : list(tag, "Checkpoints", 65536)) {
+        for (Tag entry : list(tag, "Checkpoints")) {
             CompoundTag c = (CompoundTag) entry;
             if (!c.contains("Dimension", Tag.TAG_STRING) || !c.contains("Pos", Tag.TAG_LONG) || !c.contains("Snapshot", Tag.TAG_COMPOUND)) throw new IllegalArgumentException("Invalid fryer checkpoint");
-            StationKey key = new StationKey(new ResourceLocation(c.getString("Dimension")), c.getLong("Pos"));
-            if (data.checkpoints.putIfAbsent(key, c.getCompound("Snapshot").copy()) != null) throw new IllegalArgumentException("Duplicate fryer checkpoint position");
+            ResourceLocation dimension = new ResourceLocation(c.getString("Dimension"));
+            BlockPos pos = BlockPos.of(c.getLong("Pos"));
+            CompoundTag snapshot = c.getCompound("Snapshot").copy();
+            // Version 2 snapshots have no revision; zero preserves their legacy identity.
+            if (version == 2 && !snapshot.contains("FryerRevision")) snapshot.putLong("FryerRevision", 0);
+            long revision = number(snapshot, "FryerRevision", Tag.TAG_LONG, 0, Long.MAX_VALUE);
+            if (version == 3 && revision > data.nextRevision) throw new IllegalArgumentException("Fryer checkpoint revision exceeds counter");
+            if (version == 2) data.nextRevision = Math.max(data.nextRevision, revision);
+            Map<BlockPos, CompoundTag> chunk = data.checkpoints.computeIfAbsent(chunkKey(dimension, pos), ignored -> new HashMap<>());
+            if (chunk.putIfAbsent(pos, snapshot) != null) throw new IllegalArgumentException("Duplicate fryer checkpoint position");
         }
         return data;
     }
 
-    static ListTag list(CompoundTag tag, String key, int max) {
-        if (!(tag.get(key) instanceof ListTag list) || list.size() > max
+    static ListTag list(CompoundTag tag, String key) {
+        if (!(tag.get(key) instanceof ListTag list)
                 || (!list.isEmpty() && list.getElementType() != Tag.TAG_COMPOUND)) throw new IllegalArgumentException("Invalid fryer list " + key);
+        return list;
+    }
+    static ListTag list(CompoundTag tag, String key, int max) {
+        ListTag list = list(tag, key);
+        if (list.size() > max) throw new IllegalArgumentException("Invalid fryer list " + key);
         return list;
     }
     static long number(CompoundTag tag, String key, int type, long min, long max) {

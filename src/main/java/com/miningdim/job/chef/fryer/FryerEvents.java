@@ -11,9 +11,10 @@ public final class FryerEvents {
 
     @SubscribeEvent
     public static void serverTick(TickEvent.ServerTickEvent event) {
-        if (event.phase == TickEvent.Phase.END && event.getServer().overworld().getGameTime() % 100 == 0) {
-            // 退款不能依赖原炸锅仍处于加载状态，操作者下线也可由持久化账本恢复。
-            FryerPlayerData.get(event.getServer().overworld()).retryRefunds();
+        if (event.phase == TickEvent.Phase.END) {
+            FryerPlayerData data = FryerPlayerData.get(event.getServer().overworld());
+            if (event.getServer().overworld().getGameTime() % 100 == 0) data.retryRefunds();
+            data.flushAsync();
         }
     }
 }

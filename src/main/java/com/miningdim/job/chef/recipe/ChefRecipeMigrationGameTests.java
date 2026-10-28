@@ -15,9 +15,12 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
+import net.minecraftforge.fml.ModList;
 import net.minecraftforge.registries.ForgeRegistries;
 
 import java.util.Map;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -35,9 +38,14 @@ public final class ChefRecipeMigrationGameTests {
         var cake = manager.byKey(id("minecraft:cake")).orElseThrow();
         helper.assertTrue(cake instanceof FryerRecipe recipe && recipe.station() == Kind.BAKING_OVEN
                 && recipe.result().is(Items.CAKE), "Vanilla cake is a real baking recipe");
-        var salad = manager.byKey(id("farmersdelight:fruit_salad")).orElseThrow();
-        helper.assertTrue(salad instanceof FryerRecipe recipe && recipe.station() == Kind.PREP_COUNTER
-                && id("farmersdelight:fruit_salad").equals(ForgeRegistries.ITEMS.getKey(recipe.result().getItem())), "Farmer's Delight fruit salad is a real prep recipe");
+        if (ModList.get().isLoaded("farmersdelight")) {
+            var salad = manager.byKey(id("farmersdelight:fruit_salad")).orElseThrow();
+            helper.assertTrue(salad instanceof FryerRecipe recipe && recipe.station() == Kind.PREP_COUNTER
+                    && id("farmersdelight:fruit_salad").equals(ForgeRegistries.ITEMS.getKey(recipe.result().getItem())), "Farmer's Delight fruit salad is a real prep recipe");
+            var rebuilt = manager.byKey(id("farmersdelight:apple_pie_from_slices")).orElseThrow();
+            helper.assertTrue(rebuilt.getType() == net.minecraft.world.item.crafting.RecipeType.CRAFTING,
+                    "Real apple pie reassembly stays out of the cooking and XP path");
+        }
         helper.succeed();
     }
 
@@ -101,6 +109,46 @@ public final class ChefRecipeMigrationGameTests {
         try { ChefRecipeMigration.migrate(Map.of(key, json("{\"type\":\"example:unsupported\",\"result\":{\"item\":\"minecraft:bread\"}}")), DISHES); }
         catch (IllegalArgumentException expected) { rejected = true; }
         helper.assertTrue(rejected, "Unsupported source for a target dish must fail reload");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_migration")
+    public static void ownSlicesStayCraftingAcrossNamesShapesAndConditions(GameTestHelper helper) throws Exception {
+        try (var reader = new InputStreamReader(ChefRecipeMigrationGameTests.class.getResourceAsStream(
+                "/data/miningdim/chef/production-dishes.json"), StandardCharsets.UTF_8)) {
+            var dishes = ChefRecipeMigration.readTable(JsonParser.parseReader(reader).getAsJsonObject());
+            int checked = 0;
+            for (var entry : dishes.entrySet()) {
+                ResourceLocation slice = entry.getValue().reassemblyItem();
+                if (slice == null) continue;
+                int count = entry.getKey().equals(id("minecraft:cake")) ? 7 : 4;
+                JsonObject shaped = json("{\"type\":\"minecraft:crafting_shaped\",\"pattern\":[\"xx\",\"xx\"],\"key\":{\"x\":{\"item\":\"" + slice
+                        + "\"}},\"result\":{\"item\":\"" + entry.getKey() + "\"}}");
+                JsonObject shapeless = json("{\"type\":\"minecraft:crafting_shapeless\",\"ingredients\":[],\"result\":{\"item\":\"" + entry.getKey() + "\"}}");
+                for (int i = 0; i < count; i++) shapeless.getAsJsonArray("ingredients").add(json("{\"item\":\"" + slice + "\"}"));
+                JsonObject wrapper = json("{\"type\":\"forge:conditional\",\"recipes\":[{\"conditions\":[{\"type\":\"forge:true\"}],\"recipe\":{}}]}");
+                wrapper.getAsJsonArray("recipes").get(0).getAsJsonObject().add("recipe", shapeless);
+                var sources = Map.<ResourceLocation, JsonElement>of(id("regression:renamed_shaped"), shaped, id("regression:renamed_conditional"), wrapper);
+                helper.assertTrue(ChefRecipeMigration.migrate(sources, dishes).equals(sources),
+                        "Own-slice reassembly keeps original crafting and conditions even with renamed IDs: " + entry.getKey());
+                checked++;
+            }
+            helper.assertTrue(checked == 11, "All eleven audited whole/slice pairs are protected");
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_migration")
+    public static void freshInputsAndOtherDishesWithSlicesStillMigrate(GameTestHelper helper) {
+        var pie = id("minecraft:pumpkin_pie");
+        var dishes = Map.of(pie, new ChefRecipeMigration.Dish(4, 2, 2, 2, 0, false, id("farmersdelight:pumpkin_pie_slice")),
+                id("farmersdelight:cod_roll"), new ChefRecipeMigration.Dish(3, 3, 1, 0, 3, false));
+        JsonObject fresh = json("{\"type\":\"minecraft:crafting_shapeless\",\"ingredients\":[{\"item\":\"minecraft:pumpkin\"},{\"item\":\"minecraft:sugar\"},{\"item\":\"minecraft:egg\"}],\"result\":{\"item\":\"minecraft:pumpkin_pie\"}}");
+        JsonObject other = json("{\"type\":\"minecraft:crafting_shapeless\",\"ingredients\":[{\"item\":\"farmersdelight:cod_slice\"},{\"item\":\"farmersdelight:cod_slice\"},{\"item\":\"farmersdelight:cooked_rice\"}],\"result\":{\"item\":\"farmersdelight:cod_roll\",\"count\":2}}");
+        var migrated = ChefRecipeMigration.migrate(Map.of(id("regression:fresh"), fresh, id("regression:other_dish"), other), dishes);
+        helper.assertTrue(migrated.get(id("regression:fresh")).getAsJsonObject().get("type").getAsString().equals("miningdim:baking")
+                && migrated.get(id("regression:other_dish")).getAsJsonObject().get("type").getAsString().equals("miningdim:preparing"),
+                "Fresh pie ingredients and slices used for a different dish remain productive recipes");
         helper.succeed();
     }
 }

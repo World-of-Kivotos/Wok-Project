@@ -42,8 +42,6 @@ public final class FryerRecipeRegistry {
             case PREP_COUNTER -> "preparing";
         });
     }
-    public static RecipeType<FryerRecipe> recipeType() { return recipeType(Kind.DEEP_FRYER); }
-    public static FryerRecipeSerializer recipeSerializer() { return recipeSerializer(Kind.DEEP_FRYER); }
     public static RecipeType<FryerRecipe> recipeType(Kind kind) { return TYPES.get(kind); }
     public static FryerRecipeSerializer recipeSerializer(Kind kind) { return SERIALIZERS.get(kind); }
 }

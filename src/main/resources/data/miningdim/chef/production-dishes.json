@@ -8,7 +8,8 @@
       "motion": 0,
       "flips": 2,
       "beats": 0,
-      "drink": false
+      "drink": false,
+      "reassemblyItem": "delightful:baklava_slice"
     },
     {
       "id": "dumplings_delight:dumpling_medley",
@@ -26,7 +27,8 @@
       "motion": 0,
       "flips": 2,
       "beats": 0,
-      "drink": false
+      "drink": false,
+      "reassemblyItem": "brewinandchewin:quiche_slice"
     },
     {
       "id": "culturaldelights:exotic_roll_medley",
@@ -44,7 +46,8 @@
       "motion": 2,
       "flips": 2,
       "beats": 0,
-      "drink": false
+      "drink": false,
+      "reassemblyItem": "brewinandchewin:pizza_slice"
     },
     {
       "id": "culturaldelights:chicken_taco",
@@ -71,7 +74,8 @@
       "motion": 0,
       "flips": 2,
       "beats": 0,
-      "drink": false
+      "drink": false,
+      "reassemblyItem": "casualness_delight:quiche_lorraine_slice"
     },
     {
       "id": "casualness_delight:stargazy_pie",
@@ -80,7 +84,8 @@
       "motion": 2,
       "flips": 2,
       "beats": 0,
-      "drink": false
+      "drink": false,
+      "reassemblyItem": "casualness_delight:stargazy_pie_slice"
     },
     {
       "id": "delightful:smore",
@@ -116,7 +121,8 @@
       "motion": 2,
       "flips": 2,
       "beats": 0,
-      "drink": false
+      "drink": false,
+      "reassemblyItem": "delightful:salmonberry_pie_slice"
     },
     {
       "id": "farmersdelight:roast_chicken_block",
@@ -134,7 +140,8 @@
       "motion": 2,
       "flips": 2,
       "beats": 0,
-      "drink": false
+      "drink": false,
+      "reassemblyItem": "farmersdelight:chocolate_pie_slice"
     },
     {
       "id": "farmersdelight:rice_roll_medley_block",
@@ -188,7 +195,8 @@
       "motion": 2,
       "flips": 2,
       "beats": 0,
-      "drink": false
+      "drink": false,
+      "reassemblyItem": "farmersdelight:apple_pie_slice"
     },
     {
       "id": "farmersdelight:nether_salad",
@@ -206,7 +214,8 @@
       "motion": 2,
       "flips": 2,
       "beats": 0,
-      "drink": false
+      "drink": false,
+      "reassemblyItem": "farmersdelight:cake_slice"
     },
     {
       "id": "minecraft:pumpkin_pie",
@@ -215,7 +224,8 @@
       "motion": 2,
       "flips": 2,
       "beats": 0,
-      "drink": false
+      "drink": false,
+      "reassemblyItem": "farmersdelight:pumpkin_pie_slice"
     },
     {
       "id": "casualness_delight:spring_roll_medley",
@@ -323,7 +333,8 @@
       "motion": 2,
       "flips": 2,
       "beats": 0,
-      "drink": false
+      "drink": false,
+      "reassemblyItem": "farmersdelight:sweet_berry_cheesecake_slice"
     },
     {
       "id": "oceansdelight:cabbage_wrapped_elder_guardian",

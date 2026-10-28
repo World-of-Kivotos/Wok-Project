@@ -18,6 +18,19 @@
     "oceansdelight:squid_rings"
   ],
   "star_discrepancies": [],
+  "reassembly_items": {
+    "brewinandchewin:pizza": "brewinandchewin:pizza_slice",
+    "brewinandchewin:quiche": "brewinandchewin:quiche_slice",
+    "casualness_delight:quiche_lorraine": "casualness_delight:quiche_lorraine_slice",
+    "casualness_delight:stargazy_pie": "casualness_delight:stargazy_pie_slice",
+    "delightful:baklava": "delightful:baklava_slice",
+    "delightful:salmonberry_pie": "delightful:salmonberry_pie_slice",
+    "farmersdelight:apple_pie": "farmersdelight:apple_pie_slice",
+    "farmersdelight:chocolate_pie": "farmersdelight:chocolate_pie_slice",
+    "farmersdelight:sweet_berry_cheesecake": "farmersdelight:sweet_berry_cheesecake_slice",
+    "minecraft:cake": "farmersdelight:cake_slice",
+    "minecraft:pumpkin_pie": "farmersdelight:pumpkin_pie_slice"
+  },
   "disabled_fryer_recipe_id": "casualness_delight:crafting_shaped/deep_frying_pan",
   "disabled_fryer_output_id": "casualness_delight:deep_frying_pan"
 }

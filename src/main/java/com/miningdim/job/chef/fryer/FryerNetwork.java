@@ -3,6 +3,7 @@ package com.miningdim.job.chef.fryer;
 import com.google.gson.Gson;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.job.chef.fryer.client.FryerClient;
+import com.miningdim.job.chef.pot.PotPacketRouter;
 import com.miningdim.job.chef.zhangshao.ZhangshaoKernel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.FriendlyByteBuf;
@@ -13,6 +14,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.DistExecutor;
+import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.network.NetworkDirection;
@@ -30,9 +32,9 @@ import java.util.function.Supplier;
 public final class FryerNetwork {
     private static final Gson GSON = new Gson();
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/fryer");
-    // v2 同步九原料槽及三类菜谱参数, 旧客户端不能解码新菜单和配方。
+    // v3 adds the FD pot start packet and shared manual round routing.
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
-            new ResourceLocation(MiningConstants.MODID, "fryer"), () -> "2", "2"::equals, "2"::equals);
+            new ResourceLocation(MiningConstants.MODID, "fryer"), () -> "3", "3"::equals, "3"::equals);
 
     private FryerNetwork() {}
 
@@ -49,6 +51,8 @@ public final class FryerNetwork {
                     Optional.of(NetworkDirection.PLAY_TO_CLIENT));
             CHANNEL.registerMessage(4, Outcome.class, Outcome::encode, Outcome::decode, Outcome::handle,
                     Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+            CHANNEL.registerMessage(5, StartPot.class, StartPot::encode, StartPot::decode, StartPot::handle,
+                    Optional.of(NetworkDirection.PLAY_TO_SERVER));
         });
     }
 
@@ -72,6 +76,8 @@ public final class FryerNetwork {
         CHANNEL.sendToServer(new Abort(pos, roundId));
     }
 
+    public static void startPot(BlockPos pos) { CHANNEL.sendToServer(new StartPot(pos)); }
+
     private static FryerBlockEntity currentFryer(ServerPlayer player, BlockPos pos) {
         if (player == null || !(player.containerMenu instanceof FryerMenu menu)
                 || !menu.stillValid(player) || !menu.position().equals(pos)) return null;
@@ -81,7 +87,20 @@ public final class FryerNetwork {
     static void reportActionFailure(ServerPlayer player, BlockPos pos, String action, long round, RuntimeException failure) {
         LOGGER.error("Fryer {} failed player={} dimension={} pos={} round={}", action, player.getUUID(),
                 player.level().dimension().location(), pos, round, failure);
-        player.displayClientMessage(Component.literal("炸锅操作失败，请联系管理员查看日志"), true);
+        player.displayClientMessage(Component.literal("烹饪台操作失败，请联系管理员查看日志"), true);
+    }
+
+    public record StartPot(BlockPos pos) {
+        static void encode(StartPot message, FriendlyByteBuf buf) { buf.writeBlockPos(message.pos); }
+        static StartPot decode(FriendlyByteBuf buf) { return new StartPot(buf.readBlockPos()); }
+        static void handle(StartPot message, Supplier<NetworkEvent.Context> supplier) {
+            NetworkEvent.Context context = supplier.get();
+            context.enqueueWork(() -> {
+                ServerPlayer player = context.getSender();
+                if (player != null && ModList.get().isLoaded("farmersdelight")) PotPacketRouter.start(player, message.pos);
+            });
+            context.setPacketHandled(true);
+        }
     }
 
     public record Session(BlockPos pos, long roundId, int seed, int[] params, ItemStack dish) {
@@ -134,10 +153,13 @@ public final class FryerNetwork {
             context.enqueueWork(() -> {
                 ServerPlayer player = context.getSender();
                 FryerBlockEntity fryer = currentFryer(player, message.pos);
-                if (fryer == null) return;
+                if (player == null) return;
                 try {
-                    fryer.acceptInput(player, message.roundId, message.seq, message.firstTick,
+                    if (fryer != null) fryer.acceptInput(player, message.roundId, message.seq, message.firstTick,
                             message.inputs, message.hash, message.last);
+                    else if (ModList.get().isLoaded("farmersdelight"))
+                        PotPacketRouter.input(player, message.pos, message.roundId, message.seq, message.firstTick,
+                                message.inputs, message.hash, message.last);
                 } catch (RuntimeException failure) {
                     reportActionFailure(player, message.pos, "input " + message.seq, message.roundId, failure);
                 }
@@ -154,9 +176,11 @@ public final class FryerNetwork {
             context.enqueueWork(() -> {
                 ServerPlayer player = context.getSender();
                 FryerBlockEntity fryer = currentFryer(player, message.pos);
-                if (fryer == null) return;
+                if (player == null) return;
                 try {
-                    fryer.abort(player, message.roundId, "主动撂勺");
+                    if (fryer != null) fryer.abort(player, message.roundId, "主动撂勺");
+                    else if (ModList.get().isLoaded("farmersdelight"))
+                        PotPacketRouter.abort(player, message.pos, message.roundId);
                 } catch (RuntimeException failure) {
                     reportActionFailure(player, message.pos, "abort", message.roundId, failure);
                 }

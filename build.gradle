@@ -109,6 +109,7 @@ mixin {
     config "${mod_id}.mixins.json"
     config "${mod_id}.compat.mixins.json"
     config "${mod_id}.chef.mixins.json"
+    config "${mod_id}.chef.fd.mixins.json"
     config "${mod_id}.district.mixins.json"
     config "${mod_id}.district.create.mixins.json"
     config "${mod_id}.district.flan.mixins.json"
@@ -196,6 +197,8 @@ dependencies {
 
     // Optional in production; loaded in dev so Farmer's Delight crop paths receive real GameTests.
     def farmersDelightDevJar = file("libs/FarmersDelight-1.20.1-1.3.2.jar")
+    // The optional cooking-pot adapter is compiled against the same pinned artifact used in dev.
+    compileOnly fg.deobf("local:FarmersDelight-1.20.1:1.3.2")
     if (farmersDelightDevJar.exists()) {
         runtimeOnly fg.deobf("local:FarmersDelight-1.20.1:1.3.2")
     }
@@ -264,7 +267,7 @@ tasks.named('jar', Jar).configure {
             'Implementation-Title'    : project.name,
             'Implementation-Version'  : project.jar.archiveVersion,
             'Implementation-Vendor'   : mod_authors,
-            'MixinConfigs'            : "${mod_id}.mixins.json,${mod_id}.compat.mixins.json,${mod_id}.chef.mixins.json," +
+            'MixinConfigs'            : "${mod_id}.mixins.json,${mod_id}.compat.mixins.json,${mod_id}.chef.mixins.json,${mod_id}.chef.fd.mixins.json," +
                     "${mod_id}.district.mixins.json,${mod_id}.district.create.mixins.json," +
                     "${mod_id}.district.flan.mixins.json,${mod_id}.fryer.mixins.json",
         ])

@@ -36,7 +36,10 @@ public final class ChefRecipeMigration {
     public static Map<ResourceLocation, JsonElement> migrate(Map<ResourceLocation, JsonElement> recipes, ResourceManager resources) {
         try (Reader reader = resources.getResource(TABLE).orElseThrow(() ->
                 new IllegalStateException("Missing chef production table " + TABLE)).openAsReader()) {
-            return migrate(recipes, readTable(JsonParser.parseReader(reader).getAsJsonObject()));
+            Map<ResourceLocation, Dish> dishes = readTable(JsonParser.parseReader(reader).getAsJsonObject());
+            Map<ResourceLocation, JsonElement> migrated = migrate(recipes, dishes);
+            ChefDishCatalog.publish(dishes);
+            return migrated;
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot read chef production table " + TABLE, e);
         }
@@ -52,7 +55,7 @@ public final class ChefRecipeMigration {
                     GsonHelper.getAsInt(obj, "motion"), GsonHelper.getAsInt(obj, "flips"),
                     GsonHelper.getAsInt(obj, "beats"), GsonHelper.getAsBoolean(obj, "drink"),
                     obj.has("reassemblyItem") ? new ResourceLocation(GsonHelper.getAsString(obj, "reassemblyItem")) : null);
-            if (dish.star < 1 || dish.star > 7 || dish.station < 1 || dish.station > 3 || dish.motion < 0 || dish.motion > 4
+            if (dish.star < 1 || dish.star > 7 || dish.station < 0 || dish.station > 3 || dish.motion < 0 || dish.motion > 4
                     || (dish.station == 2 ? dish.flips < 1 || dish.flips > 8 : dish.flips != 0)
                     || (dish.station == 3 ? dish.beats < 3 || dish.beats > 8 : dish.beats != 0)
                     || (dish.drink && dish.station != 3)) throw new IllegalArgumentException("Invalid chef metadata " + id);
@@ -85,6 +88,8 @@ public final class ChefRecipeMigration {
         if (output == null || type.equals("miningdim:frying") || type.equals("miningdim:baking") || type.equals("miningdim:preparing")) return value;
         if (source.get("result").isJsonArray()) throw new IllegalArgumentException("Unsupported multiple-output chef recipe " + id);
         Dish dish = dishes.get(output);
+        // Native cooking and serving remain FD-owned; only the explicit mastery session is intercepted.
+        if (dish.station == 0) return value;
         LinkedHashMap<JsonElement, Integer> inputs = new LinkedHashMap<>();
         switch (type) {
             case "minecraft:crafting_shaped" -> {

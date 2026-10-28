@@ -501,6 +501,7 @@
         "data/miningdim/recipes/chef",
           "data/miningdim/chef",
           "miningdim.chef.mixins.json",
+          "miningdim.chef.fd.mixins.json",
         "data/miningdim/tags/items/seasonings",
         "data/miningdim/tags/items/seasonings.json",
         "data/miningdim/tags/items/unseasonable.json",

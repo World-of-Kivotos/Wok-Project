@@ -126,7 +126,7 @@ public final class AchievementFoundationGameTests {
             "legend", new TierSpec(FrameType.CHALLENGE, true, 800, 0xFF3D3D, 0xFF8A1F, 0xFFD23F));
 
     /**
-     * 第九章 P1 的 30 条 (含 star_10)、9.3 职业已开放的 P2 17 条、9.4 经济 11 条、9.5 社交的 P2 7 条、9.6 的
+     * 第九章 P1 的 30 条 (含 star_10)、9.3 职业已开放的 P2 20 条、9.4 经济 11 条、9.5 社交的 P2 7 条、9.6 的
      * count_25 与 count_40, 以及 9.7 的 6 个页签根; 称号按 9.8 (称号 id 与成就 id 相同)。
      */
     private static final List<Expected> EXPECTED = List.of(
@@ -209,6 +209,12 @@ public final class AchievementFoundationGameTests {
                     "miningdim:brew_complete"),
             row("profession/first_tarot", "bronze", "profession/root", "miningdim:tarot_pack_common",
                     "miningdim:tarot_play"),
+            row("profession/tarot_stardust", "gold", "profession/root", "miningdim:tarot_card",
+                    "miningdim:tarot_codex"),
+            row("profession/tarot_shining", "platinum", "profession/root", "miningdim:tarot_card",
+                    "miningdim:tarot_codex"),
+            row("profession/tarot_starmaster", "legend", "profession/tarot_stardust", "miningdim:tarot_card",
+                    "miningdim:tarot_codex"),
             row("profession/agent_first_seal", "silver", "profession/root", "minecraft:chain", "miningdim:agent_seal"),
             row("profession/first_nano_plate", "bronze", "profession/root", "miningdim:nano_plate_low",
                     "miningdim:nano_plate_produced"),
@@ -270,8 +276,8 @@ public final class AchievementFoundationGameTests {
         MinecraftServer server = helper.getLevel().getServer();
         boolean tacz = ModList.get().isLoaded(TACZ);
         JsonObject zh = readLang("zh_cn");
-        helper.assertTrue(EXPECTED.size() == 73 && EXPECTED.stream().filter(e -> e.tier != null).count() == 67,
-                "期望表应为 30 条 P1 成就 (含 star_10) + 17 条 P2 职业成就 + 20 条 P2 经济社交成就 + 6 个页签根");
+        helper.assertTrue(EXPECTED.size() == 76 && EXPECTED.stream().filter(e -> e.tier != null).count() == 70,
+                "期望表应为 30 条 P1 成就 (含 star_10) + 20 条 P2 职业成就 + 20 条 P2 经济社交成就 + 6 个页签根");
 
         for (Expected expected : EXPECTED) {
             ResourceLocation id = AchievementIds.id(expected.path);
@@ -330,7 +336,7 @@ public final class AchievementFoundationGameTests {
         // 按规格核对。此外每个已加载的进度都应出自数据包里的某份元数据, 没有凭空多出来的进度。
         long loaded = server.getAdvancements().getAllAdvancements().stream()
                 .filter(advancement -> AchievementIds.isAchievement(advancement.getId())).count();
-        int expectedLoaded = tacz ? 73 : 66;
+        int expectedLoaded = tacz ? 76 : 69;
         helper.assertTrue(loaded == expectedLoaded,
                 "miningdim 命名空间下 (配方以外) 应恰好加载 " + expectedLoaded + " 个进度, 实为 " + loaded);
         long declaredAndLoaded = AchievementServices.catalog().metas().keySet().stream()
@@ -371,10 +377,10 @@ public final class AchievementFoundationGameTests {
             helper.assertTrue(catalog.isRewarding(id), id + " 有成就点, 获得后应产生待领取奖励");
             totalPoints += points;
         }
-        // 铜 23 条 x10 + 银 17 条 x25 + 金 12 条 x50 + 白金 7 条 x100 + 钻石 4 条 x200 + 大师 3 条 x400
-        // + 传说 1 条 x800 = 4755 (P1 的 2200、star_10 的 200、P2 职业的 895 与 P2 经济社交的 1460)。
-        helper.assertTrue(totalPoints == 4755, "P1 30 条 (含 star_10)、P2 职业 17 条与 P2 经济社交 20 条成就的"
-                + "默认点数合计应为 4755, 实为 " + totalPoints);
+        // 铜 23 条 x10 + 银 17 条 x25 + 金 13 条 x50 + 白金 8 条 x100 + 钻石 4 条 x200 + 大师 3 条 x400
+        // + 传说 2 条 x800 = 5705 (P1 的 2200、star_10 的 200、P2 职业的 1845 与 P2 经济社交的 1460)。
+        helper.assertTrue(totalPoints == 5705, "P1 30 条 (含 star_10)、P2 职业 20 条与 P2 经济社交 20 条成就的"
+                + "默认点数合计应为 5705, 实为 " + totalPoints);
         helper.assertTrue(catalog.metas().size() == EXPECTED.size(),
                 "数据包里应恰好有 " + EXPECTED.size() + " 份成就元数据, 实为 " + catalog.metas().size());
         helper.succeed();
@@ -416,7 +422,7 @@ public final class AchievementFoundationGameTests {
         helper.assertTrue(live.isClean(), "真实服务端上的成就应当一致, 实报 " + live.problems());
         long loaded = server.getAdvancements().getAllAdvancements().stream()
                 .filter(advancement -> AchievementIds.isAchievement(advancement.getId())).count();
-        helper.assertTrue(live.checked() == loaded && loaded == (tacz ? 73 : 66),
+        helper.assertTrue(live.checked() == loaded && loaded == (tacz ? 76 : 69),
                 "应核对全部 " + loaded + " 个本模块进度, 实为 " + live.checked());
         List<ResourceLocation> gated = List.of(AchievementIds.id("combat/gun_100"),
                 AchievementIds.id("combat/headshot_100"), AchievementIds.id("combat/long_shot"),
@@ -502,8 +508,8 @@ public final class AchievementFoundationGameTests {
         }
         helper.assertTrue(new TreeSet<>(countable).equals(expected),
                 "成就数量候选应为期望表里页签根与 meta 页签以外、已加载的成就 (" + expected.size() + " 条), 实为 " + countable);
-        // 67 条成就去掉 meta 页签的三条是 64 条; 没装 TaCZ 时再去掉依赖它的七条。
-        helper.assertTrue(countable.size() == (tacz ? 64 : 57), "计数池应为 " + (tacz ? 64 : 57) + " 条");
+        // 70 条成就去掉 meta 页签的三条是 67 条; 没装 TaCZ 时再去掉依赖它的七条。
+        helper.assertTrue(countable.size() == (tacz ? 67 : 60), "计数池应为 " + (tacz ? 67 : 60) + " 条");
         helper.assertTrue(countable.contains(AchievementIds.id("mining/trap_sprung")), "隐藏成就应计入成就数量");
         helper.assertTrue(countable.stream().noneMatch(id -> id.getPath().startsWith("recipes/")
                         || id.getPath().endsWith("/root") || id.getPath().startsWith("meta/")),

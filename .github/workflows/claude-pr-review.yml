@@ -24,7 +24,7 @@ env:
   WOK_CLAUDE_CODE_VERSION: 2.1.293
   WOK_CLAUDE_CODE_SHA256: 8968405e26db478af44eabc4635ab5ca557057b702a54460a59c13e1b253e978
 
-# 只有真人的新推送才取消上一轮。claude[bot] 推回修复也会触发本工作流, 那一轮的 review 必被跳过;
+# 只有真人触发的新一轮(推送、重开、转为就绪)才取消上一轮。claude[bot] 推回修复也会触发本工作流, 那一轮的 review 必被跳过;
 # 若与上一轮同组, 会把还在发评论的上一轮 publish 取消掉, 修复推上去了, 评论和标签却丢了。所以非真人触发的轮次各自成组。
 concurrency:
   group: claude-pr-review-${{ github.event.pull_request.number }}-${{ github.event.sender.type == 'User' && 'user' || github.run_id }}
@@ -527,7 +527,8 @@ jobs:
   publish:
     needs: review
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Claude Code 直链下载的重试窗口最长 15 分钟(--retry-max-time 900), 再留出发布本身的时间。
+    timeout-minutes: 30
     permissions:
       contents: read
       # claude-code-action 用 OIDC 换 Claude GitHub App 的安装令牌, 推送、评论、标签才以 claude[bot] 出现。

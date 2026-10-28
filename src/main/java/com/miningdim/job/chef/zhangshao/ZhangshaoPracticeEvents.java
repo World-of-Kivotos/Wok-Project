@@ -62,7 +62,7 @@ public final class ZhangshaoPracticeEvents {
                 return -1;
             }
             return switch (station.kind()) {
-                case DEEP_FRYER -> 1;
+                case DEEP_FRYER -> -1;
                 case BAKING_OVEN -> 2;
                 case PREP_COUNTER -> 3;
             };

@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory = $true)][string]$BaselineJar,
     [Parameter(Mandatory = $true)][string]$BuiltJar,
     [Parameter(Mandatory = $true)][string]$OutputJar,
-    [string]$Version = '1.0.35-chef-playtest'
+    [string]$Version = '1.0.35-chef-playtest',
+    [switch]$Fryer
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -19,10 +20,36 @@ $prefixes = @(
     'data/miningdim/zhangshao/',
     'META-INF/licenses/zhangshao/'
 )
+$classFamilies = @()
+$exactEntries = @()
+if ($Fryer) {
+    $prefixes = @('com/miningdim/job/chef/fryer/', 'data/miningdim/recipes/chef/fryer/')
+    $classFamilies = @(
+        'com/miningdim/economy/EconomyOperationDomain',
+        'com/miningdim/economy/SqliteEconomyLedger',
+        'com/miningdim/job/chef/ChefExperience',
+        'com/miningdim/job/chef/station/CookingStations',
+        'com/miningdim/job/chef/station/StovetopFryerBlock',
+        'com/miningdim/job/chef/station/FryerStationBlock',
+        'com/miningdim/job/chef/station/CookingStationItem',
+        'com/miningdim/job/chef/station/CookingStationGameTests',
+        'com/miningdim/job/chef/zhangshao/ZhangshaoPracticeEvents',
+        'com/miningdim/job/chef/zhangshao/ZhangshaoPracticeGameTests'
+    )
+    $exactEntries = @(
+        'data/miningdim/recipes/chef/deep_fryer_rustic.json',
+        'data/miningdim/recipes/chef/deep_fryer_steel.json',
+        'data/miningdim/recipes/chef/deep_fryer_chinese.json'
+    )
+}
 function Is-PracticeEntry([string]$name) {
     foreach ($prefix in $prefixes) {
         if ($name.StartsWith($prefix, [StringComparison]::Ordinal)) { return $true }
     }
+    foreach ($family in $classFamilies) {
+        if ($name -eq ($family + '.class') -or ($name.StartsWith($family + '$', [StringComparison]::Ordinal) -and $name.EndsWith('.class'))) { return $true }
+    }
+    if ($exactEntries -contains $name) { return $true }
     return $false
 }
 function Copy-ArchiveEntry($sourceEntry, $destination) {
@@ -48,17 +75,28 @@ try {
     try { $metadata = $metadataReader.ReadToEnd() } finally { $metadataReader.Dispose() }
     if ($metadata -notmatch '(?m)^modId\s*=\s*"miningdim"\s*$') { throw 'Baseline is not WOK miningdim.' }
     $additions = @($built.Entries | Where-Object { Is-PracticeEntry $_.FullName })
-    if (-not ($additions.FullName -contains 'com/miningdim/job/chef/zhangshao/client/ZhangshaoPracticeScreen.class')) {
-        throw 'Built JAR does not contain the practice screen.'
+    $required = if ($Fryer) { 'com/miningdim/job/chef/fryer/client/FryerScreen.class' } else { 'com/miningdim/job/chef/zhangshao/client/ZhangshaoPracticeScreen.class' }
+    if (-not ($additions.FullName -contains $required)) {
+        throw 'Built JAR does not contain the required feature screen.'
     }
-    foreach ($entry in $additions) {
-        if ($null -ne $baseline.GetEntry($entry.FullName)) { throw ('Baseline already contains practice content: ' + $entry.FullName) }
+    foreach ($family in $classFamilies) {
+        if (-not ($additions.FullName -contains ($family + '.class'))) { throw ('Missing required class family: ' + $family) }
     }
+    foreach ($requiredEntry in $exactEntries) {
+        if (-not ($additions.FullName -contains $requiredEntry)) { throw ('Missing required resource: ' + $requiredEntry) }
+    }
+    if (-not $Fryer) {
+        foreach ($entry in $additions) {
+            if ($null -ne $baseline.GetEntry($entry.FullName)) { throw ('Baseline already contains practice content: ' + $entry.FullName) }
+        }
+    }
+    $replaced = @($baseline.Entries | Where-Object { Is-PracticeEntry $_.FullName })
     $parent = Split-Path -Parent $outputPath
     New-Item -ItemType Directory -Path $parent -Force | Out-Null
     $output = [IO.Compression.ZipFile]::Open($outputPath, [IO.Compression.ZipArchiveMode]::Create)
     try {
         foreach ($entry in $baseline.Entries) {
+            if (Is-PracticeEntry $entry.FullName) { continue }
             if ($entry.FullName -eq 'META-INF/MANIFEST.MF') {
                 $reader = [IO.StreamReader]::new($entry.Open())
                 try { $manifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
@@ -76,7 +114,7 @@ try {
     $check = [IO.Compression.ZipFile]::OpenRead($outputPath)
     try {
         foreach ($entry in $baseline.Entries) {
-            if ($entry.FullName -eq 'META-INF/MANIFEST.MF') { continue }
+            if ($entry.FullName -eq 'META-INF/MANIFEST.MF' -or (Is-PracticeEntry $entry.FullName)) { continue }
             $copy = $check.GetEntry($entry.FullName)
             if ($null -eq $copy -or (Entry-Hash $entry) -ne (Entry-Hash $copy)) {
                 throw ('Baseline content changed: ' + $entry.FullName)
@@ -87,7 +125,7 @@ try {
                 throw ('Practice entry differs: ' + $entry.FullName)
             }
         }
-        if ($check.Entries.Count -ne $baseline.Entries.Count + $additions.Count) { throw 'Unexpected archive entry count.' }
+        if ($check.Entries.Count -ne $baseline.Entries.Count - $replaced.Count + $additions.Count) { throw 'Unexpected archive entry count.' }
     } finally { $check.Dispose() }
     [ordered]@{
         version = $Version
@@ -97,9 +135,10 @@ try {
         builtSha256 = $builtHash
         output = $outputPath
         outputSha256 = (Get-FileHash -LiteralPath $outputPath -Algorithm SHA256).Hash
-        preservedEntries = $baseline.Entries.Count - 1
+        preservedEntries = $baseline.Entries.Count - $replaced.Count - 1
+        replacedEntries = $replaced.FullName
         addedEntries = $additions.FullName
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath ($outputPath + '.verification.json') -Encoding UTF8
-    Write-Output ("Preserved {0} baseline entries; added {1} practice entries." -f ($baseline.Entries.Count - 1), $additions.Count)
+    Write-Output ("Preserved {0} baseline entries; replaced {1}; packaged {2} feature entries." -f ($baseline.Entries.Count - $replaced.Count - 1), $replaced.Count, $additions.Count)
     Write-Output $outputPath
 } finally { $built.Dispose(); $baseline.Dispose() }

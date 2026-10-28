@@ -39,7 +39,7 @@ public final class FryerScreen extends AbstractContainerScreen<FryerMenu> {
 
     public void startSession(long id, int seed, int[] params, ItemStack output) {
         ZhangshaoKernel.Params parsed = new ZhangshaoKernel.Params(params);
-        if (parsed.station != ZhangshaoKernel.FRYER) throw new IllegalArgumentException("炸锅收到其它台子的参数");
+        if (parsed.station != menu.kind().station()) throw new IllegalArgumentException("烹饪台收到不匹配的参数");
         roundId = id;
         state = ZhangshaoKernel.init(parsed, seed);
         dish = output.copy();
@@ -101,9 +101,11 @@ public final class FryerScreen extends AbstractContainerScreen<FryerMenu> {
             int input = (spaceDown || mouseDown || holdLatch ? 1 : 0) | (actionLatch ? 2 : 0);
             pending[pendingCount++] = (byte) input;
             holdLatch = actionLatch = false;
+            boolean bottleWaiting = state.bState == ZhangshaoKernel.B_WAITING;
             ZhangshaoKernel.step(state, input);
             boolean ended = state.end != ZhangshaoKernel.RUNNING;
-            if (pendingCount == 20 || ended) flush(ended);
+            boolean bottleAppeared = bottleWaiting && state.bState != ZhangshaoKernel.B_WAITING;
+            if (pendingCount == 20 || ended || bottleAppeared) flush(ended);
             if (ended) {
                 waiting = true;
                 notice = "出锅中，等待服务端结算。";
@@ -228,7 +230,7 @@ public final class FryerScreen extends AbstractContainerScreen<FryerMenu> {
     private void request(int button) {
         if (button == 2) {
             minecraft.player.closeContainer();
-            minecraft.setScreen(new ZhangshaoPracticeScreen(1));
+            minecraft.setScreen(new ZhangshaoPracticeScreen(menu.kind().station()));
             return;
         }
         FryerRecipe recipe = menu.previewRecipe();
@@ -263,7 +265,7 @@ public final class FryerScreen extends AbstractContainerScreen<FryerMenu> {
 
     @Override
     protected void renderLabels(GuiGraphics g, int mouseX, int mouseY) {
-        FryerHud.View view = new FryerHud.View(mode(), menu.previewRecipe(), menu.busy(),
+        FryerHud.View view = new FryerHud.View(menu.kind(), mode(), menu.previewRecipe(), menu.busy(),
                 menu.getSlot(FryerMenu.OUTPUT).getItem(), menu.value(4), menu.cost(), menu.value(14),
                 menu.value(5), menu.value(12), menu.phase(), menu.value(1), menu.value(2), menu.value(6),
                 playerInventoryTitle.getString(), inventoryLabelX, inventoryLabelY);

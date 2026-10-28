@@ -2,6 +2,8 @@ package com.miningdim.job.chef.zhangshao;
 
 import com.miningdim.core.MiningConstants;
 import com.miningdim.job.chef.ChefBlocks;
+import com.miningdim.job.chef.fryer.FryerMenu;
+import com.miningdim.job.chef.station.CookingStationBlock;
 import com.miningdim.testutil.MockGameTestPlayers;
 import io.netty.buffer.Unpooled;
 import net.minecraft.core.BlockPos;
@@ -29,13 +31,6 @@ public final class ZhangshaoPracticeGameTests {
     public static void stationEntryOpensPracticeWithoutChangingInventoryOrXp(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
         try {
-            for (int index = 0; index < ChefBlocks.COOKING_STATIONS.size(); index++) {
-                helper.assertTrue(ZhangshaoPracticeEvents.practiceStation(
-                        ChefBlocks.COOKING_STATIONS.get(index).get().defaultBlockState(), player) == (index < 3 ? -1 : index / 3 + 1),
-                        "Production fryers keep their menu; remaining stations offer practice");
-            }
-            helper.assertTrue(ZhangshaoPracticeEvents.practiceStation(Blocks.STONE.defaultBlockState(), player) == -1,
-                    "Unrelated blocks must keep their interaction");
             int experience = player.totalExperience;
             BlockPos position = helper.absolutePos(new BlockPos(1, 1, 1));
             helper.getLevel().setBlockAndUpdate(position, ChefBlocks.BAKING_OVEN_STEEL.get().defaultBlockState());
@@ -46,11 +41,11 @@ public final class ZhangshaoPracticeGameTests {
                 InteractionResult interaction = player.gameMode.useItemOn(player, helper.getLevel(),
                         player.getMainHandItem(), InteractionHand.MAIN_HAND,
                         new BlockHitResult(Vec3.atCenterOf(position), Direction.UP, position, false));
-                helper.assertTrue(interaction == InteractionResult.SUCCESS,
+                helper.assertTrue(interaction.consumesAction() && player.containerMenu instanceof FryerMenu,
                         "Station menu entry must consume the real Forge interaction with " + held);
                 helper.assertTrue(ItemStack.matches(player.getMainHandItem(), held)
                                 && !player.isUsingItem() && player.totalExperience == experience,
-                        "Practice entry must preserve held items, avoid item use, and grant no experience");
+                        "Production entry must preserve held items, avoid item use, and grant no experience");
             }
             player.setShiftKeyDown(true);
             player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.STONE, 2));
@@ -62,24 +57,16 @@ public final class ZhangshaoPracticeGameTests {
             helper.assertTrue(placement.consumesAction() && helper.getLevel().getBlockState(placed).is(Blocks.STONE)
                             && player.getMainHandItem().getCount() == 1,
                     "Sneaking with a block must place it beside the station and consume one in survival");
-            if (net.minecraftforge.fml.ModList.get().isLoaded("farmersdelight")) {
-                var pot = net.minecraftforge.registries.ForgeRegistries.BLOCKS.getValue(
-                        new net.minecraft.resources.ResourceLocation("farmersdelight", "cooking_pot"));
-                player.setShiftKeyDown(true);
-                player.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
-                player.setItemInHand(InteractionHand.OFF_HAND, new ItemStack(Items.BOWL));
-                helper.assertTrue(ZhangshaoPracticeEvents.practiceStation(pot.defaultBlockState(), player) == -1,
-                        "A held off-hand container must keep the Farmer's Delight interaction");
-                player.setItemInHand(InteractionHand.OFF_HAND, ItemStack.EMPTY);
-                helper.assertTrue(ZhangshaoPracticeEvents.practiceStation(pot.defaultBlockState(), player) == -1,
-                        "Farmer's Delight always keeps its own interaction; practice is a screen button");
-            }
             ServerPlayer creative = MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
             try {
                 creative.setShiftKeyDown(true);
-                helper.assertTrue(ZhangshaoPracticeEvents.practiceStation(
-                        ChefBlocks.BAKING_OVEN_STEEL.get().defaultBlockState(), creative) == -1,
-                        "Creative empty-hand sneak must preserve the appearance preview");
+                creative.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+                creative.setItemInHand(InteractionHand.OFF_HAND, ItemStack.EMPTY);
+                InteractionResult preview = creative.gameMode.useItemOn(creative, helper.getLevel(),
+                        creative.getMainHandItem(), InteractionHand.MAIN_HAND,
+                        new BlockHitResult(Vec3.atCenterOf(position), Direction.UP, position, false));
+                helper.assertTrue(preview.consumesAction() && helper.getLevel().getBlockState(position).getValue(CookingStationBlock.LIT),
+                        "Creative empty-hand sneak must activate the appearance preview");
             } finally {
                 MockGameTestPlayers.logout(creative);
             }

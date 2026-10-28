@@ -499,6 +499,8 @@
       ],
       "resourcePaths": [
         "data/miningdim/recipes/chef",
+          "data/miningdim/chef",
+          "miningdim.chef.mixins.json",
         "data/miningdim/tags/items/seasonings",
         "data/miningdim/tags/items/seasonings.json",
         "data/miningdim/tags/items/unseasonable.json",
@@ -526,7 +528,15 @@
       ],
       "optionalIntegrations": [
         "farmersdelight",
-        "flavor_immersed_daily"
+          "flavor_immersed_daily",
+          "casualness_delight",
+          "delightful",
+          "dumplings_delight",
+          "moredelight",
+          "brewinandchewin",
+          "crabbersdelight",
+          "culturaldelights",
+          "oceansdelight"
       ],
       "requiredRuntimeDependencies": [
         "geckolib [4.8.2,4.9)"

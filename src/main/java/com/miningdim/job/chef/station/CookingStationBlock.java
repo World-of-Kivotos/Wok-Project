@@ -1,5 +1,9 @@
 package com.miningdim.job.chef.station;
 
+import com.miningdim.job.chef.fryer.FryerBlockEntity;
+import com.miningdim.job.chef.fryer.FryerRegistry;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Containers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
@@ -11,6 +15,10 @@ import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.EntityBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityTicker;
+import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.HorizontalDirectionalBlock;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
@@ -23,6 +31,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.Nullable;
+import net.minecraftforge.network.NetworkHooks;
 
 /**
  * 厨师烹饪台 (炸锅 / 烤炉 / 备餐台, 各三种外观) 的通用方块。造型来自厨师重构的 station-preview 预览工具里
@@ -33,12 +42,9 @@ import org.jetbrains.annotations.Nullable;
  * 农夫乐事判断热源时只认 lit 属性 (没有 lit 的方块一直算热), 用别的名字会让待机的台子也被当成热源。
  * 旋转 / 镜像 (结构方块、投影类工具) 沿用 {@link HorizontalDirectionalBlock} 自带的实现, 只转 FACING。
  *
- * 本阶段只有方块本身, 没有方块实体、烹饪逻辑与"掌勺"小游戏。为了能进游戏目测待机/工作中两种外观,
- * {@link #use} 暂时提供一个预览开关: 创造模式玩家双手空着潜行右键切换 lit, 生存玩家无效。
- * 这是临时入口, 接入烹饪逻辑 (由方块实体在开始/结束一段工作时切 lit) 后删除。届时要遵守方案说明里的
- * 滞后要求: 只在状态真的变化时 setBlock, 不要每出一道菜来回切 (每切一次都会重建区块网格和光照)。
+ * 九台共用服务端生产事务, 按功能种类选择菜谱与掌勺规则。创造空手潜行只在空闲时保留外观预览。
  */
-public class CookingStationBlock extends HorizontalDirectionalBlock {
+public class CookingStationBlock extends HorizontalDirectionalBlock implements EntityBlock {
 
     public static final BooleanProperty LIT = BlockStateProperties.LIT;
 
@@ -56,6 +62,15 @@ public class CookingStationBlock extends HorizontalDirectionalBlock {
 
         public String id() {
             return id;
+        }
+
+        public int station() { return ordinal() + 1; }
+        public String displayName() {
+            return switch (this) {
+                case DEEP_FRYER -> "炸锅";
+                case BAKING_OVEN -> "烤炉";
+                case PREP_COUNTER -> "备餐台";
+            };
         }
     }
 
@@ -158,8 +173,12 @@ public class CookingStationBlock extends HorizontalDirectionalBlock {
     @Override
     public InteractionResult use(BlockState state, Level level, BlockPos pos, Player player,
                                  InteractionHand hand, BlockHitResult hit) {
-        if (!isPreviewToggle(player, hand)) {
-            return InteractionResult.PASS;
+        if (!(level.getBlockEntity(pos) instanceof FryerBlockEntity production)) return InteractionResult.PASS;
+        if (!isPreviewToggle(player, hand) || production.busy()) {
+            if (!level.isClientSide && hand == InteractionHand.MAIN_HAND) {
+                NetworkHooks.openScreen((ServerPlayer) player, production, pos);
+            }
+            return InteractionResult.sidedSuccess(level.isClientSide);
         }
         if (level.isClientSide) {
             return InteractionResult.SUCCESS;
@@ -173,6 +192,44 @@ public class CookingStationBlock extends HorizontalDirectionalBlock {
         level.setBlock(pos, state.setValue(LIT, lighting), Block.UPDATE_ALL);
         level.gameEvent(player, GameEvent.BLOCK_CHANGE, pos);
         return InteractionResult.CONSUME;
+    }
+
+    @Override
+    public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
+        return new FryerBlockEntity(pos, state);
+    }
+
+    @Override
+    public void onPlace(BlockState state, Level level, BlockPos pos, BlockState oldState, boolean moved) {
+        super.onPlace(state, level, pos, oldState, moved);
+        if (!level.isClientSide && !oldState.is(state.getBlock())) FryerBlockEntity.clearCheckpoint(level, pos);
+    }
+
+    @Nullable
+    @Override
+    public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> type) {
+        if (level.isClientSide || type != FryerRegistry.blockEntityType()) return null;
+        return (world, pos, blockState, entity) -> ((FryerBlockEntity) entity).serverTick();
+    }
+
+    @Override
+    public void onRemove(BlockState state, Level level, BlockPos pos, BlockState next, boolean moved) {
+        if (!state.is(next.getBlock()) && !level.isClientSide
+                && level.getBlockEntity(pos) instanceof FryerBlockEntity production) {
+            for (var stack : production.breakAndDrop()) {
+                Containers.dropItemStack(level, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, stack);
+            }
+            level.updateNeighbourForOutputSignal(pos, this);
+        }
+        super.onRemove(state, level, pos, next, moved);
+    }
+
+    @Nullable
+    public static Component productionBlockedReason(Level level, BlockPos pos) {
+        if (!(level.getBlockState(pos).getBlock() instanceof CookingStationBlock station)) {
+            throw new IllegalStateException("Cooking transaction attached to another block at " + pos);
+        }
+        return station.workBlockedReason(level, pos);
     }
 
     static boolean isPreviewToggle(Player player, InteractionHand hand) {

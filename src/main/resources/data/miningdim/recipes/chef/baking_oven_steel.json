@@ -1,5 +1,4 @@
 {
-  "conditions": [{ "type": "forge:false" }],
   "type": "minecraft:crafting_shaped",
   "pattern": [
     "IRI",

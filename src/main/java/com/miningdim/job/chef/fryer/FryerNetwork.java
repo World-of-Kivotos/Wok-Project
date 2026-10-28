@@ -26,8 +26,9 @@ import java.util.function.Supplier;
 @Mod.EventBusSubscriber(modid = MiningConstants.MODID, bus = Mod.EventBusSubscriber.Bus.MOD)
 public final class FryerNetwork {
     private static final Gson GSON = new Gson();
+    // v2 同步九原料槽及三类菜谱参数, 旧客户端不能解码新菜单和配方。
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
-            new ResourceLocation(MiningConstants.MODID, "fryer"), () -> "1", "1"::equals, "1"::equals);
+            new ResourceLocation(MiningConstants.MODID, "fryer"), () -> "2", "2"::equals, "2"::equals);
 
     private FryerNetwork() {}
 

@@ -1,6 +1,7 @@
 package com.miningdim.job.chef.fryer.client;
 
 import com.miningdim.job.chef.fryer.FryerRecipe;
+import com.miningdim.job.chef.station.CookingStationBlock;
 import com.miningdim.job.chef.zhangshao.ZhangshaoKernel;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -16,7 +17,7 @@ public final class FryerHud {
     private static final String[] QUALITIES = {"家常", "低品质", "中品质", "高品质", "超凡", "闪耀"};
     private static final String[] MOTIONS = {"混", "窜", "稳", "沉", "浮"};
     private static final int[] RECOMMENDED = {1, 2, 3, 5, 6, 8, 9};
-    public record View(String mode, FryerRecipe recipe, boolean busy, ItemStack output, int star,
+    public record View(CookingStationBlock.Kind kind, String mode, FryerRecipe recipe, boolean busy, ItemStack output, int star,
                        int cost, int level, int mastery, int progress, int phase, int cooked,
                        int remaining, int best, String inventoryTitle, int inventoryLabelX, int inventoryLabelY) {}
     private final Font font;
@@ -44,7 +45,7 @@ public final class FryerHud {
         g.fill(leftPos + 180, topPos + 153, leftPos + 350, topPos + 231, 0xFF14212A);
     }
     public void renderLabels(GuiGraphics g) {
-        text(g, "炸锅", 10, 8, 0xFFF2E2B8);
+        text(g, view.kind().displayName(), 10, 8, 0xFFF2E2B8);
         text(g, view.mode(), 58, 8, 0xFFCCE8F8);
         FryerRecipe recipe = view.recipe();
         ItemStack shown = state != null && (active() || waiting || result != null) ? dish
@@ -57,14 +58,14 @@ public final class FryerHud {
             else text(g, "重新放料后预览星级", 166, 23, 0xFFCCD6DD);
         } else text(g, "放入完整配方后显示菜品", 10, 23, 0xFFCCD6DD);
         text(g, "原料", 18, 36, 0xFFCCD6DD);
-        text(g, "容器", 140, 36, 0xFFCCD6DD);
-        text(g, "调料", 176, 36, 0xFFCCD6DD);
-        text(g, "出品", 212, 36, 0xFFCCD6DD);
+        text(g, "容器", 176, 36, 0xFFCCD6DD);
+        text(g, "调料", 212, 36, 0xFFCCD6DD);
+        text(g, "出品", 248, 36, 0xFFCCD6DD);
         if (!active() && !waiting && !view.busy()) {
             button(g, "家常", 12, view.recipe() != null);
             button(g, result == null ? "掌勺" : "再来一份", 90, view.recipe() != null);
             button(g, "练习", 168, true);
-        } else text(g, active() ? "空格/左键控条；F/右键压火" : "生产中，材料槽已锁定", 12, 78, 0xFFFFFFFF);
+        } else text(g, active() ? "空格/左键控条；F/右键操作" : "生产中，材料槽已锁定", 12, 78, 0xFFFFFFFF);
         if (state != null && (active() || waiting)) drawLive(g);
         else drawIdle(g, recipe);
         text(g, view.inventoryTitle(), view.inventoryLabelX(), view.inventoryLabelY(), 0xFFCCD6DD);
@@ -77,21 +78,33 @@ public final class FryerHud {
         text(g, "掌勺费用 " + view.cost() + " 信用点/份；家常免费", 12, 99, 0xFFDFE8EC);
         text(g, "厨师等级 " + view.level() + "  手熟 " + view.mastery() + " / " + view.progress(), 12, 111, 0xFFCCD6DD);
         if (view.phase() == 1) text(g, "熟度 " + percent(view.cooked()) + "  剩余 " + seconds(view.remaining()) + "秒", 12, 123, 0xFFFFDA85);
-        else if (recipe != null) text(g, "性子 " + MOTIONS[recipe.motion()] + "  个人最佳 " + view.best() + "分", 12, 123, 0xFFCCD6DD);
+        else if (recipe != null) text(g, (recipe.drink() ? "冷饮  " : "") + "性子 " + MOTIONS[recipe.motion()] + "  个人最佳 " + view.best() + "分", 12, 123, 0xFFCCD6DD);
     }
 
     private void drawLive(GuiGraphics g) {
         ZhangshaoKernel.Result live = ZhangshaoKernel.result(state, null);
         text(g, "熟度 " + percent(state.P / 1000) + "  准确 " + percent(live.accuracy), 12, 98, 0xFFFFFFFF);
-        text(g, "欠火 " + percent(live.underPm) + "  过火 " + percent(live.overPm), 12, 110, 0xFFCCD6DD);
-        text(g, "油温 " + state.T + "  " + (state.cd > 0 ? "冷却 " + seconds(state.cd) + "秒" : "F 可压火"), 12, 122,
-                state.T >= 880 ? 0xFFFF8D76 : 0xFFFFDA85);
+        text(g, "欠火 " + percent(live.underPm) + (state.p.station == ZhangshaoKernel.PREP ? "  多盐 " : "  过火 ") + percent(live.overPm), 12, 110, 0xFFCCD6DD);
+        if (state.p.station == ZhangshaoKernel.FRYER) {
+            text(g, "油温 " + state.T + "  " + (state.cd > 0 ? "冷却 " + seconds(state.cd) + "秒" : "F 可压火"), 12, 122, 0xFFFFDA85);
+            text(g, "爆油 " + state.bursts + "次", 198, 122, 0xFFFFDA85);
+        } else if (state.p.station == ZhangshaoKernel.OVEN) {
+            text(g, state.prompt >= 0 ? "翻面！按 F / 右键" : "等待翻面提示", 12, 122, 0xFFFFDA85);
+            text(g, "已翻 " + state.flipIdx + "/" + state.p.F, 198, 122, 0xFFFFDA85);
+        } else {
+            text(g, (state.p.jitterOn == 0 ? "冷饮：" : "") + (state.inSeg != 0 ? "摆料中，时限暂停" : "熟度到标记后摆料"), 12, 122, 0xFFFFDA85);
+            text(g, "漏 " + state.miss + " 乱 " + state.mash, 198, 122, 0xFFFFDA85);
+        }
         text(g, "时间 " + seconds(state.pt) + "/" + seconds(state.p.CAP), 198, 98, 0xFFFFFFFF);
-        text(g, state.perfect != 0 && state.bursts == 0 && state.hot + state.cold <= state.p.cleanTicks
-                ? "Perfect 保持" : "Perfect 已失", 198, 110, 0xFFFFDA85);
-        text(g, countdown < 20 ? "下锅倒数 " + (3 - countdown * 3 / 20) : state.T >= 880 ? "快压火！" : "爆油 " + state.bursts + "次",
-                198, 122, 0xFFFFDA85);
-        drawTrack(g);
+        boolean clean = switch (state.p.station) {
+            case ZhangshaoKernel.FRYER -> state.bursts == 0 && state.hot + state.cold <= state.p.cleanTicks;
+            case ZhangshaoKernel.OVEN -> state.flipAllGood != 0;
+            case ZhangshaoKernel.PREP -> state.miss == 0 && state.mash == 0;
+            default -> throw new IllegalStateException("station " + state.p.station);
+        };
+        text(g, state.perfect != 0 && clean ? "Perfect 保持" : "Perfect 已失", 198, 110, 0xFFFFDA85);
+        if (state.p.station == ZhangshaoKernel.PREP && state.inSeg != 0) drawBeats(g);
+        else drawTrack(g);
         if (countdown < 20) {
             g.fill(190, 95, 300, 131, 0xFF090F14);
             g.pose().pushPose();
@@ -118,11 +131,28 @@ public final class FryerHud {
         }
     }
 
+    private void drawBeats(GuiGraphics g) {
+        int x = 314, y = 38, height = 90, line = y + height - 18;
+        g.fill(x, y, x + 28, y + height, 0xFF090F14);
+        g.fill(x + 2, line, x + 26, line + 2, 0xFFFFFFFF);
+        int[] beats = state.segBeats[state.segIdx];
+        for (int i = state.bi; i < beats.length; i++) {
+            int beatY = line - (beats[i] - state.segT) * 4;
+            if (beatY >= y + 2 && beatY < y + height - 2)
+                g.fill(x + 5, beatY - 2, x + 23, beatY + 3, i == state.bi ? 0xFFFFD268 : 0xFF88ACD7);
+        }
+    }
+
     private void drawHelp(GuiGraphics g) {
-        text(g, "炸锅基本规则", 186, 157, 0xFFF2E2B8);
+        text(g, view.kind().displayName() + "基本规则", 186, 157, 0xFFF2E2B8);
         text(g, "空格/左键：按住上升，松开下降", 186, 169, 0xFFDFE8EC);
-        text(g, "让火候条框住食材，熟度满出锅", 186, 181, 0xFFDFE8EC);
-        text(g, "F/右键：压火；避免过冷和爆油", 186, 193, 0xFFDFE8EC);
+        text(g, "让火候条框住食材，熟度满出品", 186, 181, 0xFFDFE8EC);
+        String action = switch (view.kind()) {
+            case DEEP_FRYER -> "F/右键：压火，避免爆油";
+            case BAKING_OVEN -> "F/右键：按提示翻面";
+            case PREP_COUNTER -> "F/右键：摆料时跟随节拍";
+        };
+        text(g, action, 186, 193, 0xFFDFE8EC);
         text(g, "瓶子：" + bottleText(), 186, 205, 0xFFFFDA85);
         text(g, "无暂停；双Esc撂勺出家常", 186, 217, 0xFFDFE8EC);
     }
@@ -141,8 +171,14 @@ public final class FryerHud {
     private void drawResult(GuiGraphics g) {
         text(g, "服务端品质：" + quality(result.quality), 186, 157, 0xFFFFDA85);
         text(g, "准确 " + percent(result.accuracy) + "  扣分 " + result.pen, 186, 169, 0xFFFFFFFF);
-        text(g, "欠火 " + percent(result.underPm) + "  过火 " + percent(result.overPm), 186, 181, 0xFFDFE8EC);
-        text(g, "爆油 " + result.bursts + "  Perfect " + (result.perfect == 1 ? "达成" : "未达成"), 186, 193, 0xFFDFE8EC);
+        text(g, "欠火 " + percent(result.underPm) + (result.station == ZhangshaoKernel.PREP ? "  多盐 " : "  过火 ") + percent(result.overPm), 186, 181, 0xFFDFE8EC);
+        String details = switch (result.station) {
+            case ZhangshaoKernel.FRYER -> "爆油 " + result.bursts;
+            case ZhangshaoKernel.OVEN -> "翻面 " + result.flips + " 正好 " + result.flipGood;
+            case ZhangshaoKernel.PREP -> "正好 " + result.beatPerfect + " 漏拍 " + result.beatMiss;
+            default -> throw new IllegalStateException("station " + result.station);
+        };
+        text(g, details + "  Perfect " + (result.perfect == 1 ? "达成" : "未达成"), 186, 193, 0xFFDFE8EC);
         String negatives = "无";
         if (result.negatives.length > 0) {
             String[] names = {"夹生", "烧焦", "倒胃"};

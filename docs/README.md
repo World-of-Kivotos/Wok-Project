@@ -68,6 +68,7 @@ WOK 主 mod（`modid=miningdim`）的全部设计文档入口。截至 2026-10-1
 | 经济 · 顶层总表 | [Economy_BalanceSheet_DesignSpec](Economy_BalanceSheet_DesignSpec.md) — **新增任何 faucet/sink 必须先过这里** | `economy` |
 | 经济 · 全局设计 | [服务器经济系统设计文档](服务器经济系统设计文档.md) | `economy` `market` |
 | 经济 · 矿价台账 | [Ore_Pricing_Ledger_DesignSpec](Ore_Pricing_Ledger_DesignSpec.md) | `economy` `ore` |
+| 经济 · 循环物价表 | [物价表_经济循环草案](物价表_经济循环草案.md)（**PENDING**：草案指导价待拍板，尚未写入配置） | `economy` `market` `job/munitions` `job/chef` |
 | 精英怪 · 词条系统 | [ChampionStarAffix_System_DesignSpec](ChampionStarAffix_System_DesignSpec.md) | `champion` |
 | 电力 · 线缆 | [Power_Cable_DesignSpec](Power_Cable_DesignSpec.md) | `power/cable` |
 | 电力 · 发电机 | [Power_Generator_DesignSpec](Power_Generator_DesignSpec.md) | `power` |

@@ -39,10 +39,32 @@ repositories {
     maven { url = 'https://maven.parchmentmc.org/' }
 }
 
+// 插板护甲的烘焙网格只在客户端渲染，服务端与构建都不会读它；坏一件只会在客户端安静地退回原版胸甲或贴图错位。
+// 这里用独立 source set 在普通 JVM 里校验打包的网格与贴图，挂在 check 上，gradlew build 即会执行，校验代码不进 JAR。
+sourceSets {
+    verify {
+        java.srcDir 'src/verify/java'
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.runtimeClasspath
+    }
+}
+
 dependencies {
     minecraft "net.minecraftforge:forge:${forge_full_version}"
     // Optional runtime integration. The API jar is compile-only and is never bundled.
     compileOnly files('libs/tacz-1.20.1-1.1.8-hotfix.jar')
+}
+
+tasks.register('verifyPlateArmorMeshes', JavaExec) {
+    group = 'verification'
+    description = '校验打包的插板护甲烘焙网格与穿戴贴图是否满足渲染器的数据契约。'
+    classpath = sourceSets.verify.runtimeClasspath
+    mainClass = 'com.kivotos.armorer.armor.client.PlateArmorMeshVerifier'
+    systemProperty 'java.awt.headless', 'true'
+}
+
+tasks.named('check') {
+    dependsOn 'verifyPlateArmorMeshes'
 }
 
 tasks.named('jar', Jar).configure {

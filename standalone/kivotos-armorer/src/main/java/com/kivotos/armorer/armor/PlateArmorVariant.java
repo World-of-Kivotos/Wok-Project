@@ -46,7 +46,7 @@ public enum PlateArmorVariant {
     B6B45_MEDIC("6b45_medic", PlateArmorTier.V, PlateArmorWeight.MEDIUM, PlateArmorConstructionMaterial.CERAMIC),
     GZHEL_K("gzhel_k", PlateArmorTier.V, PlateArmorWeight.MEDIUM, PlateArmorConstructionMaterial.CERAMIC),
     GLADIATOR_S_GRAY("gladiator_s_gray", PlateArmorTier.V, PlateArmorWeight.MEDIUM, PlateArmorConstructionMaterial.CERAMIC),
-    GLADIATOR_S_VIKING("gladiator_s_viking", PlateArmorTier.V, PlateArmorWeight.MEDIUM, PlateArmorConstructionMaterial.CERAMIC),
+    GLADIATOR_S_VIKING("gladiator_s_viking", PlateArmorTier.V, PlateArmorWeight.LIGHT, PlateArmorConstructionMaterial.CERAMIC),
     TT_MKIII_COYOTE("tt_mkiii_coyote", PlateArmorTier.V, PlateArmorWeight.MEDIUM, PlateArmorConstructionMaterial.COMBINED),
     OSPREY_MK4A_PROTECTION("osprey_mk4a_protection", PlateArmorTier.V, PlateArmorWeight.HEAVY, PlateArmorConstructionMaterial.COMBINED),
     DEFENDER_2_SPOT_CAMO("defender_2_spot_camo", PlateArmorTier.V, PlateArmorWeight.HEAVY, PlateArmorConstructionMaterial.CERAMIC),

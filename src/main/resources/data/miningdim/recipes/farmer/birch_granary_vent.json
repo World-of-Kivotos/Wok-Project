@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "F",
+    "T",
+    "T"
+  ],
+  "key": {
+    "F": {
+      "item": "minecraft:birch_fence"
+    },
+    "T": {
+      "item": "minecraft:birch_trapdoor"
+    }
+  },
+  "result": {
+    "item": "miningdim:birch_granary_vent",
+    "count": 2
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "F",
+    "T",
+    "T"
+  ],
+  "key": {
+    "F": {
+      "item": "minecraft:cherry_fence"
+    },
+    "T": {
+      "item": "minecraft:cherry_trapdoor"
+    }
+  },
+  "result": {
+    "item": "miningdim:cherry_granary_vent",
+    "count": 2
+  }
+}

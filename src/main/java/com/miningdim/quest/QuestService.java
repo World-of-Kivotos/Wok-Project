@@ -297,17 +297,29 @@ public final class QuestService {
      */
     private static int removeFromInventory(ServerPlayer player, net.minecraft.world.item.Item item, int wanted) {
         int remaining = wanted;
-        remaining -= takeFrom(player.getInventory().items, item, remaining);
-        remaining -= takeFrom(player.getInventory().offhand, item, remaining);
+        long nowMinute = com.miningdim.freshness.FreshnessClockData.nowMinute(player.serverLevel());
+        remaining -= takeFrom(player.getInventory().items, item, remaining, nowMinute);
+        remaining -= takeFrom(player.getInventory().offhand, item, remaining, nowMinute);
         return wanted - remaining;
     }
 
+    /**
+     * 从一串格子里扣物品, 返回实际扣掉的个数。
+     *
+     * <b>已经腐烂的不收</b> (规格「消费点改造 · 任务上交」: 加「未腐烂」条件)。腐肉、骨头、火药这些
+     * 任务常用的上交物本来就在豁免标签里 ({@code miningdim:freshness_exempt}), 「不腐烂的东西永远不算烂」
+     * 这条口径在 {@link com.miningdim.freshness.FreshnessCheck#isRottenNow} 里, 所以腐肉任务不受影响。
+     */
     private static int takeFrom(java.util.List<net.minecraft.world.item.ItemStack> stacks,
-                                net.minecraft.world.item.Item item, int wanted) {
+                                net.minecraft.world.item.Item item, int wanted, long nowMinute) {
         int taken = 0;
         for (int i = 0; i < stacks.size() && taken < wanted; i++) {
             net.minecraft.world.item.ItemStack stack = stacks.get(i);
             if (stack.isEmpty() || stack.getItem() != item) {
+                continue;
+            }
+            if (com.miningdim.freshness.FreshnessConfig.replacementEnabled()
+                    && com.miningdim.freshness.FreshnessCheck.isRottenNow(stack, nowMinute)) {
                 continue;
             }
             int take = Math.min(stack.getCount(), wanted - taken);

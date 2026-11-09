@@ -176,6 +176,18 @@ public final class MarketDaoSqlite implements MarketDao {
     }
 
     @Override
+    public boolean markExpired(long id) {
+        // 条件 UPDATE: 只动还是 ACTIVE 的行 (已被买走/撤单的行不受影响, 返回 false 让巡检跳过)。
+        final String sql = "UPDATE listings SET status = 'EXPIRED' WHERE id = ? AND status = 'ACTIVE'";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, id);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            throw new MarketStoreException("markExpired failed for id " + id, e);
+        }
+    }
+
+    @Override
     public boolean reduceListing(long id, int newCount, byte[] newNbt) {
         // 部分买入拆分: 改剩余 count + 同步余量托管 NBT, 条件 status=ACTIVE (并发防御)。
         final String sql = "UPDATE listings SET count = ?, item_nbt = ? WHERE id = ? AND status = 'ACTIVE'";

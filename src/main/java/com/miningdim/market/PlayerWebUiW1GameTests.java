@@ -637,9 +637,14 @@ public final class PlayerWebUiW1GameTests {
                 "铁砧改过名的物品必须发 displayName, 实得 " + named.get("displayName"));
         helper.assertTrue("plain".equals(named.get("kind").getAsString()),
                 "石头不属于任何子系统, 大类是 plain");
-        helper.assertTrue(named.getAsJsonArray("attributes").isEmpty()
-                        && named.getAsJsonArray("tags").isEmpty(),
-                "无数值行无标签时发空数组而不是缺席键 (前端少一条 undefined 分支)");
+        helper.assertTrue(named.getAsJsonArray("attributes").isEmpty(),
+                "没有数值行时 attributes 发空数组而不是缺席键 (前端少一条 undefined 分支), 实得 "
+                        + named.getAsJsonArray("attributes"));
+        // 标签数组自 2026-10-15 起会带一个新鲜度标签 (规格「消费点改造 · 市场」末句): 石头不在任何易腐类别里,
+        // 于是唯一那个标签是 fresh.untimed —— 前端据此不显示倒计时。
+        helper.assertTrue(named.getAsJsonArray("tags").size() == 1
+                        && "fresh.untimed".equals(named.getAsJsonArray("tags").get(0).getAsString()),
+                "石头的标签只有新鲜度那一个 (untimed), 实得 " + named.getAsJsonArray("tags"));
         // 改过名之后名字不再是 Item 级默认键, 故变体字段必须把它拍平发出来 (与 player.inventory 同一路径)。
         JsonArray nameParts = named.getAsJsonArray("nameParts");
         helper.assertTrue(nameParts.size() == 1
@@ -839,8 +844,12 @@ public final class PlayerWebUiW1GameTests {
         player.getInventory().setItem(1, new ItemStack(BrewerItems.itemFor(WineType.WHISKEY)));
         JsonObject unstamped = handle(PlayerWebUiActions.ITEM_DETAIL, player, slotPayload(1));
         helper.assertTrue("plain".equals(unstamped.get("kind").getAsString())
-                        && unstamped.getAsJsonArray("tags").isEmpty(),
-                "没盖过酒章的同款物品是干净的 plain, 实得 " + unstamped);
+                        && !hasTag(unstamped, "data.unreadable:wine"),
+                "没盖过酒章的同款物品是干净的 plain (不含「酒读不出来」这个标记), 实得 " + unstamped);
+        // 酒不在任何易腐类别里, 所以它的标签数组里只有新鲜度那一个 untimed (见普通物品那条用例的说明)。
+        helper.assertTrue(unstamped.getAsJsonArray("tags").size() == 1
+                        && "fresh.untimed".equals(unstamped.getAsJsonArray("tags").get(0).getAsString()),
+                "未盖酒章的同款物品只带 untimed 标签, 实得 " + unstamped.getAsJsonArray("tags"));
 
         helper.succeed();
     }

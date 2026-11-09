@@ -911,9 +911,40 @@
         "wok-case-opening",
         "wok-stacking",
         "wok-achievement",
-        "wok-district"
+        "wok-district",
+        "wok-social"
       ],
       "optionalIntegrations": []
+    },
+    {
+      "id": "wok-social",
+      "name": "WOK-社交平板模块",
+      "category": "gameplay",
+      "javaPackagePrefixes": [
+        "com.miningdim.social",
+        "com.miningdim.client.social"
+      ],
+      "currentPaths": [
+        "social",
+        "client/social"
+      ],
+      "resourcePaths": [
+        "assets/miningdim/web/social.html",
+        "assets/miningdim/sounds/tablet",
+        "assets/miningdim/textures/gui/halolink"
+      ],
+      "resourceNamePrefixes": [],
+      "dependencies": [
+        "wok-core",
+        "wok-webui",
+        "wok-job-tarot",
+        "wok-achievement"
+      ],
+      "optionalIntegrations": [
+        "mcef"
+      ],
+      "publicEntry": "com.miningdim.social.SocialSystem",
+      "scope": "HaloLink social tablet: server-authoritative friends and themes, background incremental SQLite persistence with seven-day chat/moment/comment retention, bounded social.* WebUI responses and composite moment cursors, plus the client-side take-out tablet 3D animation, camera mode and the embedded social.html page"
     }
   ],
   "boundaryExceptions": [

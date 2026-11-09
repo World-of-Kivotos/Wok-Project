@@ -40,6 +40,7 @@ public final class AchievementBackfill {
             new Step("marriage pointer", PlayerProgressHooks::checkMarried),
             // 职业等级 (wok-experience 里八条职业轨道的快照): /job set 与管理员改级不经经验路由, 在这里补判 job_level。
             new Step("job levels", JobHooks::checkJobLevels),
+            new Step("tarot codex", JobHooks::checkTarotCodex),
             // 开箱模块的只读接口 bestSettledRarity (已结算开箱的最高品质)。
             new Step("settled case openings", EconomyHooks::backfillSettledOpenings),
             // 任务模块的只读接口 chainFinished。

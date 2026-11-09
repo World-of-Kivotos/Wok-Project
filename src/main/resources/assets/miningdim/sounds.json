@@ -321,5 +321,113 @@
         "stream": false
       }
     ]
+  },
+  "tablet.holster": {
+    "subtitle": "subtitles.miningdim.tablet.holster",
+    "sounds": [
+      {
+        "name": "miningdim:tablet/holster",
+        "stream": false
+      }
+    ]
+  },
+  "tablet.draw": {
+    "subtitle": "subtitles.miningdim.tablet.draw",
+    "sounds": [
+      {
+        "name": "miningdim:tablet/draw",
+        "stream": false
+      }
+    ]
+  },
+  "tablet.grip": {
+    "subtitle": "subtitles.miningdim.tablet.grip",
+    "sounds": [
+      {
+        "name": "miningdim:tablet/grip",
+        "stream": false
+      }
+    ]
+  },
+  "tablet.power": {
+    "subtitle": "subtitles.miningdim.tablet.power",
+    "sounds": [
+      {
+        "name": "miningdim:tablet/power",
+        "stream": false
+      }
+    ]
+  },
+  "tablet.boot": {
+    "subtitle": "subtitles.miningdim.tablet.boot",
+    "sounds": [
+      {
+        "name": "miningdim:tablet/boot",
+        "stream": false
+      }
+    ]
+  },
+  "tablet.ready": {
+    "subtitle": "subtitles.miningdim.tablet.ready",
+    "sounds": [
+      {
+        "name": "miningdim:tablet/ready",
+        "stream": false
+      }
+    ]
+  },
+  "tablet.search": {
+    "subtitle": "subtitles.miningdim.tablet.search",
+    "sounds": [
+      {
+        "name": "miningdim:tablet/search",
+        "stream": false
+      }
+    ]
+  },
+  "tablet.zoom": {
+    "subtitle": "subtitles.miningdim.tablet.zoom",
+    "sounds": [
+      {
+        "name": "miningdim:tablet/zoom",
+        "stream": false
+      }
+    ]
+  },
+  "tablet.sleep": {
+    "subtitle": "subtitles.miningdim.tablet.sleep",
+    "sounds": [
+      {
+        "name": "miningdim:tablet/sleep",
+        "stream": false
+      }
+    ]
+  },
+  "tablet.stow": {
+    "subtitle": "subtitles.miningdim.tablet.stow",
+    "sounds": [
+      {
+        "name": "miningdim:tablet/stow",
+        "stream": false
+      }
+    ]
+  },
+  "tablet.raise": {
+    "subtitle": "subtitles.miningdim.tablet.raise",
+    "sounds": [
+      {
+        "name": "miningdim:tablet/raise",
+        "stream": false
+      }
+    ]
+  },
+  "tablet.rustle": {
+    "subtitle": "subtitles.miningdim.tablet.rustle",
+    "sounds": [
+      {
+        "name": "miningdim:tablet/rustle",
+        "stream": false
+      }
+    ]
   }
 }

@@ -173,6 +173,7 @@ com.miningdim.achievement
 | `chef_dish` | `min_quality`（可选：low / medium / high / extraordinary / radiant）；`target`（可选） | P2 |
 | `brew_complete` | `wine_type`（可选，九种酒之一）；`min_quality`（可选：low / mid / high / superb / brilliant） | P2 |
 | `tarot_play` | `min_quality`（可选：r / sr / ssr / ur / shiny）；`card_id`（可选，0~21，预留）。取代原先的 `tarot_purchase` | P2 |
+| `tarot_codex` | `milestone`（必填且只允许：stardust / shining / starmaster） | P2 |
 | `agent_seal` | `category`（可选：passive / mechanic）；`affixes`（可选）；`min_star`（可选） | P2 |
 | `nano_plate_produced` | `min_tier`（可选） | P2 |
 | `munitions_batch` | 无 | P2 |
@@ -473,7 +474,7 @@ CREATE TABLE achievement_point_ledger (
 - "十星弑神"改成"参与讨伐世界 BOSS 并贡献不少于 5% 输出"，已随指令召唤的世界 BOSS 开放：击杀过滤在任意维度接受世界 BOSS（6.4）。档位暂定钻石，等世界 BOSS 的出现频率定下来后再重新标定（第十四章第 8 项）。
 - 原先的"一人成军"要求独自击倒 10 星，世界 BOSS 本来就是按约 10 人设计的，一个人基本打不了，所以改为独自击倒 9 星，也就是自然刷出的最高星级。id 相应从 `solo_star_10` 改为 `solo_star_9`。
 
-### 9.3 职业（21 条）
+### 9.3 职业（24 条）
 
 | id | 名称 | 条件 | 档位 | 父 | 触发器 | 期 | 图标 |
 |---|---|---|---|---|---|---|---|
@@ -495,6 +496,9 @@ CREATE TABLE achievement_point_ledger (
 | `profession/brewer_nine_wines` | 九酝齐备 | 九种酒都亲手酿过 | 银 | brewer_first_brew | 9 个 `brew_complete{wine_type=…}`，全部满足 | P2 | `miningdim:wine_cellar` |
 | `profession/brewer_brilliant` | 闪耀佳酿 | 酿出一瓶闪耀品质的酒 | 白金 | brewer_nine_wines | `brew_complete{min_quality=brilliant}` | P2 | `miningdim:wine_maotai` |
 | `profession/first_tarot` | 命运之轮 | 第一次打出塔罗牌 | 铜 | root | `tarot_play{}` | P2 | `miningdim:tarot_pack_common` |
+| `profession/tarot_stardust` | 星屑 | 22 张大阿卡纳各点亮过至少一种形态 | 金 | root | `tarot_codex{milestone=stardust}` | P2 | `miningdim:tarot_card` |
+| `profession/tarot_shining` | 闪耀星辰 | 点亮过任意一张闪耀品质 | 白金 | root | `tarot_codex{milestone=shining}` | P2 | `miningdim:tarot_card` |
+| `profession/tarot_starmaster` | 星辰之主 | 220 种历史形态全点亮 | 传说 | tarot_stardust | `tarot_codex{milestone=starmaster}` | P2 | `miningdim:tarot_card` |
 | `profession/agent_first_seal` | 初次封印 | 特勤干员第一次封印精英怪的词条 | 银 | root | `agent_seal{}` | P2 | `minecraft:chain` |
 | `profession/first_nano_plate` | 纳米工艺 | 造出第一份纳米维修套件 | 铜 | root | `nano_plate_produced{}` | P2 | `miningdim:nano_plate_low` |
 | `profession/first_ammo` | 第一批弹药 | 在军火台完成第一批弹药生产 | 铜 | root | `munitions_batch{}` | P2 | `miningdim:munitions_bench` |
@@ -504,16 +508,18 @@ CREATE TABLE achievement_point_ledger (
 
 实现口径（P2 职业）：
 
-- 声明在 `datagen.AchievementDeclarations.p2Jobs()`，共 17 条。钓鱼三条（`fishing_trophy`、`journal_50`、`journal_100`）依赖渔夫模块的监听接口，随它另行开放。职业的触发器与统计项分别集中在 `trigger.JobTriggers`、`trigger.JobStats`，与 P1 的 `AchievementTriggers`、`AchievementStats` 并列，同样在 FMLCommonSetup 里登记；监听器的接线在 `trigger.JobHooks`（接口见 9.10 实现口径）。
+- 声明在 `datagen.AchievementDeclarations.p2Jobs()`，当前已开放的职业条目含原有 17 条与三条塔罗图鉴成就；钓鱼三条（`fishing_trophy`、`journal_50`、`journal_100`）依赖渔夫模块的监听接口，随它另行开放。职业的触发器与统计项分别集中在 `trigger.JobTriggers`、`trigger.JobStats`，与 P1 的 `AchievementTriggers`、`AchievementStats` 并列，同样在 FMLCommonSetup 里登记；监听器的接线在 `trigger.JobHooks`（接口见 9.10 实现口径）。
 - `job_level`：只在某条职业经验轨道**升级**的那一刻判定（经验发放监听里发放后等级高于发放前），判定时读全部 8 个职业轨道的当前等级（经验模块的轨道快照），所以"任意职业"和"全部 8 个职业"不论最后升级的是哪个职业都判得出来。`/job set` 与管理员改级不经经验路由，不当场触发，要等下一次任意职业升级，或上线追溯时补查（9.9，补查入口是 `JobHooks.checkJobLevels`）。`job` 与大于 1 的 `jobs_count` 同时写时按写错处理。
 - `farmer_harvests`：每笔来源为 `miningdim:farmer/harvest` 或 `miningdim:farmer/pick` 的经验发放加 1，与这笔经验多少、是否被每日衰减削到接近 0 无关；农夫的兼容来源 `miningdim:legacy/job/farmer` 不算。按来源 id 识别，不依赖农夫模块。
 - `chef_dish`：`min_quality` 按品质档位"不低于"；`target` 是开工时选定的挑战目标品质，精确匹配。
 - `brew_complete`：只在线操作者那一支会触发，与酿酒经验同一口径；操作者离线时酒照常产出但不计。`min_quality` 按 low → brilliant 的顺序比较。
 - `tarot_play`：揭牌结算、出牌经验入账之后触发。演出被打断而退牌的不算；测试模式（`TarotConfig` 的 testMode）下打牌不扣牌、不给经验，也不算。`min_quality` 按 r → shiny 的顺序比较。
+- `tarot_codex`：由 `JobHooks` 订阅 `TarotCodex` 的里程碑回调触发；`milestone` 必填且只接受 `stardust`、`shining`、`starmaster`，分别对应 22 张、任一 SHINY、220 种历史形态的正式 advancement。触发后走原版 advancement 完成事件，奖励进入成就系统待领取流程；社交皮肤再按完成状态同步解锁。
 - `agent_seal`：只在封印申请成功时触发。`affixes` 是词条名数组，封印的词条属于其中之一即成立，空数组按写错处理；`min_star` 看目标精英的星级。
 - `nano_plate_produced`：生产台结算出板（产出大于 0）时触发，不是取板时；闪耀档失败出 0 板不计。`min_tier` 取 `NanoTier` 名的小写（low / medium / high / superior / transcendent / radiant）。
 - `munitions_batch`：军火台的两个经验落账点——手动批次完成、被动挂机结算——各触发一次；一次被动结算可能追算出多批，只算一次。
 - 职业等级的上线追溯（9.9）由静默补发设施调用 `JobHooks.checkJobLevels(ServerPlayer)`：`AchievementBackfill` 的步骤表里"职业等级"一步，排在婚姻指针之后、成就数量之前。GameTest `JobAchievementGameTests.loginBackfillCatchesUpSilentJobLevelChanges` 锁住：静默改到 7 级后跑一次登录追溯，2/4/7 级三条到手、生成待领取奖励、不做全服公告。
+- 塔罗图鉴上线追溯由 `AchievementBackfill` 增加独立的 TarotCodex 步骤，包在同一静默设施内；它只补触发三条 `tarot_codex` 正式成就，成就奖励仍生成待领取记录，社交皮肤由完成状态补对。
 
 ### 9.4 经济（11 条，全部 P2）
 
@@ -632,7 +638,7 @@ P1 只有 30 条成就（扣掉 meta 本身，计数池里只有 29 条），"�
   - 公告：`PlayerAdvancements#award` 在进度刚完成、显示信息要求公告、游戏规则 `announceAdvancements` 为真时调 `PlayerList#broadcastSystemMessage`；开关打开时跳过这一次调用。
   - Toast：客户端只对**非重置**的 `ClientboundUpdateAdvancementsPacket` 里已完成且要求 Toast 的进度弹 Toast（`ClientAdvancements#update`），重置包从不弹。玩家登录后的第一个进度包就是重置包，登录事件又早于它，所以登录时补出的进度本来就随重置包下发。开关打开期间若有进度完成、而这名玩家的第一个包已经发过，下一次 `flushDirty` 改发一个完整的重置包（清空已下发的可见集合，把全部相关树根交给原版重算可见性），内容与登录时的第一个包相同。代价是同一 tick 里别的非静默完成也不再弹 Toast（公告照常）。
   - 奖励、奖励函数与 `AdvancementEarnEvent` 不受影响，待领取奖励和给本人的 [领取] 提示照常生成；由补发连带触发的授予（比如成就数量达标）同样静默。
-- 登录补查由 `trigger.AchievementBackfill.runSilently` 执行（`PlayerProgressHooks` 在登录时调用），步骤依次是：统计项阈值（数据包新增阈值成就的情形）、婚姻指针、职业等级（`JobHooks.checkJobLevels`，读 `wok-experience` 里八条职业轨道的等级触发 `job_level`）、已结算的开箱（开箱模块的只读接口 `bestSettledRarity`，按最高品质补一次 `case_open`，不算正常开箱）、"神射手"任务线（任务模块的只读接口 `chainFinished`）、成就数量。每一步都幂等（原版忽略已完成的条件，奖励按主键去重），每次登录完整跑一遍，不记"已追溯过"；某一步抛出只记日志，不影响后面的步骤。市场成就的登录补查不在这里：离线期间卖出的货是新的成交，照常公告（6.6）。
+- 登录补查由 `trigger.AchievementBackfill.runSilently` 执行（`PlayerProgressHooks` 在登录时调用），步骤依次是：统计项阈值（数据包新增阈值成就的情形）、婚姻指针、职业等级（`JobHooks.checkJobLevels`，读 `wok-experience` 里八条职业轨道的等级触发 `job_level`）、塔罗图鉴里程碑（`TarotCodex` 触发三条 `tarot_codex`）、已结算的开箱（开箱模块的只读接口 `bestSettledRarity`，按最高品质补一次 `case_open`，不算正常开箱）、"神射手"任务线（任务模块的只读接口 `chainFinished`）、成就数量。每一步都幂等（原版忽略已完成的条件，奖励按主键去重），每次登录完整跑一遍，不记"已追溯过"；某一步抛出只记日志，不影响后面的步骤。市场成就的登录补查不在这里：离线期间卖出的货是新的成交，照常公告（6.6）。
 - 新增一类追溯时在 `AchievementBackfill` 的步骤表里加一行，步骤只管触发自己的条件，静默由它统一包住。职业等级这一步已随 `job_level` 触发器接入（见 9.3 实现口径）；钓鱼记录随钓鱼成就接入。登录以外的时刻需要静默授予时，直接用 `AdvancementSilence.run` 包住授予即可。
 
 ### 9.10 P2 需要的监听接口
@@ -650,18 +656,18 @@ P1 只有 30 条成就（扣掉 meta 本身，计数池里只有 29 条），"�
 | `wok-job-fisher` | `FishingEvents.addCatchListener` 和亲手钓到鱼种的只读接口 | `FishCatchService#onSuccessfulCatch` 中记录之后 | 钓鱼成就 |
 | `wok-job-chef` | `ChefEvents.addDishListener` | `SeasoningTableBlockEntity#finishCooking` 发放经验之后 | 厨师成就 |
 | `wok-job-brewer` | `BrewerEvents.addBrewListener` | `BrewingStationBlockEntity#grantBrewXp` 的在线操作者分支 | 酿酒成就 |
-| `wok-job-tarot` | `TarotEvents` 出牌监听 | `TarotPlayHandler#tryPlay` 结算之后 | 塔罗成就 |
+| `wok-job-tarot` | `TarotEvents` 出牌监听、`TarotCodex` 里程碑监听 | `TarotPlayHandler#tryPlay` 结算之后；图鉴新里程碑记录或登录补扫之后 | 塔罗出牌成就、塔罗图鉴成就 |
 | `wok-job-agent` | `AgentEvents` 封印监听 | `AgentSealHandler#requestSeal` 成功分支 | 特勤成就 |
 | `wok-job-armorer` | `EngineerEvents` 生产监听 | `ProductionTableBlockEntity#finishProduction`，产出大于 0 时 | 工程师成就 |
 | `wok-job-munitions` | `MunitionsEvents` 批次监听 | `MunitionsBenchBlockEntity` 两个经验结算点 | 军火成就 |
 
 实现口径（P2 职业相关的七个接口）：
 
-- 接口：`progression.ExperienceServices.registerAwardListener(ExperienceAwardListener)`，回调 `onAward(player, award, levelBefore)`；`job.chef.ChefEvents.addDishListener`（成品品质、挑战目标）；`job.brewer.BrewerEvents.addBrewListener`（酒类型、品质）；`job.tarot.TarotEvents.addPlayListener`（牌号、品质）；`job.agent.AgentEvents.addSealListener`（星级、词条、封印类别）；`job.engineer.EngineerEvents.addPlateListener`（档位、板数）；`job.munitions.MunitionsEvents.addBatchListener`（口径、发数）。都是多播，按注册顺序通知；监听表随进程存在，生产方自己的停服、重置钩子都不清它。
+- 接口：`progression.ExperienceServices.registerAwardListener(ExperienceAwardListener)`，回调 `onAward(player, award, levelBefore)`；`job.chef.ChefEvents.addDishListener`（成品品质、挑战目标）；`job.brewer.BrewerEvents.addBrewListener`（酒类型、品质）；`job.tarot.TarotEvents.addPlayListener`（牌号、品质），以及 `TarotCodex.addListener`（里程碑）；`job.agent.AgentEvents.addSealListener`（星级、词条、封印类别）；`job.engineer.EngineerEvents.addPlateListener`（档位、板数）；`job.munitions.MunitionsEvents.addBatchListener`（口径、发数）。都是多播，按注册顺序通知；监听表随进程存在，生产方自己的停服、重置钩子都不清它。塔罗模块不反向依赖成就或社交模块。
 - 触发点：经验在 `ExperienceRouter#award` 末尾，轨道落账、发放后快照读回之后，路由拒收的发放不通知；厨师在 `finishCooking` 成功分支的最后；酿酒在 `grantBrewXp` 给在线操作者记完经验之后；塔罗在 `tryPlay` 排进演出队列的揭牌回调里、`grantPlayXp` 之后；特勤在 `requestSeal` 成功分支、置位入职标志之后；铸甲师在 `finishProduction` 把板放进输出槽之后；军火在被动结算的末尾与 `finishActiveCraft` 结清之后。
 - 生产方不吞监听器异常（与 `MiningServices.fireInstanceReset` 一致）。成就侧 `trigger.JobHooks` 把每个监听器都包在 `guarded` 里：运行期异常就地捕获并记错误日志（写明接口与玩家），FakePlayer 一律跳过。
 - 各生产方的 `fire*` 方法是 public 的。生产代码里各自只有上面列出的调用点；GameTest 用它模拟结果带随机性的场景（闪耀料理、九种酒、闪耀酒）。
-- `wok-achievement` 为此追加依赖 `wok-experience`、`wok-job-core`、`wok-job-armorer`、`wok-job-chef`、`wok-job-brewer`、`wok-job-tarot`、`wok-job-munitions`、`wok-job-agent`，这些模块都不引用成就模块。GameTest 在 `trigger.JobAchievementGameTests`（batch `achievement_p2_jobs`）。
+- `wok-achievement` 为此追加依赖 `wok-experience`、`wok-job-core`、`wok-job-armorer`、`wok-job-chef`、`wok-job-brewer`、`wok-job-tarot`、`wok-job-munitions`、`wok-job-agent`，这些模块都不引用成就模块；社交模块依赖 `wok-achievement`，塔罗不反向依赖成就或社交。GameTest 在 `trigger.JobAchievementGameTests`（batch `achievement_p2_jobs`）。
 
 实现口径（P2，经济、市场、开箱、任务、婚姻五行）：
 

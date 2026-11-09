@@ -19,12 +19,13 @@ public final class JobTriggers {
     public static final ChefDishTrigger CHEF_DISH = new ChefDishTrigger();
     public static final BrewCompleteTrigger BREW_COMPLETE = new BrewCompleteTrigger();
     public static final TarotPlayTrigger TAROT_PLAY = new TarotPlayTrigger();
+    public static final TarotCodexTrigger TAROT_CODEX = new TarotCodexTrigger();
     public static final AgentSealTrigger AGENT_SEAL = new AgentSealTrigger();
     public static final NanoPlateProducedTrigger NANO_PLATE_PRODUCED = new NanoPlateProducedTrigger();
     /** 在军火台完成一批弹药生产 (被动结算与手动批次两个经验落账点都算)。 */
     public static final PlayerTrigger MUNITIONS_BATCH = new PlayerTrigger(AchievementIds.id("munitions_batch"));
 
-    private static final List<CriterionTrigger<?>> ALL = List.of(JOB_LEVEL, CHEF_DISH, BREW_COMPLETE, TAROT_PLAY,
+    private static final List<CriterionTrigger<?>> ALL = List.of(JOB_LEVEL, CHEF_DISH, BREW_COMPLETE, TAROT_PLAY, TAROT_CODEX,
             AGENT_SEAL, NANO_PLATE_PRODUCED, MUNITIONS_BATCH);
 
     private JobTriggers() {

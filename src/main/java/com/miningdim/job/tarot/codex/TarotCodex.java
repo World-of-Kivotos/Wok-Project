@@ -48,10 +48,11 @@ public final class TarotCodex {
         return fresh;
     }
 
-    /** 记录一张已构造的塔罗牌（身份不可读的裸牌跳过）。 */
+    /** 只补记本人绑定的牌，转手或无主牌不能替他人解锁收集奖励。 */
     public static boolean record(ServerPlayer player, ItemStack stack) {
         if (stack == null || stack.isEmpty() || !(stack.getItem() instanceof TarotCardItem)
-                || !TarotCardItem.hasReadableCardIdentity(stack)) {
+                || !TarotCardItem.hasReadableCardIdentity(stack)
+                || !player.getUUID().equals(TarotCardItem.owner(stack))) {
             return false;
         }
         return record(player, TarotCardItem.cardId(stack), TarotCardItem.quality(stack),

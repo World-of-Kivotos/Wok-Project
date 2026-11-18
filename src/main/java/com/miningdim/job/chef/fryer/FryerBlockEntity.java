@@ -584,7 +584,7 @@ public final class FryerBlockEntity extends BlockEntity implements MenuProvider 
         // 放置方块尚未保存过时，无 FryerVersion 即空初始态。
         if (!tag.contains("FryerVersion")) return;
         FryerPlayerData.number(tag, "FryerVersion", Tag.TAG_INT, 2, 2);
-        // 已发布的 v2 方块档没有检查点版本，按同代旧快照 0 比较。
+        // #99 开发提交 77a74da4 写出的 v2 方块档没有 FryerRevision，与迁移后的同代 journal 按 0 比较。
         revision = tag.contains("FryerRevision")
                 ? FryerPlayerData.number(tag, "FryerRevision", Tag.TAG_LONG, 0, Long.MAX_VALUE) : 0L;
         if (!tag.contains("Inventory", Tag.TAG_COMPOUND)) throw new IllegalArgumentException("Missing fryer inventory");

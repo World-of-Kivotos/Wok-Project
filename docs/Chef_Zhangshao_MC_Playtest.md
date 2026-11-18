@@ -32,7 +32,7 @@
 | 配方 ID | 配料 / 容器 | 产出 | 星级 / motion | 加载条件 |
 | --- | --- | --- | --- | --- |
 | `miningdim:chef/fryer/starter_fried_cod` | `minecraft:cod` ×1 | `minecraft:cooked_cod` ×1 | ★1 / 4 | 无 |
-| `miningdim:chef/fryer/starter_fried_salmon` | `minecraft:salmon` ×1 | `minecraft:cooked_salmon` ×1 | ★2 / 4 | 无 |
+| `miningdim:chef/fryer/starter_fried_salmon` | `minecraft:salmon` ×1 | `minecraft:cooked_salmon` ×1 | ★1 / 4 | 无 |
 | `miningdim:chef/fryer/fried_dumpling` | `casualness_delight:raw_fried_dumpling` ×1 | `casualness_delight:fried_dumpling` ×1 | ★3 / 4 | `casualness_delight` 已加载 |
 | `miningdim:chef/fryer/spring_roll` | `casualness_delight:raw_spring_roll` ×1 | `casualness_delight:spring_roll` ×1 | ★2 / 4 | `casualness_delight` 已加载 |
 | `miningdim:chef/fryer/plate_of_fried_dumpling` | `casualness_delight:fried_dumpling` ×1；容器 `minecraft:bowl` ×1 | `casualness_delight:plate_of_fried_dumpling` ×1 | ★4 / 4 | `casualness_delight` 已加载 |

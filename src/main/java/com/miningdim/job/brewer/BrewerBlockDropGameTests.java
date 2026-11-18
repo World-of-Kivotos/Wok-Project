@@ -3,6 +3,9 @@ package com.miningdim.job.brewer;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.job.brewer.cellar.WineCellarBlockEntity;
 import com.miningdim.job.brewer.cellar.WineCellarRegistry;
+import com.miningdim.job.brewer.station.BrewingStationBlockEntity;
+import com.miningdim.job.brewer.station.BrewingStationRegistry;
+import com.miningdim.job.farmer.item.FarmerItems;
 import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
@@ -27,38 +30,50 @@ import java.util.stream.Collectors;
 @PrefixGameTestTemplate(false)
 public final class BrewerBlockDropGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "brewer")
-    public static void survivalBreakingReturnsCellarAndAllFuel(GameTestHelper helper) {
+    public static void survivalBreakingDropsBothDevicesAndTheirExactContents(GameTestHelper helper) {
         ServerPlayer player = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
         player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.DIAMOND_PICKAXE));
         BlockPos rel = new BlockPos(1, 1, 1);
         BlockPos pos = helper.absolutePos(rel);
         AABB area = new AABB(pos).inflate(0.5D);
-        Set<UUID> prior = helper.getLevel().getEntitiesOfClass(ItemEntity.class, area).stream()
-                .map(ItemEntity::getUUID).collect(Collectors.toSet());
         try {
-            Block block = WineCellarRegistry.WINE_CELLAR.get();
-            helper.setBlock(rel, block.defaultBlockState());
-            var cellar = (WineCellarBlockEntity) helper.getLevel().getBlockEntity(pos);
-            ItemStackHandler inventory = cellar.inventory();
-            ItemStack wine = new ItemStack(BrewerItems.itemFor(WineType.VODKA), 3);
-            WineNbt.stamp(wine, WineQuality.LOW, player.getUUID());
-            inventory.setStackInSlot(0, wine.copy());
-            for (int i = 0; i < 3; i++) {
-                inventory.setStackInSlot(WineCellarBlockEntity.FUEL_SLOT, new ItemStack(BrewerItems.DRIED_WHEAT.get(), 64));
-                cellar.depositFuel();
+            for (boolean cellar : new boolean[]{true, false}) {
+                Set<UUID> prior = helper.getLevel().getEntitiesOfClass(ItemEntity.class, area).stream()
+                        .map(ItemEntity::getUUID).collect(Collectors.toSet());
+                try {
+                    Block block = cellar ? WineCellarRegistry.WINE_CELLAR.get() : BrewingStationRegistry.STATION_BLOCK.get();
+                    helper.setBlock(rel, block.defaultBlockState());
+                    ItemStackHandler inventory = cellar
+                            ? ((WineCellarBlockEntity) helper.getLevel().getBlockEntity(pos)).inventory()
+                            : ((BrewingStationBlockEntity) helper.getLevel().getBlockEntity(pos)).inventory();
+                    ItemStack wine = new ItemStack(BrewerItems.itemFor(WineType.VODKA), 3);
+                    WineNbt.stamp(wine, WineQuality.LOW, player.getUUID());
+                    ItemStack first = cellar ? wine.copy() : new ItemStack(FarmerItems.FARMER_WHEAT.get(), 11);
+                    ItemStack last = cellar ? new ItemStack(BrewerItems.DRIED_WHEAT.get(), 7) : wine.copy();
+                    inventory.setStackInSlot(0, first.copy());
+                    if (cellar) {
+                        WineCellarBlockEntity be = (WineCellarBlockEntity) helper.getLevel().getBlockEntity(pos);
+                        for (int i = 0; i < 3; i++) {
+                            inventory.setStackInSlot(WineCellarBlockEntity.FUEL_SLOT, new ItemStack(BrewerItems.DRIED_WHEAT.get(), 64));
+                            be.depositFuel();
+                        }
+                    }
+                    inventory.setStackInSlot(inventory.getSlots() - 1, last.copy());
+                    helper.assertTrue(player.gameMode.destroyBlock(pos), "survival player breaks " + block);
+                    List<ItemEntity> drops = helper.getLevel().getEntitiesOfClass(ItemEntity.class, area).stream()
+                            .filter(entity -> !prior.contains(entity.getUUID())).toList();
+                    helper.assertTrue(count(drops, first) == first.getCount(), "all inputs/wine drop with their NBT");
+                    helper.assertTrue(count(drops, last) == last.getCount() + (cellar ? 192 : 0), "all fuel/output drops exactly once");
+                    helper.assertTrue(drops.stream().allMatch(drop -> drop.getItem().getCount() <= 64),
+                            "all dropped stacks respect normal item limits");
+                    helper.assertTrue(count(drops, new ItemStack(block)) == 1, "the device itself drops exactly once: " + block);
+                } finally {
+                    helper.getLevel().removeBlock(pos, false);
+                    helper.getLevel().getEntitiesOfClass(ItemEntity.class, area).stream()
+                            .filter(entity -> !prior.contains(entity.getUUID())).forEach(ItemEntity::discard);
+                }
             }
-            ItemStack wheat = new ItemStack(BrewerItems.DRIED_WHEAT.get(), 7);
-            inventory.setStackInSlot(WineCellarBlockEntity.FUEL_SLOT, wheat.copy());
-            helper.assertTrue(player.gameMode.destroyBlock(pos), "生存玩家能正常拆除酒窖");
-            List<ItemEntity> drops = helper.getLevel().getEntitiesOfClass(ItemEntity.class, area).stream()
-                    .filter(entity -> !prior.contains(entity.getUUID())).toList();
-            helper.assertTrue(count(drops, wine) == 3 && count(drops, wheat) == 199, "酒、交互槽和储备应足数返还");
-            helper.assertTrue(count(drops, new ItemStack(block)) == 1, "返还酒窖方块");
-            helper.assertTrue(drops.stream().allMatch(drop -> drop.getItem().getCount() <= 64), "返还物遵守堆叠上限");
         } finally {
-            helper.getLevel().removeBlock(pos, false);
-            helper.getLevel().getEntitiesOfClass(ItemEntity.class, area).stream()
-                    .filter(entity -> !prior.contains(entity.getUUID())).forEach(ItemEntity::discard);
             MockGameTestPlayers.logout(player);
         }
         helper.succeed();

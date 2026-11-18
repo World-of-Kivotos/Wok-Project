@@ -22,7 +22,7 @@ import java.util.function.Predicate;
  * 开服标签自检 (Spoilage_Granary_DesignSpec「安全阀」): 整合包少装一个模组就可能让整张标签加载失败,
  * 结果是腐肉、金苹果被销毁, 或者小麦永远不坏 —— 这两种都会毁掉存档里的东西。
  *
- * 所以每次开服逐条核对下面八项, 有一条不对就**自动转成试运行**并提醒在线 OP:
+ * 所以每次开服逐条核对下面八项, 失败时仅将开启档降为试运行, 并提醒在线 OP:
  * 腐肉 / 蜘蛛眼 / 金苹果 / 蜂蜜瓶必须是豁免, 小麦 / 农夫小麦必须是谷物, 生牛肉必须是生鲜, 面包必须是熟食。
  *
  * 判定器是参数而不是内部直取, 是为了让 GameTest 能喂假的判定器验证「有一条不对就报出来」这条路径本身
@@ -65,22 +65,24 @@ public final class FreshnessSelfCheck {
         return problems;
     }
 
-    /** 生产入口: 自检 + 有问题就转试运行并提醒 OP。 */
+    /** 生产入口: 自检失败时仅降级开启档, 并提醒 OP。 */
     public static List<String> runOnServerStart(MinecraftServer server) {
         List<String> problems = verify(FreshnessCategories::isExempt, FreshnessCategories::categoryOf);
         if (problems.isEmpty()) {
             LOGGER.info("[miningdim] freshness self-check: 标签自检全部通过 ({} 项)", 8);
             return problems;
         }
-        // 有一条不对就退回试运行: 试运行只盖章、不换腐烂物、不拦截, 于是最坏的后果只是统计不准。
         FreshnessConfig.Mode previous = FreshnessConfig.MODE.get();
-        FreshnessConfig.MODE.set(FreshnessConfig.Mode.DRY_RUN);
-        LOGGER.error("[miningdim] freshness self-check FAILED ({} 项), 总开关已从 {} 退回试运行; "
+        if (previous == FreshnessConfig.Mode.ON) {
+            FreshnessConfig.MODE.set(FreshnessConfig.Mode.DRY_RUN);
+        }
+        FreshnessConfig.Mode current = FreshnessConfig.MODE.get();
+        LOGGER.error("[miningdim] freshness self-check FAILED ({} 项), 模式 {} -> {}; "
                         + "逐条原因: {}. 用 /freshness dump 导出「物品 -> 类别」清单人工核对",
-                problems.size(), previous, String.join("; ", problems));
+                problems.size(), previous, current, String.join("; ", problems));
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             if (player.hasPermissions(2)) {
-                player.sendSystemMessage(Component.literal("[miningdim] 腐烂系统自检未通过, 已退回试运行: "
+                player.sendSystemMessage(Component.literal("[miningdim] 腐烂系统自检未通过, 当前模式 " + current + ": "
                         + String.join("; ", problems)));
             }
         }

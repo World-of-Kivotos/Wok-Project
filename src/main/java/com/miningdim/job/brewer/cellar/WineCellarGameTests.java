@@ -240,7 +240,7 @@ public final class WineCellarGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void fuelSlotCapacityCoversFullDayAtMainlineThreshold(GameTestHelper helper) {
         BrewerConfig.ensureLoadedForTest();
-        // 默认配置下满窖 192 瓶 v10，分别验证非满月和满月单步一天。
+        // 玩家可离线一天后补结算，也可保持区块加载，每 100 tick 结算一次。
         List<CellarSettle.BottleState> tenYearBottles = java.util.Collections.nCopies(12,
                 new CellarSettle.BottleState(BrewerConstants.VINTAGE_LAYER_T1, false, 16));
         for (int phase : new int[]{NO_MOON, FULL_MOON}) {
@@ -252,6 +252,19 @@ public final class WineCellarGameTests {
                 helper.assertTrue(!bottle.spoiled() && Math.abs(bottle.vintage() - vintage) < EPS,
                         "full cellar ages without decay");
             }
+        }
+        List<CellarSettle.BottleState> onlineBottles = tenYearBottles;
+        int fuel = BrewerConstants.FUEL_SLOT_CAPACITY;
+        double debt = 0.99D;
+        for (long elapsed = 0; elapsed < DAY; elapsed += 5000L) {
+            CellarSettle.Result r = CellarSettle.settle(onlineBottles, 5000L, fuel, FULL_MOON, debt);
+            onlineBottles = r.bottles();
+            fuel -= r.fuelConsumed();
+            debt = r.fuelDebt();
+        }
+        for (CellarSettle.BottleState bottle : onlineBottles) {
+            helper.assertTrue(!bottle.spoiled() && Math.abs(bottle.vintage() - 11.25D) < EPS,
+                    "full reserve must support a full day of online settlement including carried debt");
         }
         helper.succeed();
     }

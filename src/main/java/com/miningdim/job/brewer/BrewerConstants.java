@@ -40,8 +40,8 @@ public final class BrewerConstants {
     /** 酒窖箱的陈酿酒槽数 (干小麦燃料槽另算)。12 瓶高年份满产 ≈ 满级 L10 农夫供给 (对标农夫产量, 见设计文档)。 */
     public static final int CELLAR_WINE_SLOTS = 12;
 
-    /** 酒窖总燃料容量：192 瓶 v10 满月单次一天结算消耗 12 × 16 × (16 + 5 × 10²) × 1.25 = 123840。 */
-    public static final int FUEL_SLOT_CAPACITY = 123840;
+    /** 192 瓶从 v10 连续满月陈酿一天的积分上界为 139465，计入不足 1 的旧债后向 64 件整组取整。 */
+    public static final int FUEL_SLOT_CAPACITY = 139520;
 
     // ---- 闪耀永久增益 (一条命 = 永久层数系统, 阶段 5(iii)(iv)) ----
 

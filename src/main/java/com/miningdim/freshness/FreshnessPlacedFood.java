@@ -158,7 +158,8 @@ public final class FreshnessPlacedFood {
      */
     public static Optional<Placed> takeForLoot(LootContext context) {
         Vec3 origin = context.getParamOrNull(LootContextParams.ORIGIN);
-        if (origin == null) {
+        BlockState state = context.getParamOrNull(LootContextParams.BLOCK_STATE);
+        if (origin == null || state == null) {
             return Optional.empty();
         }
         BlockPos pos = BlockPos.containing(origin);
@@ -166,8 +167,7 @@ public final class FreshnessPlacedFood {
         if (found.isEmpty()) {
             return Optional.empty();
         }
-        BlockState state = context.getParamOrNull(LootContextParams.BLOCK_STATE);
-        ResourceLocation current = state == null ? null : ForgeRegistries.BLOCKS.getKey(state.getBlock());
+        ResourceLocation current = ForgeRegistries.BLOCKS.getKey(state.getBlock());
         if (current == null || !current.equals(found.get().block())) {
             forget(context.getLevel().dimension(), pos);
             return Optional.empty();

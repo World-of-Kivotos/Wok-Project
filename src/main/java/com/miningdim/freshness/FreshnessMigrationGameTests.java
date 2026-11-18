@@ -1,6 +1,8 @@
 package com.miningdim.freshness;
 
 import com.miningdim.core.MiningConstants;
+import com.mojang.authlib.GameProfile;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
@@ -9,9 +11,21 @@ import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.chunk.ChunkStatus;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraftforge.event.entity.EntityJoinLevelEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.level.ChunkDataEvent;
+import net.minecraftforge.event.level.ChunkEvent;
+import net.minecraftforge.event.level.LevelEvent;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -322,15 +336,11 @@ public final class FreshnessMigrationGameTests {
             helper.assertTrue(reloadedChunk.getCompound("miningdim_fresh_mig").getInt("Version") == 1,
                     "marker 应持久保存迁移格式版本");
 
-            FreshnessMigrationHooks.resetWalkedChunksForTest();
-            FreshnessConfig.MODE.set(FreshnessConfig.Mode.OFF);
-            FreshnessMigrationHooks.onChunkLoad(new net.minecraftforge.event.level.ChunkDataEvent.Load(
-                    chunk, reloadedChunk, net.minecraft.world.level.chunk.ChunkStatus.ChunkType.LEVELCHUNK));
             FreshnessMigrationHooks.onChunkUnload(new net.minecraftforge.event.level.ChunkEvent.Unload(chunk));
             CompoundTag unloadSave = new CompoundTag();
             FreshnessMigrationHooks.onChunkSave(new net.minecraftforge.event.level.ChunkDataEvent.Save(chunk, level, unloadSave));
             helper.assertTrue(FreshnessMigrationHooks.hasCurrentMigrationMarker(unloadSave, ENABLED_AT),
-                    "暂停迁移期间加载再卸载，同步保存仍须写回原迁移标记");
+                    "卸载后的同步保存仍能读取 marker");
             FreshnessMigrationHooks.finishChunkUnloads();
             CompoundTag afterCleanup = new CompoundTag();
             FreshnessMigrationHooks.onChunkSave(new net.minecraftforge.event.level.ChunkDataEvent.Save(chunk, level, afterCleanup));
@@ -350,6 +360,74 @@ public final class FreshnessMigrationGameTests {
             helper.succeed();
         } finally {
             FreshnessConfig.MODE.set(previousMode);
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void reopeningOnlyMigratesPreviouslyUnseenStorage(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        LevelChunk chunk = level.getChunkAt(helper.absolutePos(new BlockPos(1, 1, 1)));
+        FreshnessMigrationData original = FreshnessMigrationData.get(level);
+        FreshnessConfig.Mode originalMode = FreshnessConfig.MODE.get();
+        boolean originalMigration = FreshnessConfig.MIGRATION_ENABLED.get();
+        FreshnessMigrationData trial = new FreshnessMigrationData();
+        ServerPlayer player = new ServerPlayer(level.getServer(), level, new GameProfile(UUID.randomUUID(), "PausedFood"));
+        trial.resolveEnabledAt(ENABLED_AT, 0);
+        trial.captureRosterIfNeeded(List.of(player.getUUID()));
+        level.getDataStorage().set(FreshnessConstants.MIGRATION_DATA_NAME, trial);
+        try {
+            FreshnessConfig.MODE.set(FreshnessConfig.Mode.OFF);
+            FreshnessConfig.MIGRATION_ENABLED.set(true);
+            FreshnessMigrationHooks.onLevelLoad(new LevelEvent.Load(level));
+            CompoundTag chunkData = new CompoundTag();
+            ListTag food = new ListTag();
+            food.add(new ItemStack(Items.BREAD).save(new CompoundTag()));
+            chunkData.put("Items", food);
+            CompoundTag untouched = chunkData.copy();
+            FreshnessMigrationHooks.onChunkLoad(new ChunkDataEvent.Load(chunk, chunkData, ChunkStatus.ChunkType.LEVELCHUNK));
+            FreshnessMigrationHooks.onChunkSave(new ChunkDataEvent.Save(chunk, level, chunkData));
+            helper.assertTrue(FreshnessMigrationHooks.hasCurrentMigrationMarker(chunkData, ENABLED_AT),
+                    "已经启用过的世界在暂停期间保存区块时记录代号");
+            FreshnessMigrationHooks.onChunkUnload(new ChunkEvent.Unload(chunk));
+            FreshnessMigrationHooks.finishChunkUnloads();
+
+            ItemEntity dropped = new ItemEntity(level, 0, 0, 0, new ItemStack(Items.BREAD));
+            FreshnessMigrationHooks.onEntityJoinLevel(new EntityJoinLevelEvent(dropped, level, false));
+            CompoundTag savedEntity = dropped.saveWithoutId(new CompoundTag());
+            var login = new PlayerEvent.PlayerLoggedInEvent(player);
+            player.getInventory().setItem(0, new ItemStack(Items.BREAD));
+            ItemStack stamped = new ItemStack(Items.BREAD);
+            FreshnessData.stampAt(stamped, ENABLED_AT, 3);
+            player.getEnderChestInventory().setItem(0, stamped);
+            FreshnessMigrationHooks.onPlayerLoggedIn(login);
+
+            FreshnessConfig.MODE.set(FreshnessConfig.Mode.ON);
+            FreshnessMigrationHooks.onChunkLoad(new ChunkDataEvent.Load(chunk, chunkData, ChunkStatus.ChunkType.LEVELCHUNK));
+            helper.assertTrue(!FreshnessData.isStamped(ItemStack.of(food.getCompound(0))), "已经访问的区块等待常规观察");
+            FreshnessMigrationHooks.onChunkLoad(new ChunkDataEvent.Load(chunk, untouched, ChunkStatus.ChunkType.LEVELCHUNK));
+            helper.assertTrue(FreshnessData.isMigrated(ItemStack.of(untouched.getList("Items", Tag.TAG_COMPOUND).getCompound(0))),
+                    "未访问过的旧区块仍按原启用日迁移");
+            ItemEntity reloaded = new ItemEntity(EntityType.ITEM, level);
+            reloaded.load(savedEntity);
+            FreshnessMigrationHooks.onEntityJoinLevel(new EntityJoinLevelEvent(reloaded, level, true));
+            helper.assertTrue(!FreshnessData.isStamped(reloaded.getItem()), "暂停期间生成的实体重载时不得回溯盖章");
+            var oldDrop = new ItemEntity(level, 0, 0, 0, new ItemStack(Items.BREAD));
+            FreshnessMigrationHooks.onEntityJoinLevel(new EntityJoinLevelEvent(oldDrop, level, true));
+            helper.assertTrue(FreshnessData.isMigrated(oldDrop.getItem()), "首次从旧存档读取的实体仍需迁移");
+            FreshnessMigrationHooks.onPlayerLoggedIn(login);
+            ItemStack preserved = player.getEnderChestInventory().getItem(0);
+            helper.assertTrue(!FreshnessData.isStamped(player.getInventory().getItem(0))
+                            && FreshnessData.batchMinute(preserved) == ENABLED_AT && FreshnessData.stoppedHours(preserved) == 3,
+                    "已登录老玩家的无章货等待常规观察，末影箱里的已有章保持原值");
+            helper.succeed();
+        } finally {
+            FreshnessMigrationHooks.onChunkUnload(new ChunkEvent.Unload(chunk));
+            FreshnessMigrationHooks.finishChunkUnloads();
+            level.getDataStorage().set(FreshnessConstants.MIGRATION_DATA_NAME, original);
+            FreshnessConfig.MODE.set(FreshnessConfig.Mode.OFF);
+            FreshnessMigrationHooks.onLevelLoad(new LevelEvent.Load(level));
+            FreshnessConfig.MODE.set(originalMode);
+            FreshnessConfig.MIGRATION_ENABLED.set(originalMigration);
         }
     }
 

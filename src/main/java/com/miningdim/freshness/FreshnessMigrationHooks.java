@@ -56,7 +56,10 @@ public final class FreshnessMigrationHooks {
     private static final Map<ChunkIdentity, CompoundTag> PENDING_MARKERS = new ConcurrentHashMap<>();
     private static final Set<ChunkIdentity> PENDING_UNLOADS = new LinkedHashSet<>();
     private static final String CHUNK_MIGRATION_MARKER = "miningdim_fresh_mig";
+    private static final String ENTITY_MIGRATION_GENERATION = "miningdim_fresh_seen_generation";
     private static final int CHUNK_MIGRATION_MARKER_VERSION = 1;
+    // Set on the server thread at world load, before chunk IO. Pausing does not begin a new generation.
+    private static volatile long currentGeneration = FreshnessMigrationData.UNSET_MINUTE;
 
     private record ChunkIdentity(ResourceKey<Level> dimension, long chunkPos) {
     }
@@ -91,10 +94,12 @@ public final class FreshnessMigrationHooks {
     /** LevelEvent.Load 在主线程、启动区块加载之前发布; 在这里先初始化启动补偿与迁移名单。 */
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void onLevelLoad(LevelEvent.Load event) {
-        if (enabled() && event.getLevel() instanceof ServerLevel level
-                && level.dimension() == Level.OVERWORLD) {
-            FreshnessMigrationData data = ensureMigrationStartedSynchronized(level);
-            logMigrationStarted(data);
+        if (event.getLevel() instanceof ServerLevel level && level.dimension() == Level.OVERWORLD) {
+            if (enabled()) {
+                logMigrationStarted(ensureMigrationStartedSynchronized(level));
+            } else {
+                currentGeneration = FreshnessMigrationData.get(level).enabledAtMinute();
+            }
         }
     }
 
@@ -109,7 +114,7 @@ public final class FreshnessMigrationHooks {
             LOGGER.info("[miningdim] freshness clock: 停服补偿 {} 小时 (迁移启动时提前完成)", startupCompensation);
         }
         FreshnessMigrationData data = FreshnessMigrationData.get(overworld);
-        data.resolveEnabledAt(clock.nowMinute(),
+        currentGeneration = data.resolveEnabledAt(clock.nowMinute(),
                 FreshnessConfig.MIGRATION_ENABLED_AT_MINUTE.get());
         if (!data.rosterCaptured()) {
             data.captureRosterIfNeeded(scanExistingPlayers(server));
@@ -168,7 +173,11 @@ public final class FreshnessMigrationHooks {
         long chunkPos = event.getChunk().getPos().toLong();
         if (!enabled()) {
             // Forge rebuilds the chunk NBT root at save time, even while migration is paused.
-            if (chunkData.contains(CHUNK_MIGRATION_MARKER, net.minecraft.nbt.Tag.TAG_COMPOUND)) {
+            long generation = currentGeneration;
+            if (generation != FreshnessMigrationData.UNSET_MINUTE && !hasCurrentMigrationMarker(chunkData, generation)) {
+                rememberMarker(level, chunkPos, generation);
+                event.getChunk().setUnsaved(true);
+            } else if (chunkData.contains(CHUNK_MIGRATION_MARKER, net.minecraft.nbt.Tag.TAG_COMPOUND)) {
                 rememberMarker(level, chunkPos, chunkData.getCompound(CHUNK_MIGRATION_MARKER).copy());
             }
             return;
@@ -184,6 +193,7 @@ public final class FreshnessMigrationHooks {
         }
         int migrated = FreshnessMigration.migrateTag(chunkData, enabledAt, graceHours(), stopCapHours());
         rememberMarker(level, chunkPos, enabledAt);
+        event.getChunk().setUnsaved(true);
         if (migrated > 0) {
             LOGGER.info("[miningdim] freshness migration: 区块 {} 里迁移了 {} 件老货 (启用时刻剩 {} 小时)",
                     event.getChunk().getPos(), migrated, graceHours());
@@ -193,11 +203,10 @@ public final class FreshnessMigrationHooks {
     /** 新生成区块不含启用前遗留货物, 只记录代号供下一次 ChunkDataEvent.Save 持久化。 */
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void onNewChunk(ChunkEvent.Load event) {
-        if (!event.isNewChunk() || !enabled() || !(event.getLevel() instanceof ServerLevel level)) {
+        if (!event.isNewChunk() || !(event.getLevel() instanceof ServerLevel level)) {
             return;
         }
-        FreshnessMigrationData data = ensureMigrationStartedSynchronized(level);
-        long enabledAt = data.enabledAtMinute();
+        long enabledAt = enabled() ? ensureMigrationStartedSynchronized(level).enabledAtMinute() : currentGeneration;
         if (enabledAt != FreshnessMigrationData.UNSET_MINUTE) {
             rememberMarker(level, event.getChunk().getPos().toLong(), enabledAt);
         }
@@ -249,6 +258,7 @@ public final class FreshnessMigrationHooks {
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void onServerStopped(ServerStoppedEvent event) {
         clearMarkers();
+        currentGeneration = FreshnessMigrationData.UNSET_MINUTE;
     }
 
     private static ChunkIdentity identity(ServerLevel level, long chunkPos) {
@@ -282,15 +292,27 @@ public final class FreshnessMigrationHooks {
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void onEntityJoinLevel(EntityJoinLevelEvent event) {
-        if (!enabled() || !event.loadedFromDisk() || !(event.getLevel() instanceof ServerLevel level)) {
+        if (!(event.getLevel() instanceof ServerLevel)) {
             return;
         }
-        FreshnessMigrationData data = FreshnessMigrationData.get(level);
-        long enabledAt = data.enabledAtMinute();
+        long enabledAt = currentGeneration;
         if (enabledAt == FreshnessMigrationData.UNSET_MINUTE) {
             return;
         }
-        int migrated = migrateEntity(event.getEntity(), enabledAt);
+        Entity entity = event.getEntity();
+        if (entity instanceof net.minecraft.world.entity.player.Player
+                || !(entity instanceof ItemEntity || entity instanceof ItemFrame
+                || entity instanceof net.minecraft.world.entity.LivingEntity || entity instanceof Container
+                || entity.getCapability(ForgeCapabilities.ITEM_HANDLER).isPresent())) {
+            return;
+        }
+        CompoundTag persisted = entity.getPersistentData();
+        if (persisted.getLong(ENTITY_MIGRATION_GENERATION) == enabledAt) {
+            return;
+        }
+        // Newly spawned or observed during a pause: later disk loads must not backdate its inventory.
+        int migrated = enabled() && event.loadedFromDisk() ? migrateEntity(entity, enabledAt) : 0;
+        persisted.putLong(ENTITY_MIGRATION_GENERATION, enabledAt);
         if (migrated > 0) {
             LOGGER.info("[miningdim] freshness migration: 实体 {} 里迁移了 {} 件老货",
                     event.getEntity().getType(), migrated);
@@ -360,7 +382,7 @@ public final class FreshnessMigrationHooks {
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void onPlayerLoggedIn(net.minecraftforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent event) {
-        if (!enabled() || !(event.getEntity() instanceof ServerPlayer player)) {
+        if (!(event.getEntity() instanceof ServerPlayer player)) {
             return;
         }
         ServerLevel level = player.serverLevel();
@@ -370,6 +392,10 @@ public final class FreshnessMigrationHooks {
                 || !data.isInRoster(player.getUUID())
                 || data.isPlayerMigrated(player.getUUID())) {
             return; // 新玩家: 照常按现在盖章 (观察点那一条路), 不需要也不应该迁移
+        }
+        if (!enabled()) {
+            data.markPlayerMigrated(player.getUUID());
+            return;
         }
         int migrated = FreshnessMigration.migrateContainer(player.getInventory(), enabledAt,
                 graceHours(), stopCapHours());

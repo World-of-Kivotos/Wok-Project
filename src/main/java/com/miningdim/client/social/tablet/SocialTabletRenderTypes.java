@@ -9,6 +9,7 @@ import net.minecraft.resources.ResourceLocation;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 社交平板 3D 层的渲染类型。
@@ -24,7 +25,7 @@ import java.util.Map;
  */
 final class SocialTabletRenderTypes extends RenderType {
     private static final Map<Long, RenderType> FRONTS = new HashMap<>();
-    private static final Map<Integer, RenderType> BROWSERS = new HashMap<>();
+    private static final Map<Integer, RenderType> BROWSERS = new ConcurrentHashMap<>();
 
     private SocialTabletRenderTypes() {
         super("miningdim_social_tablet_unused", DefaultVertexFormat.POSITION, VertexFormat.Mode.QUADS,

@@ -51,12 +51,21 @@ public final class BrewerBlockDropGameTests {
                     ItemStack first = cellar ? wine.copy() : new ItemStack(FarmerItems.FARMER_WHEAT.get(), 11);
                     ItemStack last = cellar ? new ItemStack(BrewerItems.DRIED_WHEAT.get(), 7) : wine.copy();
                     inventory.setStackInSlot(0, first.copy());
+                    if (cellar) {
+                        WineCellarBlockEntity be = (WineCellarBlockEntity) helper.getLevel().getBlockEntity(pos);
+                        for (int i = 0; i < 3; i++) {
+                            inventory.setStackInSlot(WineCellarBlockEntity.FUEL_SLOT, new ItemStack(BrewerItems.DRIED_WHEAT.get(), 64));
+                            be.depositFuel();
+                        }
+                    }
                     inventory.setStackInSlot(inventory.getSlots() - 1, last.copy());
                     helper.assertTrue(player.gameMode.destroyBlock(pos), "survival player breaks " + block);
                     List<ItemEntity> drops = helper.getLevel().getEntitiesOfClass(ItemEntity.class, area).stream()
                             .filter(entity -> !prior.contains(entity.getUUID())).toList();
                     helper.assertTrue(count(drops, first) == first.getCount(), "all inputs/wine drop with their NBT");
-                    helper.assertTrue(count(drops, last) == last.getCount(), "all fuel/output drops exactly once");
+                    helper.assertTrue(count(drops, last) == last.getCount() + (cellar ? 192 : 0), "all fuel/output drops exactly once");
+                    helper.assertTrue(drops.stream().allMatch(drop -> drop.getItem().getCount() <= 64),
+                            "all dropped stacks respect normal item limits");
                     helper.assertTrue(count(drops, new ItemStack(block)) == 1, "the device itself drops exactly once: " + block);
                 } finally {
                     helper.getLevel().removeBlock(pos, false);

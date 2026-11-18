@@ -504,6 +504,8 @@ CREATE TABLE achievement_point_ledger (
 | `profession/first_ammo` | 第一批弹药 | 在军火台完成第一批弹药生产 | 铜 | root | `munitions_batch{}` | P2 | `miningdim:munitions_bench` |
 
 - 职业满级是 **10 级**，共 **8 个**职业 id：工程师和铸甲师是同一个职业，`JobId` 里只有一个。
+- 塔罗图鉴产品决策（2026-11-18 本轮修复任务确认）：保留星屑（金，50 点）、闪耀星辰（白金，100 点）、星辰之主（传说，800 点），合计 950 点。三条均公开显示（`hidden=false`），默认开启图鉴成就与社交主题联动（`codexUnlockThemes=true`）；旧 PR 描述中的“隐藏成就”属文案错误。
+- 社交堆叠 #84 至 #90 修复、复审通过后才按顺序整栈合入，不单独发布只有奖励描述的前层；主题开关和皮肤描述因此保留在前层。该安排依据 [维护者对 #84 的处理意见](https://github.com/World-of-Kivotos/Wok-Project/pull/84#issuecomment-6474596020)，实际合并仍须满足 dev 的维护者批准规则。
 - Tide 模组**常驻**（2026-09-26 确认），装上后图鉴共 75 种，所以 `min_catalog=75`。其中 `tide:midas_fish` 需要鱼竿幸运 7 以上，要在实现期确认生存模式下能否达到；达不到就把它排除出"图鉴大全"的统计范围（TODO）。
 
 实现口径（P2 职业）：

@@ -2,9 +2,13 @@ package com.miningdim.job.brewer.cellar;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Containers;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.item.ItemStack;
+import com.miningdim.job.brewer.BrewerItems;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.EntityBlock;
@@ -42,6 +46,33 @@ public final class WineCellarBlock extends Block implements EntityBlock {
             NetworkHooks.openScreen(serverPlayer, be, buf -> buf.writeBlockPos(pos));
         }
         return InteractionResult.CONSUME;
+    }
+
+    @Override
+    public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean moved) {
+        if (!state.is(newState.getBlock()) && !level.isClientSide
+                && level.getBlockEntity(pos) instanceof WineCellarBlockEntity be) {
+            be.settleNow();
+            int reserve = be.drainFuelReserve();
+            while (reserve > 0) {
+                int count = Math.min(64, reserve);
+                double width = net.minecraft.world.entity.EntityType.ITEM.getWidth();
+                double spread = 1.0D - width;
+                ItemEntity drop = new ItemEntity(level,
+                        pos.getX() + level.random.nextDouble() * spread + width / 2.0D,
+                        pos.getY() + level.random.nextDouble() * spread,
+                        pos.getZ() + level.random.nextDouble() * spread + width / 2.0D,
+                        new ItemStack(BrewerItems.DRIED_WHEAT.get(), count));
+                drop.setDeltaMovement(level.random.triangle(0.0D, 0.11485D),
+                        level.random.triangle(0.2D, 0.11485D), level.random.triangle(0.0D, 0.11485D));
+                level.addFreshEntity(drop);
+                reserve -= count;
+            }
+            for (int slot = 0; slot < be.inventory().getSlots(); slot++) {
+                Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), be.inventory().getStackInSlot(slot));
+            }
+        }
+        super.onRemove(state, level, pos, newState, moved);
     }
 
     @Nullable

@@ -106,6 +106,13 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
         setChanged();
     }
 
+    public int drainFuelReserve() {
+        int count = fuelReserve;
+        fuelReserve = 0;
+        setChanged();
+        return count;
+    }
+
     // ---- 服务端 tick: 节流唤醒, 按现实挂钟差懒结算陈酿 ----
 
     public void serverTick() {

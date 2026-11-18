@@ -8,6 +8,7 @@ import com.miningdim.testutil.MockGameTestPlayers;
 import com.miningdim.webui.server.WebUiServerDispatcher;
 import com.miningdim.webui.server.WebUiBusinessException;
 import net.minecraft.core.UUIDUtil;
+import com.mojang.authlib.GameProfile;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.FriendlyByteBuf;
@@ -232,6 +233,10 @@ public final class SocialActionsResponseSizeGameTests {
             Path file = player.server.getWorldPath(LevelResource.PLAYER_DATA_DIR).resolve(target + ".dat");
             Files.createDirectories(file.getParent());
             Files.createFile(file);
+            player.server.getProfileCache().add(new GameProfile(target, name));
+            String noFileName = "Ghost" + UUID.randomUUID().toString().substring(0, 8);
+            UUID noFileId = UUID.randomUUID();
+            player.server.getProfileCache().add(new GameProfile(noFileId, noFileName));
             try {
                 JsonObject payload = new JsonObject();
                 payload.addProperty("name", name);
@@ -239,8 +244,8 @@ public final class SocialActionsResponseSizeGameTests {
                 helper.assertTrue(store.outgoingIds(player.getUUID()).equals(List.of(target))
                                 && store.incomingIds(target).equals(List.of(player.getUUID()))
                                 && name.equals(store.profile(target).name),
-                        "an uncached former player must receive the request at the exact-case offline UUID");
-                for (String unknown : List.of(name.toLowerCase(Locale.ROOT), name + "x")) {
+                        "a cached former player must receive the request at the exact-case offline UUID");
+                for (String unknown : List.of(name.toLowerCase(Locale.ROOT), name + "x", noFileName)) {
                     SocialActions.clearPlayerCooldowns(player.getUUID());
                     payload.addProperty("name", unknown);
                     try {
@@ -251,6 +256,7 @@ public final class SocialActionsResponseSizeGameTests {
                                 "unknown names must return PLAYER_NOT_FOUND");
                     }
                     helper.assertTrue(store.profile(UUIDUtil.createOfflinePlayerUUID(unknown)) == null
+                                    && store.profile(noFileId) == null
                                     && store.outgoingIds(player.getUUID()).equals(List.of(target)),
                             "rejected names must not create ghost profiles or friend requests");
                 }

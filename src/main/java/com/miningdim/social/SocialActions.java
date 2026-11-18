@@ -10,13 +10,15 @@ import com.miningdim.webui.server.WebUiBusinessException;
 import com.miningdim.webui.server.WebUiErrorCodes;
 import com.miningdim.webui.server.WebUiServerDispatcher;
 import com.mojang.authlib.GameProfile;
-import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.storage.LevelResource;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -428,16 +430,24 @@ public final class SocialActions {
         if (online != null && PlayerLoginGate.allows(online)) {
             return new ResolvedTarget(online.getUUID(), online.getName().getString());
         }
-        if (server.usesAuthentication()) {
-            Optional<GameProfile> cached = server.getProfileCache().get(name);
-            if (cached.isPresent() && cached.get().getId() != null) {
-                return new ResolvedTarget(cached.get().getId(), cached.get().getName());
-            }
-        } else {
-            // 离线 UUID 区分名字大小写；缓存会转小写并为未进服名字虚构档案。
-            UUID uuid = UUIDUtil.createOfflinePlayerUUID(name);
-            if (Files.isRegularFile(server.getWorldPath(LevelResource.PLAYER_DATA_DIR).resolve(uuid + ".dat"))) {
-                return new ResolvedTarget(uuid, name);
+        Path playerData = server.getWorldPath(LevelResource.PLAYER_DATA_DIR);
+        if (Files.isDirectory(playerData)) {
+            try (var files = Files.list(playerData)) {
+                Optional<GameProfile> match = files.filter(Files::isRegularFile)
+                        .map(path -> path.getFileName().toString())
+                        .filter(file -> file.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.dat"))
+                        .map(file -> UUID.fromString(file.substring(0, 36)))
+                        .map(server.getProfileCache()::get)
+                        .flatMap(Optional::stream)
+                        .filter(profile -> server.usesAuthentication()
+                                ? profile.getName().equalsIgnoreCase(name) : profile.getName().equals(name))
+                        .findFirst();
+                if (match.isPresent()) {
+                    GameProfile profile = match.get();
+                    return new ResolvedTarget(profile.getId(), profile.getName());
+                }
+            } catch (IOException failure) {
+                throw new UncheckedIOException("Unable to inspect player data for social lookup", failure);
             }
         }
         throw new SocialException("PLAYER_NOT_FOUND", "找不到该玩家");
@@ -529,7 +539,7 @@ public final class SocialActions {
         }
     }
 
-    /** 目标玩家解析结果；离线服只接受原样名字对应的既有玩家存档。 */
+    /** 目标玩家解析结果；非在线玩家须有本服存档和缓存身份。 */
     private record ResolvedTarget(UUID uuid, String name) {
     }
 }

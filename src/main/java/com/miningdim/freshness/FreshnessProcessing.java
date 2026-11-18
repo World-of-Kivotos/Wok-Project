@@ -84,8 +84,7 @@ public final class FreshnessProcessing {
 
         double ratio = Math.min(1.0D, worstRatio + bonus);
         // 产物剩余小时 = 产物保质期 × 比例, 向下取整, 最少 1 小时。
-        long productRemainingMinutes = Math.max(60L,
-                (long) Math.floor(productShelfLifeHours * 60.0D * ratio));
+        long productRemainingMinutes = 60L * Math.max(1L, (long) Math.floor(productShelfLifeHours * ratio));
         long batchMinute = nowMinute + productRemainingMinutes
                 - (long) productShelfLifeHours * 60L - (long) maxStoppedHours * 60L;
         FreshnessData.stampAt(product, batchMinute, maxStoppedHours);

@@ -89,18 +89,20 @@ public final class FreshnessProcessingGameTests {
             int meatShelf = FreshnessConfig.shelfLifeHours(FreshnessCategory.FRESH);
             int cookedShelf = FreshnessConfig.shelfLifeHours(FreshnessCategory.COOKED);
 
-            ItemStack nearlyGone = ratio(meatShelf, 1.0D / 12.0D, Items.BEEF, 1);
+            ItemStack nearlyGone = ratio(meatShelf, 0.3D, Items.BEEF, 1);
             ItemStack product = new ItemStack(Items.COOKED_BEEF);
             FreshnessProcessing.inherit(product, List.of(nearlyGone), FreshnessProcessing.NO_BONUS, FIXED_NOW);
-            long expected = (long) Math.floor(cookedShelf * 60.0D / 12.0D);
+            long expected = 14L * 60L; // 48 小时 × 30% = 14.4 小时，舍去 24 分钟。
             helper.assertTrue(FreshnessData.remainingMinutes(product, cookedShelf, FIXED_NOW) == expected,
                     "产物剩余按保质期 × 比例向下取整");
 
-            ItemStack dust = ratio(meatShelf, 0.0001D, Items.BEEF, 1);
+            long processedAt = FIXED_NOW + 50L;
+            ItemStack dust = ratioAt(meatShelf, 0.0001D, Items.BEEF, 1, processedAt);
             ItemStack floored = new ItemStack(Items.COOKED_BEEF);
-            FreshnessProcessing.inherit(floored, List.of(dust), FreshnessProcessing.NO_BONUS, FIXED_NOW);
-            helper.assertTrue(FreshnessData.remainingMinutes(floored, cookedShelf, FIXED_NOW) == 60L,
-                    "产物最少给 1 小时, 不会做出立刻就烂的东西");
+            FreshnessProcessing.inherit(floored, List.of(dust), FreshnessProcessing.NO_BONUS, processedAt);
+            helper.assertTrue(FreshnessData.remainingMinutes(floored, cookedShelf, processedAt) == 60L
+                            && FreshnessData.batchMinute(floored) % 60L == 50L,
+                    "在第 50 分钟加工仍保留完整 60 分钟，不向前锚到整点");
             helper.succeed();
         } finally {
             FreshnessConfig.MODE.set(previousMode);
@@ -272,21 +274,23 @@ public final class FreshnessProcessingGameTests {
             int beefShelf = FreshnessConfig.shelfLifeHours(FreshnessCategory.FRESH);
             ItemStack raw = ratioAt(beefShelf, 0.625D, Items.BEEF, 1, now);
             helper.assertTrue(campfire.placeFood(null, raw, 100), "前提: 营火收下这块生牛肉");
+            for (int i = 1; i < 4; i++) {
+                helper.assertTrue(campfire.placeFood(null, new ItemStack(Items.BEEF), 100), "填满营火第 " + i + " 格");
+            }
 
             ItemStack stamped = FreshnessHooks.stampCampfireProduct(level, campfire,
                     new ItemStack(Items.COOKED_BEEF, 1));
             helper.assertTrue(FreshnessData.isStamped(stamped), "掉落之前必须已经盖好章");
             long remaining = FreshnessCheck.remainingMinutes(stamped, now);
             // 继承口径: 产物剩余比例 = 原料剩余比例 + 加热加成 (加的是**比例**, 不是把剩余乘 1.25), 再封顶。
-            long expected = (long) Math.floor(
-                    FreshnessConfig.shelfLifeHours(FreshnessCategory.COOKED) * 60.0D * (0.625D + 0.25D));
+            long expected = 60L * (long) Math.floor(
+                    FreshnessConfig.shelfLifeHours(FreshnessCategory.COOKED) * (0.625D + 0.25D));
             helper.assertTrue(remaining == expected,
                     "产物剩余比例应为 原料比例 + 0.25 (0.625 + 0.25 = 0.875), 期望 " + expected + " 实得 " + remaining);
 
             // 原料烂了: 不出品, 掉一个腐烂物。
-            campfire.clearContent();
             ItemStack rotten = ancientAt(Items.BEEF, 1, now);
-            helper.assertTrue(campfire.placeFood(null, rotten, 100), "前提: 营火收下这块已经烂了的生牛肉");
+            campfire.getItems().set(0, rotten);
             ItemStack dropped = FreshnessHooks.stampCampfireProduct(level, campfire, new ItemStack(Items.COOKED_BEEF, 1));
             helper.assertTrue(FreshnessItems.ROT.get() == dropped.getItem(),
                     "原料过期就换腐烂物、不出品, 实得 " + dropped.getItem());

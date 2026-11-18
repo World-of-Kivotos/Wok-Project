@@ -187,7 +187,7 @@ freshness/
 
 ## 7. 验证清单
 
-当前十二个测试类共 79 条 GameTest：
+以下十二个测试类共 90 条 GameTest。
 
 - `FreshnessGameTests`（batch `freshness_foundation`，16 条）
   - 时钟：首次观察、正常前进、停服按整小时补偿、运行中跳变补「差值 − 1」、挂钟回跳只增不减、V1 存档迁移、V2 统计环校验。
@@ -202,7 +202,7 @@ freshness/
     过期原料判定（未盖章不算过期、不腐烂的不参与）。
   - 适配层：漏斗钩子换掉过期食物；熔炉钩子拦下过期原料并把出品按加热加成盖章；
     漏斗在自己 tick 里真的执行了结算（这条是 mixin 注入生效的端到端证据）。
-- `FreshnessMergeGameTests`（batch `freshness_merge`，10 条）
+- `FreshnessMergeGameTests`（batch `freshness_merge`，11 条）
   - 加权平均与守恒：合并后剩余是两边按件数加权的结果，且「件数 × 剩余」的总和不增加；
     停表额度不变、批次按「加权平均有效批次 − 停表 × 60」反算。
   - 三条门槛：差正好一个窗口还算能合并、多一分钟就不合并、其它数据不同不合并、停表时间不同不合并、
@@ -236,13 +236,13 @@ freshness/
     档位阈值 24 / 6 小时、不腐烂的东西是 UNTIMED 且不画。
   - 提醒频率：第一次提醒、同一小时内不再提醒、满一小时可以再提醒；只提醒"还没烂、但一小时内会烂"的东西；
     每 20 tick 扫一次。
-- `FreshnessRecipeFilterGameTests`（batch `freshness_recipes`，4 条）
+- `FreshnessRecipeFilterGameTests`（batch `freshness_recipes`，5 条）
   - 判据正反两侧：不腐烂的压缩块 → 9 件易腐品要删；产出 3 件、原料也会腐烂、产物不腐烂、两种原料、
     特殊配方（结果不随材料变化）一律不许动。
   - 收集与重建：白名单里的配方留着（整合包有正当的 1 料多产配方时靠它）；命中的从**新副本**里消失，
     而原表一个字节都不许变（它是 `ImmutableMap`，就地改会抛）。
   - 端到端：开服之后服务端的配方表里真的没有 `minecraft:wheat`（干草块 → 9 小麦）了，而没命中的配方还在
-    —— 这一条同时是"反射取私有表"那一步的守卫。
+    。重载监听使用本轮数据包的新配方管理器。
 - `FreshnessMigrationGameTests`（batch `freshness_migration`，11 条）
   - 迁移章：启用那一刻正好剩 6 小时、停表额度记满、带 `m` 标记，且随后照常变少（迁移是宽限，不是停表）；
     已经盖过章的老货、不腐烂的东西、豁免品一律不动。

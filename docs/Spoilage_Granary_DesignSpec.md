@@ -171,7 +171,7 @@
 - 产物剩余比例 = 原料里最低的比例 + 加成，最高为 1。
   - 加成 0.25：熔炉、烟熏炉、高炉、营火、FD 煎锅/炉灶/厨锅、refurbished 煎锅/烤箱/微波炉、本 MOD 的炸锅和烤炉。
   - 加成 0：合成、砧板切配、备餐台、压缩、BnC 发酵桶。
-- 产物剩余小时 = 产物保质期 × 剩余比例，向下取整，最少 1 小时。
+- 产物剩余小时 = 产物保质期 × 剩余比例，向下取整，从实际加工时刻算起至少 60 分钟，加工批次允许非整点。
 - **任何一件原料已经过期，就不出产物。** 机器会把过期原料换成腐烂物；合成格直接不出结果。
 - **停表额度跟着走：** 产物的“已停表时间”取原料里最大的那个，所以没法“冻满额度 → 做熟 → 再冻满”。
 - **机器出品合并取最老：** 熔炉、厨锅输出格里新旧产物合成一堆时，剩余取较少的那批，停表时间取较大的那批。
@@ -853,7 +853,7 @@ P1 是开服关卡前的全部工作；P1b 不卡开服，跟厨师重构同一�
 
 ### 物品数据与存档
 
-- **物品数据：** 根下挂 `MiningFresh:{h: 批次时刻（分钟序号，盖章时取整点 × 60，只有合并后才出现非整点）, f: 已停表小时（int，>0 才写）}`，和 MiningChef、MiningBrewer、MiningFish 平级。所有写入走同一个 writer：f=0 不写，数值一律 IntTag，否则同一批货会因标签类型不同叠不上。
+- **物品数据：** 根下挂 `MiningFresh:{h: 批次时刻（分钟序号，盖章时取整点 × 60，加工继承和同种合并允许非整点）, f: 已停表小时（int，>0 才写）}`，和 MiningChef、MiningBrewer、MiningFish 平级。所有写入走同一个 writer：f=0 不写，数值一律 IntTag，否则同一批货会因标签类型不同叠不上。
 - **剩余：** h + f×60 + 保质期 − 现在（单位分钟，显示和判腐烂时按小时取整）；读取时 h 压回不晚于现在、f 压回不超过 504。
 - **标记：** 迁移货带 MiningFresh.m，村民货带 MiningFresh.v；判断“除新鲜度外数据相同”时只忽略 h 和 f，m、v 照常参与比较。
 - **主世界 SavedData miningdim_freshness_clock：** lastSeenHour、offsetHours、心跳、按小时的统计环（保留 30 天）。
@@ -897,7 +897,7 @@ P1 是开服关卡前的全部工作；P1b 不卡开服，跟厨师重构同一�
 | 8 | Inventory.addResource(int, ItemStack)（m_36047_） | @Inject HEAD：照原版公式算出这次搬几件，目标非空且只差新鲜度时，先用 FreshMerge 改写目标的章。覆盖拾取、Player.addItem、/give |
 | 9 | AbstractContainerMenu.moveItemStackTo（m_38903_） | @Inject HEAD（cancellable）：对白名单槽先跑一遍“只差新鲜度”的合并；整堆搬完就 setReturnValue(true)，没搬完用 ThreadLocal 在 RETURN 处合并 moved 标志。主 MOD 的两处覆写（AbstractMiningMenu、MarriageBackpackMenu）直接改源码调用 FreshMerge |
 
-点击叠放不写 mixin，用 Forge 的 ItemStackedOnOtherEvent：只处理 slot.mayPlace(carried) 的分支，自己写回两边后取消事件。#7、#8 和 #2 同属一个 InventoryMixin，共用“去掉 h、f 再比较”的比较器（空 compound 和 null 视为相同）。明确不拦：canItemQuickReplace（拖拽、双击）、关界面退回（placeItemBackInInventory 自己找格子，不经 #7、#8）、Slot.safeInsert、掉落物互相合并、漏斗和 Forge IItemHandler 路径、创造模式整格覆盖。
+点击叠放使用 Forge 的 ItemStackedOnOtherEvent，仅在玩家背包和白名单容器中遵守槽位准入与容量。右键一次移入一件，只有移入件数参与加权，光标剩余物品保留原章。左键整堆能放下时合并，自己写回两边后取消事件。#7、#8 和 #2 同属一个 InventoryMixin，共用“去掉 h、f 再比较”的比较器（空 compound 和 null 视为相同）。明确不拦：canItemQuickReplace（拖拽、双击）、关界面退回（placeItemBackInInventory 自己找格子，不经 #7、#8）、Slot.safeInsert、掉落物互相合并、漏斗和 Forge IItemHandler 路径、创造模式整格覆盖。
 
 可选配置（第三方目标，缺注入时不崩服；插件核对注入数，对不上就报错并提醒 OP）：
 

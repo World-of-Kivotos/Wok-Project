@@ -37,7 +37,7 @@
 | `wok-stacking` | WOK-实体堆叠模块 | 11 | 33 | `StackingSystem` | 核心、精英怪 |
 | `wok-achievement` | WOK-成就模块 § | 84 | 81 | `AchievementSystem` | 核心、存储、称号、矿区、精英怪、经济、全服经验、职业框架、铸甲师、厨师、酿酒师、塔罗师、军火商、特勤干员、市场、开箱、任务、婚姻、WebUI；TaCZ、SQLite 可选 |
 | `wok-district` | WOK-自管区模块 ¶ | 184 | 312 | `DistrictSystem` | 核心、存储、经济、WebUI；SQLite、Flan、机械动力可选 |
-| `wok-freshness` | WOK-腐烂底座模块 ※ | 86 | 111 | `FreshnessModule` | 核心、WebUI；Farmer's Delight 可选 |
+| `wok-freshness` | WOK-腐烂底座模块 ※ | 86 | 113 | `FreshnessModule` | 核心、WebUI；Farmer's Delight 可选 |
 
 † `wok-job-fisher` 这一行是 2026-09-24 在 `feat/fish-quality-size` 分支上按同一口径单独重测的（新增 `quality`、`size` 两个子包；2026-09-06 首次补测时为 23 / 15），其余 25 行仍是第一段声明的 2026-08-30 基线。同一分支给 `wok-core` 新增了 `core/ItemRarityOverrides` 与 `mixin/ItemRarityOverrideMixin` 两个文件，该行未重测。另外它在登记表里的 `category` 虽然是 `job`，但这只是业务归类：`job/JobId.java` 的枚举至今只有八个常量、没有 `FISHER`，因此渔夫没有职业等级、没有经验轨道（对照 [`experience/README.md`](experience/README.md) 的八轨清单），也没有职业身份门；它对 `wok-store` 的依赖同样只出现在 GameTest 里，图鉴本身走原版 `FishingJournalSavedData`、个人钓获记录走玩家 `PlayerPersisted` NBT，都不落 SQLite。
 
@@ -75,7 +75,7 @@
 
 GameTest 位于主源码集是本仓库既有约定，因此 Java 文件数包含测试类。`wok-champion` 的测试数量较高，是精英词条和红线组合测试形成的结果。
 
-※ `wok-freshness` 当前包含 86 个 Java 文件，其中 18 个 GameTest 类声明 111 条测试。服务端默认 DRY_RUN，已接入观察、迁移、加工、市场、命令与客户端同步。
+※ `wok-freshness` 当前包含 86 个 Java 文件，其中 18 个 GameTest 类声明 113 条测试。服务端默认 DRY_RUN，已接入观察、迁移、加工、市场、命令与客户端同步。
 
 ## 2. 产品边界
 

@@ -36,6 +36,12 @@ public final class FreshnessConfig {
     public static final ForgeConfigSpec.IntValue MERGE_WINDOW_DIVISOR;
     public static final ForgeConfigSpec.IntValue MERGE_WINDOW_MIN_HOURS;
 
+    public static final ForgeConfigSpec.BooleanValue MIGRATION_ENABLED;
+    public static final ForgeConfigSpec.LongValue MIGRATION_ENABLED_AT_MINUTE;
+    public static final ForgeConfigSpec.IntValue MIGRATION_GRACE_HOURS;
+    public static final ForgeConfigSpec.BooleanValue RECIPE_FILTER_ENABLED;
+    public static final ForgeConfigSpec.ConfigValue<java.util.List<? extends String>> RECIPE_FILTER_WHITELIST;
+
     static {
         ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
         builder.push("freshness");
@@ -77,6 +83,28 @@ public final class FreshnessConfig {
                 .defineInRange("windowDivisor", 8, 1, 64);
         MERGE_WINDOW_MIN_HOURS = builder.comment("Lower bound of the merge window (hours)")
                 .defineInRange("windowMinHours", 2, 1, 720);
+        builder.pop();
+
+        builder.push("migration");
+        MIGRATION_ENABLED = builder.comment("Migrate pre-existing food on the first start after enabling (spoilage spec: 开服迁移)")
+                .define("enabled", true);
+        MIGRATION_ENABLED_AT_MINUTE = builder.comment(
+                        "Epoch MINUTE of the enable instant (0 = use the current minute on first start).",
+                        "Items found without a stamp get '6 hours left at the enable instant' + a full stop-hour credit + the migrated flag.",
+                        "Set this explicitly when the enable instant must match an announced time; leave 0 to let the server decide once (then persisted).")
+                .defineInRange("enabledAtEpochMinute", 0L, 0L, Long.MAX_VALUE);
+        MIGRATION_GRACE_HOURS = builder.comment("Hours of life migrated goods get at the enable instant")
+                .defineInRange("graceHours", FreshnessConstants.MIGRATION_GRACE_HOURS, 1, 720);
+        builder.pop();
+
+        builder.push("recipes");
+        RECIPE_FILTER_ENABLED = builder.comment(
+                        "Remove 'compressed block back into its perishable parts' crafting recipes (spoilage spec rule 1).",
+                        "Only crafting recipes with one ingredient kind, >= 4 outputs, a perishable result and a non-perishable input are removed.")
+                .define("removeUnsquashRecipes", true);
+        RECIPE_FILTER_WHITELIST = builder.comment(
+                        "Recipe ids that must never be removed by the filter (pack authors with legitimate 1-to-many recipes).")
+                .defineListAllowEmpty("unsquashWhitelist", java.util.List.of(), entry -> entry instanceof String);
         builder.pop();
 
         SPEC = builder.build();

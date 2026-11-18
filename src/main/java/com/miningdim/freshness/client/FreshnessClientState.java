@@ -1,23 +1,19 @@
 package com.miningdim.freshness.client;
 
 import com.miningdim.freshness.FreshnessCategories;
-import com.miningdim.freshness.FreshnessCategory;
-import com.miningdim.freshness.FreshnessCheck;
+import com.miningdim.freshness.FreshnessData;
 import com.miningdim.freshness.FreshnessConfig;
-import com.miningdim.freshness.FreshnessDisplay;
 import com.miningdim.freshness.FreshnessReminder;
 import com.miningdim.freshness.FreshnessShelfLives;
 import com.miningdim.freshness.FreshnessSyncS2C;
 import net.minecraft.world.item.ItemStack;
 
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * 客户端的同步缓存 (规格「客户端显示」的数据一节): 只保存**同步下来的那几个数**, 不保存任何物品数据。
  *
  * 时间在两次同步之间自己走: 收到包时记下服务端的分钟序号与**本机**当时的毫秒, 之后的"现在"就是
- * "同步那一刻 + 本机流逝的分钟数"。于是 {@link #INTERVAL_TICKS} 两次校准之间 (默认 30 秒) 显示照样在动,
+ * "同步那一刻 + 本机流逝的分钟数"。于是 {@link com.miningdim.freshness.FreshnessSync#INTERVAL_TICKS} 两次校准之间 (默认 30 秒) 显示照样在动,
  * 而长时间在线也不会漂 —— 漂了下一个包就拉回来。
  *
  * 本类被 {@code FreshnessSyncS2C.handle} 在客户端线程调用; 所有字段都是 volatile, 渲染线程只读。
@@ -33,7 +29,7 @@ public final class FreshnessClientState {
     private static volatile long offsetHours;
     private static volatile FreshnessConfig.Mode mode = FreshnessConfig.Mode.DRY_RUN;
 
-    /** 收到同步包: 写缓存 (保质期交给 {@link FreshnessShelfLives}, 它是两端共用的读取口)。 */
+    /** 收到同步包: 写缓存 (保质期交给 {@link FreshnessShelfLives}, 供客户端显示读取)。 */
     public static void apply(FreshnessSyncS2C msg) {
         if (msg == null) {
             return;
@@ -81,41 +77,33 @@ public final class FreshnessClientState {
         if (now == Long.MIN_VALUE) {
             return Long.MAX_VALUE;
         }
-        return FreshnessCheck.remainingMinutes(stack, now);
+        return remainingMinutes(stack, now);
     }
 
-    /** 一类东西的展示档位 (画条 / 数字用)。 */
-    public static FreshnessDisplay.Level levelOf(ItemStack stack) {
-        long now = nowMinute();
-        if (now == Long.MIN_VALUE) {
-            return FreshnessDisplay.Level.UNTIMED;
-        }
-        long remaining = FreshnessCheck.remainingMinutes(stack, now);
-        return FreshnessDisplay.level(remaining, remaining == Long.MAX_VALUE);
+    private static long remainingMinutes(ItemStack stack, long now) {
+        int hours = FreshnessCategories.categoryOf(stack).map(FreshnessShelfLives::clientHours).orElse(0);
+        return hours == 0 ? Long.MAX_VALUE : FreshnessData.remainingMinutes(stack, hours, now);
     }
 
-    /** 身上在 {@link FreshnessDisplay#REMIND_WITHIN_HOURS} 小时内会烂的东西 (快捷栏提醒用)。 */
-    public static List<ItemStack> expiringSoon(ItemStack[] slots) {
-        List<ItemStack> found = new ArrayList<>();
-        long now = nowMinute();
-        if (now == Long.MIN_VALUE || mode == FreshnessConfig.Mode.OFF || slots == null) {
-            return found;
-        }
-        for (ItemStack stack : slots) {
-            if (stack == null || stack.isEmpty()) {
-                continue;
-            }
-            long remaining = FreshnessCheck.remainingMinutes(stack, now);
-            boolean untimed = remaining == Long.MAX_VALUE;
-            if (FreshnessReminder.isExpiringSoon(remaining, untimed)) {
-                found.add(stack);
+    public record Reminder(ItemStack earliest, long remainingMinutes, int count) {}
+
+    /** 在同一时刻扫描背包，返回最先到期的一件及临期物品栈数。 */
+    public static Reminder reminder(Iterable<ItemStack> slots, long now) {
+        ItemStack earliest = ItemStack.EMPTY;
+        long earliestRemaining = Long.MAX_VALUE;
+        int count = 0;
+        if (now != Long.MIN_VALUE && mode != FreshnessConfig.Mode.OFF) {
+            for (ItemStack stack : slots) {
+                long remaining = remainingMinutes(stack, now);
+                if (FreshnessReminder.isExpiringSoon(remaining, remaining == Long.MAX_VALUE)) {
+                    count++;
+                    if (remaining < earliestRemaining) {
+                        earliest = stack;
+                        earliestRemaining = remaining;
+                    }
+                }
             }
         }
-        return found;
-    }
-
-    /** 一类东西的保质期 (客户端只认同步下来的那份)。 */
-    public static int shelfLifeHours(FreshnessCategory category) {
-        return FreshnessShelfLives.hours(category);
+        return new Reminder(earliest, earliestRemaining, count);
     }
 }

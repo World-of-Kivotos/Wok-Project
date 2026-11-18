@@ -53,10 +53,9 @@ public record FreshnessSyncS2C(long nowMinute, long offsetHours, int mode, int[]
         FreshnessCategory[] categories = FreshnessCategory.values();
         if (length != categories.length) {
             // 长度对不上 (版本不一致): 退回出厂默认值, 而不是拿半份数组去索引。
-            // 用 fallbackHours 而不是 currentValues: 解码跑在客户端, 而客户端读不到 SERVER 配置。
             values = new int[categories.length];
             for (int i = 0; i < categories.length; i++) {
-                values[i] = FreshnessShelfLives.fallbackHours(categories[i]);
+                values[i] = categories[i].defaultShelfLifeHours();
             }
             mode = FreshnessConfig.Mode.DRY_RUN.ordinal();
         }

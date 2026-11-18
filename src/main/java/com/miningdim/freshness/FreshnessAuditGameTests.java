@@ -2,6 +2,7 @@ package com.miningdim.freshness;
 
 import com.miningdim.core.MiningConstants;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
@@ -9,6 +10,9 @@ import net.minecraft.world.Container;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.state.properties.ChestType;
+import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -74,6 +78,15 @@ public final class FreshnessAuditGameTests {
             farChest.setItem(0, new ItemStack(Items.BREAD, 5));
 
             BlockPos chestPos = helper.absolutePos(chest(slot, 2, 0));
+            // North-facing double chest: Forge exposes a combined inventory from either half.
+            BlockPos otherHalf = chestPos.east();
+            var left = Blocks.CHEST.defaultBlockState().setValue(ChestBlock.FACING, Direction.NORTH)
+                    .setValue(ChestBlock.TYPE, ChestType.LEFT);
+            level.setBlock(otherHalf, left.setValue(ChestBlock.TYPE, ChestType.RIGHT), 2);
+            level.setBlock(chestPos, left, 2);
+            var otherEntity = level.getBlockEntity(otherHalf);
+            helper.assertTrue(otherEntity.getCapability(ForgeCapabilities.ITEM_HANDLER).orElseThrow(
+                    () -> new AssertionError("缺少箱子物品接口")).getSlots() == 54, "夹具必须形成 54 格大箱子");
             Container verify = (Container) level.getBlockEntity(chestPos);
             String dump = "same=" + (verify == chest) + " slot0=" + verify.getItem(0).getCount() + "x"
                     + verify.getItem(0).getItem() + " slot1=" + verify.getItem(1).getCount() + "x"

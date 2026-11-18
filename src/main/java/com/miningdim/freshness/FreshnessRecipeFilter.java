@@ -12,11 +12,8 @@ import net.minecraft.world.item.crafting.RecipeType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -60,7 +57,7 @@ public final class FreshnessRecipeFilter {
         if (recipe == null || recipe.getType() != RecipeType.CRAFTING || recipe.isSpecial()) {
             return false;
         }
-        ItemStack result = resultOf(recipe, registries);
+        ItemStack result = recipe.getResultItem(registries);
         if (result.isEmpty() || result.getCount() < MIN_OUTPUT_COUNT) {
             return false;
         }
@@ -87,45 +84,16 @@ public final class FreshnessRecipeFilter {
         return !FreshnessCategories.spoils(input);
     }
 
-    /**
-     * 从一张合成配方表里挑出该删的那些 (纯函数, 不改传入的表)。
-     *
-     * @param crafting  合成配方表 (可能为 null / 不可变 —— 本方法只读)
-     * @param whitelist 白名单 (配方 id); 命中即跳过, 传 null 等于没有白名单
-     */
-    public static List<ResourceLocation> collectRemovals(Map<ResourceLocation, Recipe<?>> crafting,
-                                                        Set<ResourceLocation> whitelist) {
-        if (crafting == null || crafting.isEmpty()) {
-            return List.of();
-        }
-        List<ResourceLocation> removed = new ArrayList<>();
-        for (Map.Entry<ResourceLocation, Recipe<?>> entry : crafting.entrySet()) {
-            ResourceLocation id = entry.getKey();
-            if (whitelist != null && whitelist.contains(id)) {
-                continue;
-            }
-            if (shouldRemove(entry.getValue(), RegistryAccess.EMPTY)) {
-                removed.add(id);
+    /** 收集本轮需要过滤的配方 id，保持输入配方集合不变。 */
+    static Set<ResourceLocation> collectRemovals(Iterable<? extends Recipe<?>> recipes,
+                                                Set<ResourceLocation> whitelist, RegistryAccess registries) {
+        Set<ResourceLocation> removed = new LinkedHashSet<>();
+        for (Recipe<?> recipe : recipes) {
+            if (!whitelist.contains(recipe.getId()) && shouldRemove(recipe, registries)) {
+                removed.add(recipe.getId());
             }
         }
         return removed;
-    }
-
-    /**
-     * 复制一张表并去掉这些 id, 返回**可变**的副本。
-     *
-     * 为什么要复制而不是就地删: {@code RecipeManager} 内部的表是 {@code ImmutableMap} (1.20.1 用
-     * {@code ImmutableMap.Builder} 建), 就地 {@code remove} 会直接抛 {@code UnsupportedOperationException};
-     * 而外层那张 {@code Map<RecipeType<?>, Map<...>>} 是可变的 {@code HashMap}, 所以做法是"造一份新的子表
-     * 再把它换进去"。
-     */
-    public static Map<ResourceLocation, Recipe<?>> rebuildWithout(Map<ResourceLocation, Recipe<?>> source,
-                                                                 List<ResourceLocation> removed) {
-        Map<ResourceLocation, Recipe<?>> rebuilt = new LinkedHashMap<>(source);
-        for (ResourceLocation id : removed) {
-            rebuilt.remove(id);
-        }
-        return rebuilt;
     }
 
     /** 配置里的白名单字符串 -> id 集合 (解析不出来的忽略)。 */
@@ -142,17 +110,8 @@ public final class FreshnessRecipeFilter {
         return whitelist;
     }
 
-    private static ItemStack resultOf(Recipe<?> recipe, RegistryAccess registries) {
-        try {
-            // 1.20.1 的配方结果原型要用注册表访问解; 缺注册表 (理论上不会) 时退化成不解。
-            return registries == null ? ItemStack.EMPTY : recipe.getResultItem(registries);
-        } catch (RuntimeException malformed) {
-            return ItemStack.EMPTY;
-        }
-    }
-
     /** 把删掉的配方逐条写日志 (一次汇总 + 逐条 id), 给"某个配方怎么没了"留下可查的凭据。 */
-    public static void logRemoved(List<ResourceLocation> removed) {
+    public static void logRemoved(Set<ResourceLocation> removed) {
         if (removed.isEmpty()) {
             return;
         }

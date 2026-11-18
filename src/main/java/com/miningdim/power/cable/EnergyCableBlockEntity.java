@@ -110,6 +110,10 @@ public final class EnergyCableBlockEntity extends BlockEntity {
     public void onLoad() {
         super.onLoad();
         if (level instanceof ServerLevel serverLevel) {
+            // Forge queues onLoad until the next tick. The cable may already have been removed or replaced.
+            if (isRemoved() || serverLevel.getBlockEntity(worldPosition) != this) {
+                return;
+            }
             EnergyNetworkManager.get(serverLevel).addCable(worldPosition, material());
             EnergyCableBlock.refreshConnectionState(serverLevel, worldPosition);
             for (Direction direction : Direction.values()) {

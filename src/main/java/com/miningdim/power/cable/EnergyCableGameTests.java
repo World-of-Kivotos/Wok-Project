@@ -640,7 +640,12 @@ public final class EnergyCableGameTests {
         helper.assertTrue(manager.discardedBufferFe() - baseline == 1_536L,
                 "随最后一根线缆消失的 1536 FE 必须精确记进弃电账，实得 "
                         + (manager.discardedBufferFe() - baseline));
-        helper.succeed();
+        // Forge may still hold the removed block entities in its next-tick load queue.
+        helper.runAfterDelay(2, () -> {
+            helper.assertTrue(manager.debugNetworkSize(aAbs) == 0 && manager.debugNetworkSize(cAbs) == 0,
+                    "延迟加载回调不可将已拆除的线缆重新并网");
+            helper.succeed();
+        });
     }
 
     /**

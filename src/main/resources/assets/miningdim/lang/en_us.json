@@ -1,4 +1,6 @@
 {
+  "message.miningdim.market.listing_expired": "A market listing of yours (%s) has been rotten for %s day(s) and was closed automatically; the goods are not returned.",
+  "message.miningdim.market.rotten_listings": "%s of your market listings have rotten contents. Open My Listings to see which; a listing rotten for 30 days is closed automatically (the goods are not returned).",
   "message.miningdim.freshness.reminder": "%s is about to rot (%s left); %s item(s) in your inventory need attention",
   "tooltip.miningdim.freshness.category.cooked": "Cooked",
   "tooltip.miningdim.freshness.category.fresh": "Fresh",

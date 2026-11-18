@@ -1,5 +1,7 @@
 package com.miningdim.freshness;
 
+import com.miningdim.testutil.ConfigBaseline;
+import net.minecraft.gametest.framework.BeforeBatch;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.freshness.item.FreshnessItems;
 import net.minecraft.core.BlockPos;
@@ -336,5 +338,35 @@ public final class FreshnessProcessingGameTests {
         } finally {
             FreshnessConfig.MODE.set(previous);
         }
+    }
+
+    @BeforeBatch(batch = BATCH)
+    public static void resetConfigBaseline(ServerLevel level) {
+        ConfigBaseline.resetToDefaults(FreshnessConfig.MODE);
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 200)
+    public static void hopperSettlesSlotsOnItsOwnTick(GameTestHelper helper) {
+        long now = FreshnessClockData.nowMinute(helper.getLevel());
+        BlockPos relative = new BlockPos(5, 2, 1);
+        helper.setBlock(relative, Blocks.HOPPER);
+        HopperBlockEntity hopper = (HopperBlockEntity) helper.getBlockEntity(relative);
+        helper.assertTrue(hopper != null, "漏斗方块实体应当已创建");
+        hopper.setItem(1, ancientAt(Items.COOKED_BEEF, 1, now));
+
+        // 终态替换只在开启档发生, 而断言在延迟回调里跑, 所以这里手工开关而不是用 withReplacementOn
+        // (那个会在回调之前就把开关还原回去)。
+        FreshnessConfig.Mode previous = FreshnessConfig.MODE.get();
+        FreshnessConfig.MODE.set(FreshnessConfig.Mode.ON);
+        helper.runAfterDelay(10, () -> {
+            try {
+                ItemStack settled = hopper.getItem(1);
+                helper.assertTrue(settled.is(FreshnessItems.ROT.get()),
+                        "漏斗 tick 时应当自己把过期食物换成腐烂物 (mixin 注入生效)");
+            } finally {
+                FreshnessConfig.MODE.set(previous);
+            }
+            helper.succeed();
+        });
     }
 }

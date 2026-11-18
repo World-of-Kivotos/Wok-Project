@@ -1,0 +1,24 @@
+{
+  "required": false,
+  "minVersion": "0.8.5",
+  "package": "com.miningdim.freshness.mixin.compat",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "miningdim.refmap.json",
+  "plugin": "com.miningdim.freshness.FreshnessCompatMixinPlugin",
+  "mixins": [
+    "CuttingBoardMixin",
+    "CookingPotMixin",
+    "ItemUtilsMixin",
+    "PotSettleMixin",
+    "SkilletItemMixin",
+    "SkilletMixin",
+    "SkilletSettleMixin",
+    "StoveMixin",
+    "StoveSettleMixin"
+  ],
+  "client": [],
+  "server": [],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

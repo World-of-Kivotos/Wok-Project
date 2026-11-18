@@ -14,7 +14,6 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 当前事件尚未注册，以下描述为后续接入后的路径。
  * 村民货 (Spoilage_Granary_DesignSpec「村民」: 「收作物不拦; 卖出的食物在 VillagerTradesEvent、
  * WandererTradesEvent 里给食物报价的产物加『村民货』标记; 已有的村民在进世界时补一次;
  * **到手时**按剩 6 小时盖章」)。

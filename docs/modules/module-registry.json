@@ -259,7 +259,8 @@
         "wok-economy",
         "wok-webui",
         "wok-job-core",
-        "wok-job-tarot"
+        "wok-job-tarot",
+        "wok-freshness"
       ],
       "optionalIntegrations": [
         "sqlite-jdbc"
@@ -372,7 +373,8 @@
         "wok-core",
         "wok-economy",
         "wok-webui",
-        "wok-enchant"
+        "wok-enchant",
+        "wok-freshness"
       ],
       "optionalIntegrations": [
         "tacz"
@@ -443,7 +445,8 @@
         "wok-experience",
         "wok-job-core",
         "wok-economy",
-        "wok-webui"
+        "wok-webui",
+        "wok-freshness"
       ],
       "optionalIntegrations": [
         "farmersdelight"
@@ -590,6 +593,7 @@
         "wok-job-core",
         "wok-combat-core",
         "wok-job-farmer",
+        "wok-freshness",
         "wok-webui"
       ],
       "optionalIntegrations": [],
@@ -876,7 +880,9 @@
       ],
       "resourcePaths": [
         "data/miningdim/tags/items/freshness",
-        "data/miningdim/tags/items/freshness_exempt.json"
+        "data/miningdim/tags/items/freshness_exempt.json",
+        "miningdim.freshness.mixins.json",
+        "miningdim.freshness.compat.mixins.json"
       ],
       "resourceNamePrefixes": [
         "freshness_"
@@ -889,7 +895,7 @@
         "farmersdelight"
       ],
       "publicEntry": "com.miningdim.freshness.FreshnessModule",
-      "scope": "foundation, processing, merge, nested item, audit, migration, placed-food, settlement, recipe-filter, observation, compatibility and client-sync implementations; configuration and item/serializer types are registered with mode OFF by default, runtime event hooks are not yet registered. The server-wide freshness clock (hourly wall-clock arbitration, downtime compensation, five-minute heartbeat), the MiningFresh item stamp (batch minute, credited stop hours, migration and villager marks) with its single writer and comparison helper, the six shelf-life category tags plus the exemption tag, module-registered data-driven exemptions, and the three-position mode switch (OFF / DRY_RUN / ON). The rot terminal item and loot serializer are registered here. Observation events, self-check startup, granary stop-hours and same-kind merge hooks are activated in later slices of docs/Spoilage_Granary_DesignSpec.md; the granary itself lives in wok-job-farmer under job/farmer/granary"
+      "scope": "Freshness foundation: server clock and downtime compensation, MiningFresh item stamps, category and exemption tags, OFF/DRY_RUN/ON policy, rot replacement, observation and vanilla processing hooks, freshness-aware merging including shift transfers, migration, audit and operator commands, optional Farmer's Delight 1.3.2 cooking and stored-food settlement, and synced client tooltips/HUD reminders. Item decorations have been removed. Granary construction and one-click deposits belong to wok-job-farmer under job/farmer/granary."
     },
     {
       "id": "wok-app",

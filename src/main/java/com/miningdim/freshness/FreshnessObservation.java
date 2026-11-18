@@ -20,8 +20,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 当前仅包含实现，运行监听与 mixin 配置尚未接入。
- *
  * 观察点 (规格「观察点」表里不需要 mixin 的那一批): 掉落物进世界、玩家背包定时扫描、白名单容器开关、
  * 右键方块 / 右键物品 / 与实体交互之前、登录。
  *

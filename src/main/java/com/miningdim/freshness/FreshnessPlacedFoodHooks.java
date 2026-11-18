@@ -10,8 +10,6 @@ import net.minecraftforge.event.level.ChunkEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 /**
- * 当前仅包含实现，运行监听与 mixin 配置尚未接入。
- *
  * 放置食物记录的三处接线 (Spoilage_Granary_DesignSpec「物品数据与存档」「观察点」)。
  *
  * <ul>

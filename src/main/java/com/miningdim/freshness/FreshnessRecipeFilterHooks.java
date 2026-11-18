@@ -20,7 +20,6 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 当前仅提供处理器实现，尚未注册 reload 或开服监听。
  * 配方过滤的接线: 在每次数据包 reload 的 **apply 阶段**扫一遍合成配方并删掉「压缩块拆回」那些
  * (规格「压缩方块与可逆转换」规则 1: 开服时和每次 {@code /reload} 后都要跑)。
  *

@@ -237,4 +237,19 @@ public final class FreshnessStatsGameTests {
         FreshnessData.stampAt(stack, NOW - 2L * 365L * 24L * 60L, 0);
         return stack;
     }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void freshnessCommandsAreRegisteredAndRunnable(GameTestHelper helper) {
+        var server = helper.getLevel().getServer();
+        var source = server.createCommandSourceStack();
+        helper.assertTrue(server.getCommands().performPrefixedCommand(source, "freshness") == 1,
+                "/freshness 应当可执行 (档位摘要)");
+        helper.assertTrue(server.getCommands().performPrefixedCommand(source, "freshness stats") == 1,
+                "/freshness stats 应当可执行");
+        helper.assertTrue(server.getCommands().performPrefixedCommand(source, "freshness clock") == 1,
+                "/freshness clock 应当可执行");
+        helper.assertTrue(server.getCommands().performPrefixedCommand(source, "freshness dump") == 1,
+                "/freshness dump 应当能把清单写出来");
+        helper.succeed();
+    }
 }

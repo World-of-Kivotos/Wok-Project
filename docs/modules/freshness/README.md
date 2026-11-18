@@ -18,7 +18,7 @@
 
 物品数据根键为 `MiningFresh`；`h` 是按整点落章的批次分钟序号，`f` 是累计停表小时，`m` 和 `v` 分别标记迁移货和村民货。数值写为 IntTag；`f` 为零时省略。保质期来自服务端配置，不写入物品章。
 
-主世界时钟 SavedData 名为 `miningdim_freshness_clock`。当前写入版本 2：`Version`、`LastSeenHour`、`LastSeenMinute`、`LastNowMinute`、`OffsetHours`、`HeartbeatHour`、`HeartbeatMinute` 和 `Stats`。读取版本 1 时，小时精度的 `LastSeenHour`、`OffsetHours`、`HeartbeatHour` 转换为分钟锚点；版本 2 的分钟字段必需。旧存档没有统计环时从空环开始。
+主世界时钟 SavedData 名为 `miningdim_freshness_clock`。当前写入版本 2：`Version`、`LastSeenHour`、`LastSeenMinute`、`LastNowMinute`、`OffsetHours`、`HeartbeatHour`、`HeartbeatMinute` 和 `Stats`。读取版本 1 时，小时精度的 `LastSeenHour`、`OffsetHours`、`HeartbeatHour` 转换为分钟锚点；版本 2 的分钟字段必需。仅版本 1 的旧存档缺少整个 `Stats` 时从空环开始；版本 2 缺失或损坏的 `Stats` 必须报错。
 
 `miningdim-freshness.toml` 注册为 SERVER 配置，包含 `mode`、六类保质期、粮仓停表参数、村民与市场参数、合并窗口。`OFF` 为当前默认值；`DRY_RUN` 与 `ON` 的完整业务行为依赖后续入口接入。已有服务器配置可能覆盖默认值，升级时须检查实际配置。
 

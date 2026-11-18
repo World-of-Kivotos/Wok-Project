@@ -366,13 +366,22 @@ public final class FreshnessGameTests {
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void moduleRegisteredExemptionsParticipateFirst(GameTestHelper helper) {
+        FreshnessConfig.Mode previousMode = FreshnessConfig.MODE.get();
         try {
-            FreshnessExemptions.register("gametest/freshness", stack -> stack.is(Items.SUSPICIOUS_STEW));
+            FreshnessExemptions.register("gametest/freshness", stack -> stack.is(Items.SUSPICIOUS_STEW) || stack.is(Items.WHEAT));
             helper.assertTrue(FreshnessExemptions.owners().contains("gametest/freshness"),
                     "登记后必须能在归属清单里看到");
             helper.assertTrue(FreshnessCategories.categoryOf(new ItemStack(Items.SUSPICIOUS_STEW)).isEmpty(),
                     "模块登记的豁免优先于熟食兜底");
+            for (FreshnessConfig.Mode mode : FreshnessConfig.Mode.values()) {
+                FreshnessConfig.MODE.set(mode);
+                helper.assertTrue(!FreshnessSelfCheck.runOnServerStart(helper.getLevel().getServer()).isEmpty(),
+                        "小麦被误豁免时自检必须失败");
+                FreshnessConfig.Mode expected = mode == FreshnessConfig.Mode.ON ? FreshnessConfig.Mode.DRY_RUN : mode;
+                helper.assertTrue(FreshnessConfig.MODE.get() == expected, "自检失败仅降级 ON，OFF 保持关闭");
+            }
         } finally {
+            FreshnessConfig.MODE.set(previousMode);
             FreshnessExemptions.clearForTest();
         }
         helper.assertTrue(FreshnessCategories.categoryOf(new ItemStack(Items.SUSPICIOUS_STEW)).orElseThrow()

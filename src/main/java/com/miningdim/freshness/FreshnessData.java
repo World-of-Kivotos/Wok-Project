@@ -113,6 +113,16 @@ public final class FreshnessData {
     }
 
     /**
+     * 只打「村民货」标记, **不动章**。
+     *
+     * 给村民报价那一刻用 (规格「村民」: 报产物加标记, **到手时**才按剩 6 小时盖章) —— 报价是开服时
+     * 就登记好的, 那时候盖章的话, 玩家几小时后才交易到手的东西一到手就是烂的。
+     */
+    public static void markVillagerGoodsFlag(ItemStack stack) {
+        putFlag(stack, FreshnessConstants.KEY_VILLAGER);
+    }
+
+    /**
      * 读取前的钳制: 批次时刻压回不晚于现在, 已停表小时压回不超过 504 (反漏洞 #40)。
      * 坏数据一律降级, 不报错。
      */

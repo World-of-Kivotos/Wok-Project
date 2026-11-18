@@ -1234,14 +1234,15 @@ body.opening-on{background:#061521}
         </header>
         <div class="friends-grid">
           <div class="panel friends-list">
-            <div class="tabs"><button class="active" data-friend-tab="all">全部</button><button data-friend-tab="online">在线</button><button data-friend-tab="request">请求</button></div>
+            <div class="tabs"><button class="active" data-friend-tab="all">全部</button><button data-friend-tab="online">本页在线</button><button data-friend-tab="request">请求</button><button data-friend-tab="outgoing">已发送</button></div>
             <div class="list-scroll" id="friendList"></div>
-            <div class="list-foot"><span><i class="live-dot"></i><span id="onlineCount">0</span> 位在线</span><span>共 <span id="friendTotal">0</span> 位好友</span></div>
+            <div class="list-foot"><button class="mini-btn" id="contactsPrev">上一页</button><span id="contactsPage"></span><button class="mini-btn" id="contactsNext">下一页</button></div>
+            <div class="list-foot"><span><i class="live-dot"></i><span id="onlineCount">0</span> 位本页在线</span><span>共 <span id="friendTotal">0</span> 位好友</span></div>
           </div>
           <div class="panel friend-profile" id="friendProfile"></div>
           <div class="side-stack">
             <div class="panel"><div class="panel-head"><h3>好友请求</h3><span class="mini-btn" id="requestRefresh">刷新</span></div><div class="req-list" id="incomingList"></div></div>
-            <div class="panel"><div class="panel-head"><h3>在线好友</h3><span style="font-size:8px;color:var(--muted)"><i class="live-dot"></i><span id="onlineCount2">0</span></span></div><div class="online-grid" id="onlineGrid"></div></div>
+            <div class="panel"><div class="panel-head"><h3>本页在线好友</h3><span style="font-size:8px;color:var(--muted)"><i class="live-dot"></i><span id="onlineCount2">0</span></span></div><div class="online-grid" id="onlineGrid"></div></div>
           </div>
         </div>
       </section>
@@ -1267,7 +1268,7 @@ body.opening-on{background:#061521}
           </div>
           <aside class="moments-side">
             <div class="panel"><div class="panel-head"><h3>相册</h3><span style="font-size:7px;color:var(--muted)" id="sidePhotoCount">0 张</span></div><div class="memory-grid" id="sidePhotos"></div></div>
-            <div class="panel"><div class="panel-head"><h3>在线好友</h3><span style="font-size:8px;color:var(--muted)"><i class="live-dot"></i><span id="onlineCount3">0</span></span></div><div class="online-grid" id="momentsOnline"></div></div>
+            <div class="panel"><div class="panel-head"><h3>本页在线好友</h3><span style="font-size:8px;color:var(--muted)"><i class="live-dot"></i><span id="onlineCount3">0</span></span></div><div class="online-grid" id="momentsOnline"></div></div>
           </aside>
         </div>
       </section>
@@ -1351,7 +1352,8 @@ const state = {
   world: [], thread: [], activeThread: 'world', activeFriend: null,
   selectedFriend: null, lastFullPhoto: '', lastThumb: '', pendingImage: '',
   hasMore: false, friendTab: 'all', theme: 'halolink', themes: DEFAULT_THEMES,
-  tarotCodex: null
+  tarotCodex: null,
+  contacts: { friends: { offsets: [0], page: 0 }, incoming: { offsets: [0], page: 0 }, outgoing: { offsets: [0], page: 0 } }
 };
 function applyTheme(id) {
   const known = (state.themes || DEFAULT_THEMES).some((t) => t.id === id);
@@ -1433,9 +1435,6 @@ $$('.rail-btn').forEach((el) => el.addEventListener('click', () => show(el.datas
 /* ---------- data ---------- */
 function applyBootstrap(data) {
   state.self = data.self || state.self;
-  state.friends = data.friends || [];
-  state.incoming = data.incoming || [];
-  state.outgoing = data.outgoing || [];
   state.world = data.world || [];
   state.themes = data.themes || DEFAULT_THEMES;
   state.tarotCodex = data.tarotCodex || null;
@@ -1454,6 +1453,10 @@ async function refreshAll(showToast) {
   try {
     const data = await call('social.bootstrap');
     applyBootstrap(data);
+    for (const kind of ['friends', 'incoming', 'outgoing']) {
+      state.contacts[kind] = { offsets: [0], page: 0 };
+      await loadContacts(kind, 0);
+    }
     const page = await call('social.moments.page', { before: 0 });
     state.moments = page.moments || [];
     state.hasMore = !!page.hasMore;
@@ -1462,6 +1465,25 @@ async function refreshAll(showToast) {
   } catch (e) {
     toast(e.message || '加载失败', 'x');
   }
+}
+function currentContactKind() {
+  return state.friendTab === 'request' ? 'incoming' : state.friendTab === 'outgoing' ? 'outgoing' : 'friends';
+}
+async function loadContacts(kind, page) {
+  const cursor = state.contacts[kind];
+  const result = await call('social.contacts.page', { kind, offset: cursor.offsets[page] });
+  state[kind] = result.items;
+  cursor.page = page;
+  cursor.total = result.total;
+  cursor.hasMore = result.hasMore;
+  cursor.offsets[page + 1] = result.nextOffset;
+}
+async function turnContactsPage(direction) {
+  const kind = currentContactKind();
+  const cursor = state.contacts[kind];
+  if ((direction < 0 && cursor.page === 0) || (direction > 0 && !cursor.hasMore)) return;
+  try { await loadContacts(kind, cursor.page + direction); renderAll(); }
+  catch (e) { toast(e.message || '加载失败', 'x'); }
 }
 async function loadMoments(before, beforeId) {
   if (!bridgeAvailable) return;
@@ -1484,15 +1506,15 @@ function renderAll() {
   const p = palette(state.self.uuid || state.self.name);
   $('#selfAvatar').style.setProperty('--a', p[0]);
   $('#selfAvatar').style.setProperty('--b', p[1]);
-  $('#requestBadge').textContent = String(state.incoming.length);
-  $('#requestBadge').style.display = state.incoming.length ? 'grid' : 'none';
+  $('#requestBadge').textContent = String(state.contacts.incoming.total || 0);
+  $('#requestBadge').style.display = state.contacts.incoming.total ? 'grid' : 'none';
 }
 function renderHome() {
   const online = state.friends.filter((f) => f.online).length;
   const heroPhoto = (state.photos[0] && state.photos[0].full) || (state.moments.find((m) => m.image) || {}).image || '';
   const heroImg = $('#heroPhoto');
   if (heroPhoto) { heroImg.src = heroPhoto; heroImg.style.display = 'block'; } else { heroImg.removeAttribute('src'); heroImg.style.display = 'none'; }
-  $('#heroFriends').textContent = `${online} 位好友在线`;
+  $('#heroFriends').textContent = `${online} 位本页好友在线`;
   $('#heroLikes').textContent = String(state.moments.reduce((n, m) => n + (m.likes || 0), 0));
   $('#homeFriends').innerHTML = state.friends.slice(0, 6).map((f) => `
     <button class="friend-chip" data-open-friend="${esc(f.uuid)}">
@@ -1526,16 +1548,21 @@ function renderHomeChat() {
   $('#worldOnline').textContent = state.world.length ? `${state.world.length} 条已加载消息` : '世界频道';
 }
 function renderFriends() {
-  const list = state.friendTab === 'request' ? [] : state.friends.filter((f) => state.friendTab === 'online' ? f.online : true);
-  $('#friendCount').textContent = String(state.friends.length);
-  $('#friendTotal').textContent = String(state.friends.length);
+  const kind = currentContactKind();
+  const cursor = state.contacts[kind];
+  const list = state.friends.filter((f) => state.friendTab === 'online' ? f.online : true);
+  $('#contactsPage').textContent = `第 ${cursor.page + 1} 页 / 共 ${cursor.total || 0} 人`;
+  $('#contactsPrev').disabled = cursor.page === 0;
+  $('#contactsNext').disabled = !cursor.hasMore;
+  $('#friendCount').textContent = String(state.contacts.friends.total || 0);
+  $('#friendTotal').textContent = String(state.contacts.friends.total || 0);
   $('#onlineCount').textContent = String(state.friends.filter((f) => f.online).length);
   $('#onlineCount2').textContent = String(state.friends.filter((f) => f.online).length);
   $('#onlineCount3').textContent = String(state.friends.filter((f) => f.online).length);
-  $('#friendList').innerHTML = (state.friendTab === 'request' ? state.incoming.map((f) => ({ ...f, request: true })) : list).map((f) => `
+  $('#friendList').innerHTML = (kind === 'incoming' ? state.incoming.map((f) => ({ ...f, request: true })) : kind === 'outgoing' ? state.outgoing.map((f) => ({ ...f, outgoing: true })) : list).map((f) => `
     <button class="friend-row ${state.selectedFriend === f.uuid ? 'active' : ''}" data-select="${esc(f.uuid)}">
       <span style="position:relative">${avatar(f.name, f.uuid)}<i class="online-dot ${f.online ? '' : 'offline-dot'}" style="position:absolute;right:0;bottom:0"></i></span>
-      <span class="friend-row-main"><span class="row-top"><b>${esc(f.name)}</b><em>${esc(f.academy || '基沃托斯')}</em></span><small>${esc(f.request ? '请求添加你为好友' : (f.lastMessage || f.signature || '……'))}</small></span>
+      <span class="friend-row-main"><span class="row-top"><b>${esc(f.name)}</b><em>${esc(f.academy || '基沃托斯')}</em></span><small>${esc(f.request ? '请求添加你为好友' : f.outgoing ? '已发送好友请求' : (f.lastMessage || f.signature || '……'))}</small></span>
       <span class="row-end">${f.request ? `<span class="mini-btn accept" data-accept="${esc(f.uuid)}">接受</span>` : timeText(f.lastTime)}</span>
     </button>`).join('') || `<div style="padding:24px;text-align:center;color:var(--faint);font-size:10px">这里还没有人。</div>`;
   $$('#friendList [data-select]').forEach((el) => el.addEventListener('click', () => selectFriend(el.dataset.select)));
@@ -1544,7 +1571,7 @@ function renderFriends() {
     <div class="req-item">${avatar(f.name, f.uuid)}<div><b>${esc(f.name)}</b><span>${esc(f.academy || '基沃托斯')}</span></div><button class="mini-btn accept" data-accept="${esc(f.uuid)}">接受</button></div>`).join('') || `<div style="font-size:8px;color:var(--faint)">暂无新的好友请求。</div>`;
   $$('#incomingList [data-accept]').forEach((el) => el.addEventListener('click', () => acceptFriend(el.dataset.accept)));
   const online = state.friends.filter((f) => f.online);
-  $('#onlineGrid').innerHTML = online.map((f) => `<div>${avatar(f.name, f.uuid, 'sm')}<span>${esc(f.name)}</span></div>`).join('') || `<div style="font-size:8px;color:var(--faint)">没有在线好友。</div>`;
+  $('#onlineGrid').innerHTML = online.map((f) => `<div>${avatar(f.name, f.uuid, 'sm')}<span>${esc(f.name)}</span></div>`).join('') || `<div style="font-size:8px;color:var(--faint)">本页没有在线好友。</div>`;
   $('#momentsOnline').innerHTML = $('#onlineGrid').innerHTML;
   renderProfile();
 }
@@ -2660,6 +2687,8 @@ $('#chatRefresh').addEventListener('click', () => { if (state.activeThread === '
 $('#threadRefresh').addEventListener('click', () => { if (state.activeThread === 'world') selectWorldHistory(); else { const f = state.friends.find((x) => x.uuid === state.activeFriend); if (f) loadThread(f); } });
 $('#requestBadge').addEventListener('click', () => show('friends'));
 $('#chatPeek').addEventListener('click', () => show('chat'));
+$('#contactsPrev').addEventListener('click', () => turnContactsPage(-1));
+$('#contactsNext').addEventListener('click', () => turnContactsPage(1));
 $$('[data-friend-tab]').forEach((el) => el.addEventListener('click', () => { state.friendTab = el.dataset.friendTab; $$('[data-friend-tab]').forEach((b) => b.classList.toggle('active', b === el)); renderFriends(); }));
 $$('.filter').forEach((el) => el.addEventListener('click', () => { $$('.filter').forEach((b) => b.classList.toggle('active', b === el)); const view = $('#photoView'); const f = el.dataset.filter; view.style.filter = f === 'mono' ? 'grayscale(1)' : f === 'warm' ? 'sepia(.18) saturate(1.1)' : f === 'clear' ? 'saturate(1.12) contrast(1.04)' : 'none'; }));
 $('#photoView').addEventListener('click', (e) => { if (e.target === $('#photoView')) show('home'); });

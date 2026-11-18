@@ -46,9 +46,9 @@ public final class SocialActionsResponseSizeGameTests {
             }
             String json = handle("social.bootstrap", player, new JsonObject());
             JsonObject response = JsonParser.parseString(json).getAsJsonObject();
-            helper.assertTrue(response.has("self") && response.has("friends")
-                            && response.has("incoming") && response.has("outgoing")
-                            && response.has("world"),
+            helper.assertTrue(response.has("self") && response.has("world")
+                            && !response.has("friends") && !response.has("incoming")
+                            && !response.has("outgoing"),
                     "bootstrap must preserve its fixed response fields");
             helper.assertTrue(response.getAsJsonArray("world").size() < 40,
                     "bootstrap must trim oldest world messages when HTML escaping expands the response");
@@ -58,6 +58,50 @@ public final class SocialActionsResponseSizeGameTests {
                     "bootstrap must preserve the newest world message");
             helper.assertTrue(json.length() <= FriendlyByteBuf.MAX_STRING_LENGTH,
                     "encoded bootstrap response must fit the downstream limit");
+        });
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void contactPagesPreserveAllRelationships(GameTestHelper helper) {
+        withStore(helper, (store, player) -> {
+            UUID self = player.getUUID();
+            for (int i = 0; i < 21; i++) {
+                UUID friend = UUID.randomUUID();
+                UUID incoming = UUID.randomUUID();
+                UUID outgoing = UUID.randomUUID();
+                store.requestFriend(self, "Player", friend, "Friend" + i);
+                store.acceptFriend(self, friend);
+                store.updateProfile(friend, "<".repeat(80), "<".repeat(32));
+                store.sendDirect(self, "Player", friend, "<".repeat(300));
+                store.requestFriend(incoming, "Incoming" + i, self, "Player");
+                store.requestFriend(self, "Player", outgoing, "Outgoing" + i);
+            }
+            helper.assertTrue(handle("social.bootstrap", player, new JsonObject()).length()
+                            <= FriendlyByteBuf.MAX_STRING_LENGTH,
+                    "many relationships must not make bootstrap exceed the response limit");
+            for (String kind : List.of("friends", "incoming", "outgoing")) {
+                java.util.Set<String> ids = new java.util.HashSet<>();
+                int offset = 0;
+                boolean more;
+                do {
+                    JsonObject payload = new JsonObject();
+                    payload.addProperty("kind", kind);
+                    payload.addProperty("offset", offset);
+                    String json = handle("social.contacts.page", player, payload);
+                    JsonObject page = JsonParser.parseString(json).getAsJsonObject();
+                    helper.assertTrue(json.length() <= FriendlyByteBuf.MAX_STRING_LENGTH,
+                            "contact page must fit the response limit");
+                    for (var item : page.getAsJsonArray("items")) {
+                        helper.assertTrue(ids.add(item.getAsJsonObject().get("uuid").getAsString()),
+                                "contact pages must not repeat a relationship");
+                    }
+                    int next = page.get("nextOffset").getAsInt();
+                    more = page.get("hasMore").getAsBoolean();
+                    helper.assertTrue(!more || next > offset, "continuation must advance");
+                    offset = next;
+                } while (more);
+                helper.assertTrue(ids.size() == 21, "all " + kind + " relationships must remain accessible");
+            }
         });
     }
 

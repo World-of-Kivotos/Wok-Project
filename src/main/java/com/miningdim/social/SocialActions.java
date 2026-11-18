@@ -60,6 +60,7 @@ public final class SocialActions {
         }
         registered = true;
         WebUiServerDispatcher.register("social.bootstrap", SocialActions::bootstrap);
+        WebUiServerDispatcher.register("social.contacts.page", SocialActions::contactsPage);
         WebUiServerDispatcher.register("social.moments.page", SocialActions::momentsPage);
         WebUiServerDispatcher.register("social.moment.post", SocialActions::postMoment);
         WebUiServerDispatcher.register("social.moment.like", SocialActions::likeMoment);
@@ -124,48 +125,61 @@ public final class SocialActions {
             codexJson.addProperty("total", codex.total());
             result.add("tarotCodex", codexJson);
 
-            JsonArray friends = new JsonArray();
-            for (UUID friendId : store.friendIds(sender.getUUID())) {
-                SocialData.Profile profile = store.profile(friendId);
-                if (profile == null) {
-                    continue;
-                }
-                JsonObject item = profileJson(profile, online(sender, friendId));
-                item.addProperty("thread", SocialStore.threadKey(sender.getUUID(), friendId));
-                List<SocialData.ChatMessage> last = store.directHistory(sender.getUUID(), friendId, 1);
-                if (!last.isEmpty()) {
-                    SocialData.ChatMessage message = last.get(0);
-                    item.addProperty("lastMessage", message.text);
-                    item.addProperty("lastTime", message.createdAt);
-                }
-                friends.add(item);
-            }
-            result.add("friends", friends);
-
-            JsonArray incoming = new JsonArray();
-            for (UUID requester : store.incomingIds(sender.getUUID())) {
-                SocialData.Profile profile = store.profile(requester);
-                if (profile != null) {
-                    incoming.add(profileJson(profile, online(sender, requester)));
-                }
-            }
-            result.add("incoming", incoming);
-
-            JsonArray outgoing = new JsonArray();
-            for (UUID target : store.outgoingIds(sender.getUUID())) {
-                SocialData.Profile profile = store.profile(target);
-                if (profile != null) {
-                    outgoing.add(profileJson(profile, online(sender, target)));
-                }
-            }
-            result.add("outgoing", outgoing);
-
             JsonArray world = new JsonArray();
             for (SocialData.ChatMessage message : store.worldHistory(WORLD_HISTORY_SIZE)) {
                 world.add(messageJson(message));
             }
             result.add("world", world);
             return fitResponseByRemovingOldest(result, world);
+        });
+    }
+
+    private static String contactsPage(ServerPlayer sender, JsonObject payload) {
+        return guard(() -> {
+            String kind = payload.get("kind").getAsString();
+            int offset = payload.has("offset") ? payload.get("offset").getAsInt() : 0;
+            if (offset < 0) {
+                throw new SocialException("INVALID_PAGE", "无效的分页位置");
+            }
+            SocialStore store = SocialService.store();
+            List<UUID> ids = switch (kind) {
+                case "friends" -> store.friendIds(sender.getUUID());
+                case "incoming" -> store.incomingIds(sender.getUUID());
+                case "outgoing" -> store.outgoingIds(sender.getUUID());
+                default -> throw new SocialException("INVALID_PAGE", "无效的联系人类型");
+            };
+            JsonArray items = new JsonArray();
+            JsonObject result = new JsonObject();
+            result.add("items", items);
+            result.addProperty("total", ids.size());
+            result.addProperty("hasMore", false);
+            int index = Math.min(offset, ids.size());
+            while (index < ids.size() && items.size() < 10) {
+                UUID id = ids.get(index);
+                SocialData.Profile profile = store.profile(id);
+                if (profile != null) {
+                    JsonObject item = profileJson(profile, online(sender, id));
+                    if ("friends".equals(kind)) {
+                        item.addProperty("thread", SocialStore.threadKey(sender.getUUID(), id));
+                        List<SocialData.ChatMessage> last = store.directHistory(sender.getUUID(), id, 1);
+                        if (!last.isEmpty()) {
+                            item.addProperty("lastMessage", last.get(0).text);
+                            item.addProperty("lastTime", last.get(0).createdAt);
+                        }
+                    }
+                    items.add(item);
+                    result.addProperty("nextOffset", index + 1);
+                    if (GSON.toJson(result).length() > MAX_RESPONSE_CHARS) {
+                        items.remove(items.size() - 1);
+                        if (items.isEmpty()) throw responseTooLarge();
+                        break;
+                    }
+                }
+                index++;
+            }
+            result.addProperty("nextOffset", index);
+            result.addProperty("hasMore", index < ids.size());
+            return fitResponse(result);
         });
     }
 

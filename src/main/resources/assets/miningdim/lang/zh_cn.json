@@ -612,6 +612,7 @@
   "brewer.moonshine.night_vision": "永久夜视",
   "block.miningdim.brewing_station": "酿酒台",
   "block.miningdim.wine_cellar": "酒窖箱",
+  "message.miningdim.wine_cellar.locked": "酒窖已锁定，请联系管理员修复燃料存档。",
   "brewer.cellar.out_of_fuel": "缺干小麦! 陈酿暂停",
   "brewer.cellar.deposit": "存入",
   "brewer.cellar.withdraw": "取出",

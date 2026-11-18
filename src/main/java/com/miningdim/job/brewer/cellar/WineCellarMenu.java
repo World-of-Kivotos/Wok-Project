@@ -76,8 +76,14 @@ public final class WineCellarMenu extends AbstractMiningMenu {
 
     @Override
     public void clicked(int slot, int button, ClickType clickType, Player player) {
+        if (blockEntity.isLocked()) return;
         blockEntity.settleNow();
         super.clicked(slot, button, clickType, player);
+    }
+
+    @Override
+    public boolean stillValid(Player player) {
+        return !blockEntity.isLocked() && super.stillValid(player);
     }
 
     public int fuelTotal() {

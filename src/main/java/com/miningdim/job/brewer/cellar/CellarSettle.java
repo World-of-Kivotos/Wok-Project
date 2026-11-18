@@ -47,9 +47,6 @@ public final class CellarSettle {
 
     /** 同年份的一栈酒；瓶数参与耗粮，年份和变质状态仍由整栈共享。 */
     public record BottleState(double vintage, boolean spoiled, int count) {
-        public BottleState(double vintage, boolean spoiled) {
-            this(vintage, spoiled, 1);
-        }
     }
 
     /**

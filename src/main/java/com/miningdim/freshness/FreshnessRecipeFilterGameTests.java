@@ -1,11 +1,15 @@
 package com.miningdim.freshness;
 
 import com.miningdim.core.MiningConstants;
+import net.minecraft.commands.Commands;
 import net.minecraft.core.NonNullList;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.ReloadableServerResources;
+import net.minecraft.server.packs.resources.PreparableReloadListener;
+import net.minecraft.util.profiling.InactiveProfiler;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.CraftingBookCategory;
@@ -13,7 +17,9 @@ import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeType;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import net.minecraftforge.event.AddReloadListenerEvent;
 import net.minecraft.world.item.crafting.ShapedRecipe;
 import net.minecraft.world.item.crafting.ShapelessRecipe;
 import net.minecraftforge.gametest.GameTestHolder;
@@ -129,39 +135,16 @@ public final class FreshnessRecipeFilterGameTests {
         FreshnessConfig.Mode previousMode = FreshnessConfig.MODE.get();
         FreshnessConfig.MODE.set(FreshnessConfig.Mode.DRY_RUN);
         try {
-            Map<ResourceLocation, Recipe<?>> crafting = new java.util.LinkedHashMap<>();
-            crafting.put(new ResourceLocation("test:unpack_hay"), shapeless("test:unpack_hay",
-                    Items.HAY_BLOCK, new ItemStack(Items.WHEAT, 9)));
-            crafting.put(new ResourceLocation("test:unpack_crate"), shapeless("test:unpack_crate",
-                    Items.OAK_LOG, new ItemStack(Items.BREAD, 6)));
-            crafting.put(new ResourceLocation("test:pack_hay"), shapeless("test:pack_hay",
-                    Items.WHEAT, new ItemStack(Items.HAY_BLOCK, 9)));
-            crafting.put(new ResourceLocation("test:allowed_unpack"), shapeless("test:allowed_unpack",
-                    Items.OAK_LOG, new ItemStack(Items.BREAD, 6)));
-
-            Map<RecipeType<?>, Map<ResourceLocation, Recipe<?>>> byType = new java.util.HashMap<>();
-            byType.put(RecipeType.CRAFTING, crafting);
-
-            java.util.Set<ResourceLocation> whitelist =
-                    FreshnessRecipeFilter.parseWhitelist(List.of("test:allowed_unpack", "not a valid id"));
-            List<ResourceLocation> removed = FreshnessRecipeFilter.collectRemovals(crafting, whitelist);
-            helper.assertTrue(removed.size() == 2, "两条命中 (箱子拆面包 + 干草块拆小麦), 实得 " + removed);
-
-            // 内部表是 ImmutableMap, 就地 remove 会抛; 所以实现是"造副本换进去", 这里按同一手法验证。
-            Map<ResourceLocation, Recipe<?>> rebuilt = FreshnessRecipeFilter.rebuildWithout(crafting, removed);
-            byType.put(RecipeType.CRAFTING, rebuilt);
-            helper.assertTrue(!rebuilt.containsKey(new ResourceLocation("test:unpack_hay")),
-                    "命中的必须真的不在新表里 (只回一个计数不算)");
-            helper.assertTrue(!rebuilt.containsKey(new ResourceLocation("test:unpack_crate")), "第二条也要删");
-            helper.assertTrue(rebuilt.containsKey(new ResourceLocation("test:pack_hay")), "压缩方向必须留着");
-            helper.assertTrue(rebuilt.containsKey(new ResourceLocation("test:allowed_unpack")),
-                    "白名单里的配方必须留着 (整合包有正当的 1 料多产配方时靠它)");
-            helper.assertTrue(crafting.size() == 4,
-                    "原表不许被就地改动 (它是 ImmutableMap; 改了会抛, 也会让别处看到的表与预期不一致)");
-
-            // 再跑一遍: 新表里已经没有可删的了 (reload 会重跑整条链, 判据必须幂等)。
-            helper.assertTrue(FreshnessRecipeFilter.collectRemovals(rebuilt, whitelist).isEmpty(),
-                    "第二遍不该再删任何东西");
+            var recipes = List.of(
+                    shapeless("test:unpack_hay", Items.HAY_BLOCK, new ItemStack(Items.WHEAT, 9)),
+                    shapeless("test:unpack_crate", Items.OAK_LOG, new ItemStack(Items.BREAD, 6)),
+                    shapeless("test:pack_hay", Items.WHEAT, new ItemStack(Items.HAY_BLOCK, 9)),
+                    shapeless("test:allowed_unpack", Items.OAK_LOG, new ItemStack(Items.BREAD, 6)));
+            var whitelist = FreshnessRecipeFilter.parseWhitelist(List.of("test:allowed_unpack", "not a valid id"));
+            var removed = FreshnessRecipeFilter.collectRemovals(recipes, whitelist, helper.getLevel().registryAccess());
+            helper.assertTrue(removed.equals(Set.of(new ResourceLocation("test:unpack_hay"),
+                            new ResourceLocation("test:unpack_crate"))),
+                    "必须只删除命中的两个拆回配方，保留压缩方向和白名单");
             helper.succeed();
         } finally {
             FreshnessConfig.MODE.set(previousMode);
@@ -199,6 +182,42 @@ public final class FreshnessRecipeFilterGameTests {
             manager.replaceRecipes(original);
             FreshnessConfig.RECIPE_FILTER_ENABLED.set(previousFilter);
             FreshnessConfig.MODE.set(previous);
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void reloadFiltersTheIncomingRecipeManager(GameTestHelper helper) {
+        var server = helper.getLevel().getServer();
+        var incoming = new ReloadableServerResources(server.registryAccess(), helper.getLevel().enabledFeatures(),
+                Commands.CommandSelection.DEDICATED, 2);
+        var next = incoming.getRecipeManager();
+        var retained = shapeless("test:pack_hay", Items.WHEAT, new ItemStack(Items.HAY_BLOCK, 9));
+        next.replaceRecipes(List.of(retained, shapeless(UNPACK_HAY.toString(), Items.HAY_BLOCK, new ItemStack(Items.WHEAT, 9))));
+        var previousRecipe = server.getRecipeManager().byKey(UNPACK_HAY);
+        var event = new AddReloadListenerEvent(incoming, server.registryAccess());
+        FreshnessRecipeFilterHooks.onAddReloadListener(event);
+        var previousMode = FreshnessConfig.MODE.get();
+        boolean previousFilter = FreshnessConfig.RECIPE_FILTER_ENABLED.get();
+        try {
+            FreshnessConfig.MODE.set(FreshnessConfig.Mode.ON);
+            FreshnessConfig.RECIPE_FILTER_ENABLED.set(true);
+            PreparableReloadListener.PreparationBarrier barrier = new PreparableReloadListener.PreparationBarrier() {
+                @Override
+                public <T> CompletableFuture<T> wait(T value) {
+                    return CompletableFuture.completedFuture(value);
+                }
+            };
+            event.getListeners().get(0).reload(barrier, server.getResourceManager(), InactiveProfiler.INSTANCE,
+                    InactiveProfiler.INSTANCE, Runnable::run, Runnable::run).join();
+            helper.assertTrue(next.byKey(UNPACK_HAY).isEmpty()
+                            && next.getAllRecipesFor(RecipeType.CRAFTING).equals(List.of(retained)),
+                    "重载后按 id 和类型都只能查到保留配方");
+            helper.assertTrue(server.getRecipeManager().byKey(UNPACK_HAY).equals(previousRecipe),
+                    "旧服务端配方表必须保持原样");
+        } finally {
+            FreshnessConfig.RECIPE_FILTER_ENABLED.set(previousFilter);
+            FreshnessConfig.MODE.set(previousMode);
         }
         helper.succeed();
     }

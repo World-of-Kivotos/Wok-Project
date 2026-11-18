@@ -18,6 +18,14 @@
 
 未接正式生产的烹饪台界面只提供练习按钮，不提供放料或出品槽；后续生产菜单继续提供同一入口。潜行且任一手持方块时交给原版放置，创造模式双手空着潜行保留外观预览。`/chef practice [pot|fryer|oven|prep]` 限权限等级 2，仅用于管理员调试。FD 按钮通过客户端 Forge 界面事件软联动，不引用 FD 类型、不新增 Mixin；正式生产按钮仍按规格另行接入。
 
+炸锅支撑层已注册 `miningdim:frying` 配方类型和六份配方数据，提供单信用点幂等账本、玩家进度与事务检查点保存，以及只读界面绘制组件。本层不注册炸锅生产方块实体或菜单，不开放生产入口；现有台子与练习继续按上文运行。完整生产由下一层接入。
+
+炸锅 journal 后台写盘失败时消费失败任务、恢复脏标记并记录文件路径与异常，五秒后重试。原版自动保存与停服保存记录炸锅 I/O 故障后继续保存其他数据，失败状态留待后续保存。开局、结算和拆台的同步检查点写入失败仍向调用方报错。写入成功前仍有未持久化数据，故障期间硬崩或退出可能丢失这部分数据。
+
+完成和退款队列先将交易意图写入 journal，再按交易 ID 逐笔调用账本。账本抛出异常或完成交易没有对应扣款时，记录交易 ID、玩家和失败原因，保留该项并继续处理其他交易。成功项的出队结果合并写回。若这次写回失败，重启后仍可用同一交易 ID 幂等重试。定时 tick 和台子结算后的队列处理共用这套逻辑。
+
+炸锅 journal 当前写入 v3，保留 #100 开发版本写出的 v2。提交 `03895ccc` 的 GameTest 在测试世界同步写过 v2，后续 #99 的 `77a74da4` 拆锅时以空库存快照表示移除。迁移时给旧快照补上修订号 0，可与同一代缺少修订号的区块存档核对。测试服及玩家世界是否使用过这两个构建尚未确认。[历史 GameTest 记录](https://github.com/World-of-Kivotos/Wok-Project/pull/100#issuecomment-6476574963)
+
 ## 配置
 
 服务端配置文件为 `miningdim-chef.toml`，由 `ChefConfig.SPEC` 注册。配置分组包括：`xp`、`amplify`、`nourish_food`、`aftertaste_saturation`、`nourish_heal`、`shield`、`grease`、`aftertaste_regen`、`stable_aim`、`endurance`、`refresh`、`night_sight`、`satiation`、`exploration`、`effect_pool`、`minigame`、`quality_resolution`、`negatives` 和 `economy`。

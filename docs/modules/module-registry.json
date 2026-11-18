@@ -507,7 +507,8 @@
         "META-INF/licenses/FarmersDelight-LICENSE.txt",
         "META-INF/licenses/zhangshao",
         "assets/miningdim/zhangshao",
-        "data/miningdim/zhangshao"
+        "data/miningdim/zhangshao",
+        "miningdim.fryer.mixins.json"
       ],
       "resourceNamePrefixes": [
         "seasoning",

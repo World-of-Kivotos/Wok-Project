@@ -33,6 +33,7 @@ public final class SocialDeviceArt {
     /** 屏幕开窗在正面图里占的宽/高比例（960×600 于 1024×640）。 */
     public static final double SCREEN_FRAC = 960.0D / 1024.0D;
 
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("miningdim/social-tablet");
     private static TabletDeviceModel.Mesh mesh;
     private static boolean meshFailed;
 
@@ -62,6 +63,7 @@ public final class SocialDeviceArt {
             Minecraft minecraft = Minecraft.getInstance();
             Optional<Resource> resource = minecraft.getResourceManager().getResource(FRONT);
             if (resource.isEmpty()) {
+                LOGGER.warn("Tablet mesh resource {} is missing", FRONT);
                 meshFailed = true;
                 return null;
             }
@@ -85,6 +87,7 @@ public final class SocialDeviceArt {
             }
             return mesh;
         } catch (IOException | RuntimeException exception) {
+            LOGGER.warn("Failed to build tablet mesh from {}", FRONT, exception);
             meshFailed = true;
             return null;
         }

@@ -21,18 +21,12 @@ public final class SocialTabletSounds {
     private SocialTabletSounds() {
     }
 
-    /** 播放一个 cue；未知名字静默忽略（换包/缺资源不该让动画崩）。 */
+    /** 播放时间轴的音效 cue。 */
     public static void play(String name) {
-        if (name == null || name.isEmpty()) {
-            return;
-        }
         SoundEvent event = EVENTS.computeIfAbsent(name,
                 key -> SoundEvent.createVariableRangeEvent(
                         new ResourceLocation("miningdim", "tablet." + key)));
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.getSoundManager() == null) {
-            return;
-        }
         minecraft.getSoundManager().play(SimpleSoundInstance.forUI(event, 1.0F, 0.85F));
     }
 }

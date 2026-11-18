@@ -137,11 +137,6 @@ public final class TarotCodexSavedData extends SavedData {
         return cards;
     }
 
-    /** 是否拥有任意一张闪耀品质的任意形态。 */
-    public boolean hasShiny(UUID uuid) {
-        return shinyForms(uuid) > 0;
-    }
-
     /** 已点亮的闪耀形态数（0..44）。 */
     public int shinyForms(UUID uuid) {
         long[] words = bits.get(uuid);
@@ -162,8 +157,4 @@ public final class TarotCodexSavedData extends SavedData {
         return count;
     }
 
-    /** 22 张大阿卡纳是否每张至少点亮一个形态。 */
-    public boolean hasAllArcana(UUID uuid) {
-        return arcana(uuid) >= TarotArcana.COUNT;
-    }
 }

@@ -10,9 +10,11 @@ import com.miningdim.webui.server.WebUiBusinessException;
 import com.miningdim.webui.server.WebUiErrorCodes;
 import com.miningdim.webui.server.WebUiServerDispatcher;
 import com.mojang.authlib.GameProfile;
+import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.players.GameProfileCache;
 import net.minecraft.world.level.storage.LevelResource;
 
 import java.io.IOException;
@@ -431,26 +433,37 @@ public final class SocialActions {
             return new ResolvedTarget(online.getUUID(), online.getName().getString());
         }
         Path playerData = server.getWorldPath(LevelResource.PLAYER_DATA_DIR);
-        if (Files.isDirectory(playerData)) {
-            try (var files = Files.list(playerData)) {
-                Optional<GameProfile> match = files.filter(Files::isRegularFile)
-                        .map(path -> path.getFileName().toString())
-                        .filter(file -> file.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.dat"))
-                        .map(file -> UUID.fromString(file.substring(0, 36)))
-                        .map(server.getProfileCache()::get)
-                        .flatMap(Optional::stream)
-                        .filter(profile -> server.usesAuthentication()
-                                ? profile.getName().equalsIgnoreCase(name) : profile.getName().equals(name))
-                        .findFirst();
-                if (match.isPresent()) {
-                    GameProfile profile = match.get();
-                    return new ResolvedTarget(profile.getId(), profile.getName());
-                }
-            } catch (IOException failure) {
-                throw new UncheckedIOException("Unable to inspect player data for social lookup", failure);
+        if (server.usesAuthentication()) {
+            Optional<GameProfile> match = findSavedProfile(playerData, server.getProfileCache(), name);
+            if (match.isPresent()) {
+                GameProfile profile = match.get();
+                return new ResolvedTarget(profile.getId(), profile.getName());
+            }
+        } else {
+            UUID uuid = UUIDUtil.createOfflinePlayerUUID(name);
+            if (Files.isRegularFile(playerData.resolve(uuid + ".dat"))) {
+                return new ResolvedTarget(uuid, name);
             }
         }
         throw new SocialException("PLAYER_NOT_FOUND", "找不到该玩家");
+    }
+
+    static Optional<GameProfile> findSavedProfile(Path playerData, GameProfileCache cache, String name) {
+        if (!Files.isDirectory(playerData)) {
+            return Optional.empty();
+        }
+        try (var files = Files.list(playerData)) {
+            return files.filter(Files::isRegularFile)
+                    .map(path -> path.getFileName().toString())
+                    .filter(file -> file.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.dat"))
+                    .map(file -> UUID.fromString(file.substring(0, 36)))
+                    .map(cache::get)
+                    .flatMap(Optional::stream)
+                    .filter(profile -> profile.getName().equalsIgnoreCase(name))
+                    .findFirst();
+        } catch (IOException failure) {
+            throw new UncheckedIOException("Unable to inspect player data for social lookup", failure);
+        }
     }
 
     private static JsonObject profileJson(SocialData.Profile profile, boolean online) {
@@ -539,7 +552,7 @@ public final class SocialActions {
         }
     }
 
-    /** 目标玩家解析结果；非在线玩家须有本服存档和缓存身份。 */
+    /** 目标玩家解析结果；非在线玩家须有本服存档；正版服还须有缓存身份。 */
     private record ResolvedTarget(UUID uuid, String name) {
     }
 }

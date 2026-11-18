@@ -887,7 +887,7 @@
         "farmersdelight"
       ],
       "publicEntry": "com.miningdim.freshness.FreshnessModule",
-      "scope": "foundation code only; configuration is registered with mode OFF by default, runtime event hooks are not yet registered. The server-wide freshness clock (hourly wall-clock arbitration, downtime compensation, five-minute heartbeat), the MiningFresh item stamp (batch minute, credited stop hours, migration and villager marks) with its single writer and comparison helper, the six shelf-life category tags plus the exemption tag, module-registered data-driven exemptions, and the three-position mode switch (OFF / DRY_RUN / ON). Observation points, the rot terminal item, the category self-check, granary stop-hours and same-kind merging land in later slices of docs/Spoilage_Granary_DesignSpec.md; the granary itself lives in wok-job-farmer under job/farmer/granary"
+      "scope": "foundation, processing, merge, nested item, read-only audit and migration logic; configuration is registered with mode OFF by default, runtime event hooks are not yet registered. The server-wide freshness clock (hourly wall-clock arbitration, downtime compensation, five-minute heartbeat), the MiningFresh item stamp (batch minute, credited stop hours, migration and villager marks) with its single writer and comparison helper, the six shelf-life category tags plus the exemption tag, module-registered data-driven exemptions, and the three-position mode switch (OFF / DRY_RUN / ON). Observation points, the rot terminal item, the category self-check, granary stop-hours and same-kind merging land in later slices of docs/Spoilage_Granary_DesignSpec.md; the granary itself lives in wok-job-farmer under job/farmer/granary"
     },
     {
       "id": "wok-app",

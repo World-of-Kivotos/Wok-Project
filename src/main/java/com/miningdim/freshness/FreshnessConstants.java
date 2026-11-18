@@ -43,6 +43,12 @@ public final class FreshnessConstants {
     /** 村民卖出的食物到手时剩的小时数。 */
     public static final int VILLAGER_GOODS_HOURS = 6;
 
+    /** 开服迁移状态存档名。 */
+    public static final String MIGRATION_DATA_NAME = "miningdim_freshness_migration";
+
+    /** 开服迁移货的默认宽限小时数。 */
+    public static final int MIGRATION_GRACE_HOURS = 6;
+
     private FreshnessConstants() {
     }
 }

@@ -1,16 +1,16 @@
 package com.miningdim.freshness;
 
 import net.minecraft.core.BlockPos;
-import java.util.Optional;
 import net.minecraft.core.NonNullList;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.Container;
+import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.inventory.CraftingContainer;
 import net.minecraft.world.inventory.ResultContainer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.core.RegistryAccess;
+import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
 import net.minecraft.world.level.block.entity.CampfireBlockEntity;
 
@@ -69,7 +69,7 @@ public final class FreshnessHooks {
             return product;
         }
         long nowMinute = FreshnessClockData.nowMinute(serverLevel);
-        ItemStack input = oldestCampfireInput(campfire, product, nowMinute);
+        ItemStack input = oldestCampfireInput(serverLevel, campfire, product, nowMinute);
         if (input == null) {
             return product;
         }
@@ -82,16 +82,17 @@ public final class FreshnessHooks {
     }
 
     /** 这座营火上"烤出来正好是这件产物"的原料里最老的那一件; 没有就返回 null。 */
-    private static ItemStack oldestCampfireInput(CampfireBlockEntity campfire, ItemStack product, long nowMinute) {
+    private static ItemStack oldestCampfireInput(ServerLevel level, CampfireBlockEntity campfire,
+                                                ItemStack product, long nowMinute) {
         ItemStack oldest = null;
         long oldestRemaining = Long.MAX_VALUE;
         for (ItemStack candidate : campfire.getItems()) {
             if (candidate.isEmpty() || !FreshnessCategories.spoils(candidate)) {
                 continue;
             }
-            Optional<net.minecraft.world.item.crafting.CampfireCookingRecipe> recipe =
-                    campfire.getCookableRecipe(candidate);
-            if (recipe.isEmpty() || !recipe.get().getResultItem(RegistryAccess.EMPTY).is(product.getItem())) {
+            var recipe = level.getRecipeManager().getRecipeFor(RecipeType.CAMPFIRE_COOKING,
+                    new SimpleContainer(candidate), level);
+            if (recipe.isEmpty() || !recipe.get().getResultItem(level.registryAccess()).is(product.getItem())) {
                 continue;
             }
             long remaining = FreshnessCheck.remainingMinutes(candidate, nowMinute);

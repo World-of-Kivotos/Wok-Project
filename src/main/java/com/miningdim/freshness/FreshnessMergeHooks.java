@@ -3,6 +3,7 @@ package com.miningdim.freshness;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ClickAction;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.event.ItemStackedOnOtherEvent;
@@ -27,7 +28,9 @@ public final class FreshnessMergeHooks {
             return -1;
         }
         for (int slot = 0; slot < container.getContainerSize(); slot++) {
-            if (FreshMerge.canMerge(container.getItem(slot), incoming)) {
+            ItemStack target = container.getItem(slot);
+            int room = Math.min(target.getMaxStackSize(), container.getMaxStackSize()) - target.getCount();
+            if (room >= incoming.getCount() && FreshMerge.canMerge(target, incoming)) {
                 return slot;
             }
         }
@@ -82,7 +85,8 @@ public final class FreshnessMergeHooks {
             Slot slot = menu.slots.get(index);
             if (FreshnessContainers.isMergeTarget(menu, slot) && slot.mayPlace(stack)) {
                 ItemStack target = slot.getItem();
-                if (FreshMerge.mergeInto(target, stack) > 0) {
+                if (stack.getCount() <= slot.getMaxStackSize(stack) - target.getCount()
+                        && FreshMerge.mergeInto(target, stack) > 0) {
                     slot.set(target);
                     slot.setChanged();
                     menu.broadcastChanges();
@@ -99,20 +103,28 @@ public final class FreshnessMergeHooks {
      * 原版只认「完全相同才叠」, 不拦的话玩家点一下会被拒 (或者叠不上)。
      */
     public static void onStackedOnOther(ItemStackedOnOtherEvent event) {
-        if (!(event.getPlayer() instanceof ServerPlayer player)) {
+        if (!(event.getPlayer() instanceof ServerPlayer player) || player.isCreative()) {
             return; // 客户端不算账, 一律以服务端结果为准
         }
         ItemStack target = event.getStackedOnItem();
         ItemStack carried = event.getCarriedItem();
-        // Forge 在 vanilla 的槽准入检查之前发事件，提前合并也必须遵守同一限制。
-        if (!event.getSlot().mayPlace(carried)) {
+        Slot slot = event.getSlot();
+        if (target.isEmpty() || carried.isEmpty() || ItemStack.isSameItemSameTags(target, carried)
+                || !FreshnessContainers.isMergeTarget(player.containerMenu, slot) || !slot.mayPlace(carried)) {
             return;
         }
-        if (FreshMerge.mergeInto(target, carried) <= 0) {
+        int amount = event.getClickAction() == ClickAction.SECONDARY ? 1 : carried.getCount();
+        if (amount > slot.getMaxStackSize(carried) - target.getCount()) {
             return;
         }
-        event.getSlot().set(target);
-        event.getSlot().setChanged();
+        // Only the portion actually deposited receives the weighted batch. The remainder keeps its stamp.
+        int moved = FreshMerge.mergeInto(target, carried.copyWithCount(amount));
+        if (moved == 0) {
+            return;
+        }
+        carried.shrink(moved);
+        slot.set(target);
+        slot.setChanged();
         event.getCarriedSlotAccess().set(carried);
         event.setCanceled(true);
         player.containerMenu.broadcastChanges();

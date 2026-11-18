@@ -23,7 +23,7 @@
 | `wok-quest` | WOK-任务模块 | 35 | 49 | `QuestSystem` | 核心、经济、WebUI、附魔；TaCZ 可选 |
 | `wok-enchant` | WOK-附魔模块 | 7 | 9 | `EnchantmentSystem` | 核心、经济 |
 | `wok-job-miner` | WOK-矿工模块 | 28 | 47 | `MinerSystem` | 核心、职业框架、矿区、经济、战斗框架、WebUI |
-| `wok-job-farmer` | WOK-农夫模块 | 50 | 79 | `FarmerModule` | 核心、全服经验、职业框架、经济、WebUI、腐烂底座；Farmer's Delight 可选 |
+| `wok-job-farmer` | WOK-农夫模块 | 59 | 84 | `FarmerModule` | 核心、全服经验、职业框架、经济、WebUI、腐烂底座；Farmer's Delight 可选 |
 | `wok-job-armorer` | WOK-铸甲师模块 | 124 | 82 | `EngineerSystem` | 核心、职业框架、精英怪、WebUI；TaCZ 可选 |
 | `wok-job-chef` | WOK-厨师模块 | 35 | 34 | `ChefModule` | 核心、全服经验、职业框架、战斗框架、经济、WebUI；Farmer's Delight、Flavor Immersed Daily 可选 |
 | `wok-job-fisher` | WOK-渔夫模块 † | 39 | 37 | `FishingSystem` | 核心、存储、经济、厨师；Farmer's Delight、Tide 可选 |

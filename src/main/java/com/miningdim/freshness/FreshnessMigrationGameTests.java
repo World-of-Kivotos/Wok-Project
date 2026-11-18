@@ -365,6 +365,48 @@ public final class FreshnessMigrationGameTests {
         }
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void entityCapabilityMigrationHonorsReadOnlyStacks(GameTestHelper helper) {
+        FreshnessConfig.Mode previous = FreshnessConfig.MODE.get();
+        FreshnessConfig.MODE.set(FreshnessConfig.Mode.DRY_RUN);
+        try {
+            for (boolean writable : new boolean[]{true, false}) {
+                net.minecraftforge.items.ItemStackHandler backing = new net.minecraftforge.items.ItemStackHandler(1);
+                backing.setStackInSlot(0, new ItemStack(Items.BREAD, 3));
+                ItemStack original = backing.getStackInSlot(0);
+                net.minecraftforge.items.IItemHandler handler = writable ? backing : new net.minecraftforge.items.IItemHandler() {
+                    public int getSlots() { return backing.getSlots(); }
+                    public ItemStack getStackInSlot(int slot) { return backing.getStackInSlot(slot); }
+                    public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) { return backing.insertItem(slot, stack, simulate); }
+                    public ItemStack extractItem(int slot, int amount, boolean simulate) { return backing.extractItem(slot, amount, simulate); }
+                    public int getSlotLimit(int slot) { return backing.getSlotLimit(slot); }
+                    public boolean isItemValid(int slot, ItemStack stack) { return backing.isItemValid(slot, stack); }
+                };
+                net.minecraftforge.common.util.LazyOptional<net.minecraftforge.items.IItemHandler> capability =
+                        net.minecraftforge.common.util.LazyOptional.of(() -> handler);
+                net.minecraft.world.entity.item.ItemEntity entity = new net.minecraft.world.entity.item.ItemEntity(
+                        helper.getLevel(), 0, 0, 0, ItemStack.EMPTY) {
+                    @Override
+                    public <T> net.minecraftforge.common.util.LazyOptional<T> getCapability(
+                            net.minecraftforge.common.capabilities.Capability<T> cap, net.minecraft.core.Direction side) {
+                        return cap == net.minecraftforge.common.capabilities.ForgeCapabilities.ITEM_HANDLER
+                                ? capability.cast() : super.getCapability(cap, side);
+                    }
+                };
+                int migrated = FreshnessMigrationHooks.migrateCapability(entity, ENABLED_AT, GRACE_HOURS, STOP_CAP);
+                helper.assertTrue(!FreshnessData.isStamped(original), "查询返回的原栈不得被修改");
+                helper.assertTrue(migrated == (writable ? 1 : 0), "仅可回写能力计入成功");
+                helper.assertTrue(FreshnessData.isMigrated(backing.getStackInSlot(0)) == writable,
+                        "可回写能力持久更新，只读能力保留原栈");
+                helper.assertTrue(backing.getStackInSlot(0).getCount() == 3, "迁移不得增减物品");
+                capability.invalidate();
+            }
+            helper.succeed();
+        } finally {
+            FreshnessConfig.MODE.set(previous);
+        }
+    }
+
     // ============================================================
     // 夹具
     // ============================================================

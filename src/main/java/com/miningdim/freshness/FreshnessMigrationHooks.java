@@ -296,21 +296,28 @@ public final class FreshnessMigrationHooks {
     }
 
     /** 任何挂了物品接口能力的实体 (运输矿车、箱子船、驴骡羊驼、第三方容器实体)。 */
-    private static int migrateCapability(Entity entity, long enabledAt, int graceHours, int stopCapHours) {
+    static int migrateCapability(Entity entity, long enabledAt, int graceHours, int stopCapHours) {
         IItemHandler handler = entity.getCapability(ForgeCapabilities.ITEM_HANDLER).resolve().orElse(null);
         if (handler == null) {
             return 0;
         }
         int migrated = 0;
+        int unsupported = 0;
         for (int slot = 0; slot < handler.getSlots(); slot++) {
-            ItemStack stack = handler.getStackInSlot(slot);
+            ItemStack stack = handler.getStackInSlot(slot).copy();
             if (!FreshnessMigration.stampMigrated(stack, enabledAt, graceHours, stopCapHours)) {
                 continue;
             }
             if (handler instanceof IItemHandlerModifiable modifiable) {
                 modifiable.setStackInSlot(slot, stack);
+                migrated++;
+            } else {
+                unsupported++;
             }
-            migrated++;
+        }
+        if (unsupported > 0) {
+            LOGGER.warn("[miningdim] freshness migration: 实体 {} ({}) 在 {} 有 {} 个未迁移槽位: 物品能力不支持直接回写；请人工核查",
+                    entity.getType(), entity.getUUID(), entity.blockPosition(), unsupported);
         }
         return migrated;
     }

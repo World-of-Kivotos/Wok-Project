@@ -33,10 +33,10 @@ public final class FreshnessGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void clockStampsFirstObservationAndAdvancesNormally(GameTestHelper helper) {
         FreshnessClock clock = new FreshnessClock();
-        helper.assertTrue(clock.observeHour(WALL_HOUR) == 0L,
+        helper.assertTrue(clock.observeMinute(WALL_HOUR, 0L) == 0L,
                 "首次观察不得补偏移 (还没有心跳可比)");
         helper.assertTrue(clock.lastSeenHour() == WALL_HOUR, "首次观察必须记下心跳");
-        helper.assertTrue(clock.observeHour(WALL_HOUR + 1L) == 0L, "相邻整点属正常前进");
+        helper.assertTrue(clock.observeMinute(WALL_HOUR + 1L, 0L) == 0L, "相邻整点属正常前进");
         helper.assertTrue(clock.offsetHours() == 0L, "正常前进不产生偏移");
         helper.assertTrue(clock.nowMinute(WALL_HOUR + 1L, 30L) == (WALL_HOUR + 1L) * 60L + 30L,
                 "没有偏移时「现在」就是挂钟本身");
@@ -46,14 +46,14 @@ public final class FreshnessGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void clockCompensatesStartupDowntimeInWholeHours(GameTestHelper helper) {
         FreshnessClock clock = new FreshnessClock();
-        clock.observeHour(WALL_HOUR);
+        clock.observeMinute(WALL_HOUR, 0L);
         // 心跳停在 WALL_HOUR, 5 小时后开服: 这 5 小时服务器没跑, 一律补进偏移 (食物不腐烂)。
-        helper.assertTrue(clock.compensateStartupFrom(WALL_HOUR, WALL_HOUR + 5L) == 5L,
+        helper.assertTrue(clock.compensateStartupFromMinutes(WALL_HOUR * 60L, (WALL_HOUR + 5L) * 60L) == 5L,
                 "停服满 1 小时按整小时补");
         helper.assertTrue(clock.offsetHours() == 5L, "补偿量必须落进偏移");
         helper.assertTrue(clock.nowMinute(WALL_HOUR + 5L, 0L) == WALL_HOUR * 60L,
                 "补 5 小时后「现在」仍停在下线那一刻");
-        helper.assertTrue(clock.compensateStartupFrom(FreshnessClock.UNSET_HOUR, WALL_HOUR) == 0L,
+        helper.assertTrue(clock.compensateStartupFromMinutes(FreshnessClock.UNSET_MINUTE, WALL_HOUR * 60L) == 0L,
                 "没有心跳可依据时不补 (首次开服)");
         helper.succeed();
     }
@@ -61,25 +61,15 @@ public final class FreshnessGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void clockTreatsRuntimeJumpAsCompensationAndNeverFreezes(GameTestHelper helper) {
         FreshnessClock clock = new FreshnessClock();
-        clock.observeHour(WALL_HOUR);
+        clock.observeMinute(WALL_HOUR, 0L);
         // 进程挂起 / 宿主机休眠 / 对时跳变: 一次推进 3 小时, 补「差值 − 1」= 2 小时。
-        helper.assertTrue(clock.observeHour(WALL_HOUR + 3L) == 2L,
+        helper.assertTrue(clock.observeMinute(WALL_HOUR + 3L, 0L) == 2L,
                 "一次推进 3 小时必须补 2 小时 (只留 1 小时正常流动)");
         helper.assertTrue(clock.offsetHours() == 2L, "补的量进偏移");
         // 挂钟往回跳 (回档 / NTP 回拨): 只增不减, 不倒退、也不冻结。
         long beforeJump = clock.offsetHours();
-        helper.assertTrue(clock.observeHour(WALL_HOUR - 10L) == 0L, "挂钟回跳不产生新偏移");
+        helper.assertTrue(clock.observeMinute(WALL_HOUR - 10L, 0L) == 0L, "挂钟回跳不产生新偏移");
         helper.assertTrue(clock.offsetHours() == beforeJump, "偏移只增不减");
-        helper.succeed();
-    }
-
-    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void clockTestOffsetEntryIsClampedToNonNegative(GameTestHelper helper) {
-        FreshnessClock clock = new FreshnessClock();
-        clock.setOffsetHoursForTest(-5L);
-        helper.assertTrue(clock.offsetHours() == 0L, "测试入口同样受「只增不减」约束");
-        clock.setOffsetHoursForTest(504L);
-        helper.assertTrue(clock.offsetHours() == 504L, "测试入口可以落一个正偏移");
         helper.succeed();
     }
 
@@ -152,6 +142,36 @@ public final class FreshnessGameTests {
         helper.assertTrue(restored.clock().nowMinute(WALL_HOUR + 4L, 0L)
                         == (WALL_HOUR - 1L) * 60L,
                 "Version 1 的 lastNow 合成值在启动补偿后保持连续");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void clockStatsRoundTripAndRejectCorruption(GameTestHelper helper) {
+        FreshnessClockData data = new FreshnessClockData();
+        data.stats().record(WALL_HOUR, 3L, 2L, 1L);
+        net.minecraft.nbt.CompoundTag valid = data.save(new net.minecraft.nbt.CompoundTag());
+        FreshnessStats.Snapshot restored = FreshnessClockData.load(valid).stats().totals(WALL_HOUR);
+        helper.assertTrue(restored.stamped() == 3L && restored.wouldRot() == 2L && restored.rotted() == 1L,
+                "有效 V2 统计必须完整往返");
+        net.minecraft.nbt.CompoundTag noStats = valid.copy();
+        noStats.remove("Stats");
+        net.minecraft.nbt.CompoundTag noHours = valid.copy();
+        noHours.getCompound("Stats").remove("Hours");
+        net.minecraft.nbt.CompoundTag badStatsV1 = valid.copy();
+        badStatsV1.putInt("Version", 1);
+        badStatsV1.putString("Stats", "invalid");
+        net.minecraft.nbt.CompoundTag noHoursV1 = noHours.copy();
+        noHoursV1.putInt("Version", 1);
+        for (net.minecraft.nbt.CompoundTag corrupted :
+                new net.minecraft.nbt.CompoundTag[]{noStats, noHours, badStatsV1, noHoursV1}) {
+            boolean rejected = false;
+            try {
+                FreshnessClockData.load(corrupted);
+            } catch (IllegalArgumentException expected) {
+                rejected = true;
+            }
+            helper.assertTrue(rejected, "损坏的统计字段必须报错而不是清空统计");
+        }
         helper.succeed();
     }
 

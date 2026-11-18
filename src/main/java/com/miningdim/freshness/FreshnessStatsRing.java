@@ -42,7 +42,6 @@ public final class FreshnessStatsRing {
         long sumStamped = 0L;
         long sumWouldRot = 0L;
         long sumRotted = 0L;
-        long countedHours = 0L;
         for (int i = 0; i < HOURS_RETAINED; i++) {
             if (hours[i] == 0L || hours[i] < fromWallHour) {
                 continue;
@@ -50,7 +49,6 @@ public final class FreshnessStatsRing {
             sumStamped += stamped[i];
             sumWouldRot += wouldRot[i];
             sumRotted += rotted[i];
-            countedHours++;
         }
         return new FreshnessStats.Snapshot(sumStamped, sumWouldRot, sumRotted);
     }
@@ -87,7 +85,7 @@ public final class FreshnessStatsRing {
     public static FreshnessStatsRing load(CompoundTag tag) {
         FreshnessStatsRing ring = new FreshnessStatsRing();
         if (!tag.contains(KEY_HOURS, Tag.TAG_LONG_ARRAY)) {
-            return ring; // 旧存档没有统计环: 从空环开始, 不报错
+            throw new IllegalArgumentException("Missing freshness stats ring field: " + KEY_HOURS);
         }
         long[] loadedHours = tag.getLongArray(KEY_HOURS);
         if (loadedHours.length != HOURS_RETAINED) {

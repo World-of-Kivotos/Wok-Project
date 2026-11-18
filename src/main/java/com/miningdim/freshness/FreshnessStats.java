@@ -24,11 +24,6 @@ public final class FreshnessStats {
         stamped += count;
     }
 
-    /** 兼容单件调用口。 */
-    public static void recordStamped() {
-        recordStamped(1L);
-    }
-
     /** 新发现的试运行过期栈按件数记一次, 同一存活 ItemStack 的重复扫描会被忽略。 */
     public static void recordWouldRot(ItemStack stack) {
         purgeStaleStacks();
@@ -46,19 +41,9 @@ public final class FreshnessStats {
         }
     }
 
-    /** 兼容直接计单件的调用口。 */
-    public static void recordWouldRot() {
-        wouldRot++;
-    }
-
     /** 实际替换的件数。 */
     public static void recordRotted(long count) {
         rotted += count;
-    }
-
-    /** 兼容单件调用口。 */
-    public static void recordRotted() {
-        recordRotted(1L);
     }
 
     /** 取走并清零本小时计数; 试运行去重状态跨小时保留。 */

@@ -75,23 +75,6 @@ public final class FreshnessClock {
         return compensated;
     }
 
-    /** 旧小时精度调用口, 用于兼容现有测试与调用者。 */
-    public long compensateStartupFrom(long heartbeatHour, long wallHour) {
-        long heartbeatMinute = heartbeatHour == UNSET_HOUR ? UNSET_MINUTE : heartbeatHour * 60L;
-        return compensateStartupFromMinutes(heartbeatMinute, wallHour * 60L);
-    }
-
-    /** 只有时钟自己的观测可用时的简化入口。 */
-    public long compensateStartup(long wallHour) {
-        long basis = lastSeenMinute == UNSET_MINUTE ? UNSET_MINUTE : lastSeenMinute;
-        return compensateStartupFromMinutes(basis, wallHour * 60L);
-    }
-
-    /** 兼容小时调用口; 生产心跳应使用 {@link #observeMinute(long, long)}。 */
-    public long observeHour(long wallHour) {
-        return observeMinute(wallHour, 0L);
-    }
-
     /**
      * 运行中观察挂钟。回拨时重置挂钟基线但保留逻辑分钟；正常前进按经过分钟推进, 大跳按「小时差 − 1」补偿。
      *
@@ -139,11 +122,4 @@ public final class FreshnessClock {
         return nowMinute(currentWallHour(), currentWallMinute());
     }
 
-    /** 测试专用: 直接落一个偏移并重建注入时刻的逻辑基线; 生产时钟路径不调用此入口。 */
-    public void setOffsetHoursForTest(long offsetHours) {
-        this.offsetHours = Math.max(0L, offsetHours);
-        this.lastNowMinute = lastSeenMinute == UNSET_MINUTE
-                ? UNSET_MINUTE : lastSeenMinute - this.offsetHours * 60L;
-        this.pendingRuntimeCompensationHours = 0L;
-    }
 }

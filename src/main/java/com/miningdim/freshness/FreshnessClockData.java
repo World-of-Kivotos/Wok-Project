@@ -98,20 +98,6 @@ public final class FreshnessClockData extends SavedData {
         return compensated;
     }
 
-    /** 旧小时调用口。 */
-    public long onServerStarted(long wallHour) {
-        return onServerStarted(wallHour, 0L);
-    }
-
-    /** 兼容旧调用口; 分钟精度由每 tick 心跳入口负责。 */
-    public long observeHour(long wallHour) {
-        long compensated = clock.observeHour(wallHour);
-        if (compensated > 0L) {
-            setDirty();
-        }
-        return compensated;
-    }
-
     /** 每 tick 观测挂钟并按五分钟间隔写入心跳。 */
     public boolean touchHeartbeat(long wallHour, long wallMinute) {
         clock.observeMinute(wallHour, wallMinute);
@@ -176,7 +162,11 @@ public final class FreshnessClockData extends SavedData {
             data.heartbeatMinute = requiredLong(tag, KEY_HEARTBEAT_MINUTE);
             data.clock.restore(lastSeen, lastSeenMinute, lastNowMinute, offset);
         }
-        if (tag.contains(KEY_STATS, Tag.TAG_COMPOUND)) {
+        // 历史源码 cd17ac14/cadf6b42 的 V1 存档不写 Stats；是否实际部署仍待确认。
+        if (version != LEGACY_VERSION || tag.contains(KEY_STATS)) {
+            if (!tag.contains(KEY_STATS, Tag.TAG_COMPOUND)) {
+                throw new IllegalArgumentException("Missing or invalid freshness clock field: " + KEY_STATS);
+            }
             data.stats = FreshnessStatsRing.load(tag.getCompound(KEY_STATS));
         }
         data.lastHeartbeatNanos = System.nanoTime();

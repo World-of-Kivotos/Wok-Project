@@ -3,7 +3,7 @@ package com.miningdim.freshness;
 /**
  * 腐烂底座 (wok-freshness) 的稳定常量。
  *
- * 文档真源: {@code docs/Spoilage_Granary_DesignSpec.md}(14 项已按推荐拍板, 2026-10-15)。
+ * 文档真源: {@code docs/Spoilage_Granary_DesignSpec.md}。
  * 本类只放**跨文件共享且不得随实现漂移**的量: 物品数据根键与子键、存档名、停表口径。
  * 保质期本身是可热改的配置 ({@link FreshnessConfig}), 不在这里写死。
  */

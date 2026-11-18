@@ -5,7 +5,10 @@ import com.miningdim.job.brewer.BrewerItems;
 import com.miningdim.job.brewer.WineNbt;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.MenuProvider;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
@@ -20,9 +23,10 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
- * 酒窖箱方块实体 (酿酒师 阶段 4)。9 酒槽 + 1 干小麦燃料槽 ({@link ItemStackHandler}); 服务端 tick 按现实挂钟差
+ * 酒窖箱方块实体 (酿酒师 阶段 4)。12 酒槽 + 1 干小麦燃料槽 ({@link ItemStackHandler}); 服务端 tick 按现实挂钟差
  * 懒结算各酒槽陈酿 (年份增长 / 满月加成 / 干小麦保鲜 / 断粮衰退至变质), 取出即冻结 (酒不在槽里就不结算它)。
  *
  * 现实挂钟权威 (与经济衰减闸 UTC 时间观同源): {@code lastSettleEpochMillis} 持久化, 每
@@ -30,8 +34,7 @@ import java.util.List;
  * 离线 / 区块卸载期间不 tick, 重新加载时一次性补齐这段挂钟差 (酒窖本就该你不在也熟)。
  *
  * 不挂 getCapability 物品能力 (与调味台同: 反挂机, 漏斗 / 机器无法注入抽取酒或燃料), 故陈酿成果与燃料续添均须
- * 人手开箱操作。燃料槽单槽容量顶到 {@link BrewerConstants#FUEL_SLOT_CAPACITY} (F027 二段修复), 使人手一次
- * 顶满即可覆盖满窖停在闪耀主线门槛年份时一个结算步的满额应耗 —— 抬高的是"一次能扛多久", 不是自动化程度。
+ * 人手开箱操作。燃料交互槽与整数储备共同计入容量。
  */
 public final class WineCellarBlockEntity extends BlockEntity implements MenuProvider {
 
@@ -64,11 +67,9 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
 
         @Override
         public int getSlotLimit(int slot) {
-            // F027 二段修复: 燃料槽顶到 FUEL_SLOT_CAPACITY (与 BrewerItems.DRIED_WHEAT 的 stacksTo 配套,
-            // Forge ItemStackHandler.getStackLimit 取两者较小值, 缺一实际生效上限仍卡在默认 64); 酒槽维持
-            // 默认 (由 WineItem 自身 stacksTo(16) 及同 NBT 才可堆叠的天然分栈约束, 不需要单独放宽)。
-            return slot == FUEL_SLOT ? BrewerConstants.FUEL_SLOT_CAPACITY : super.getSlotLimit(slot);
+            return slot == FUEL_SLOT ? Math.min(64, BrewerConstants.FUEL_SLOT_CAPACITY - fuelReserve) : super.getSlotLimit(slot);
         }
+
     };
 
     /** 上次结算的现实挂钟毫秒 (持久化; UNSET=未初始化)。 */
@@ -76,6 +77,13 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
 
     /** 结余的小数燃料债 (持久化): 单位耗量远小于一次唤醒应耗, 故按小数累加、跨整数才扣整数干小麦 (见 CellarSettle)。 */
     private double fuelDebt = 0.0D;
+    private int fuelReserve;
+    @Nullable
+    private CompoundTag lockedSave;
+
+    public boolean isLocked() {
+        return lockedSave != null;
+    }
 
     public WineCellarBlockEntity(BlockPos pos, BlockState state) {
         super(WineCellarRegistry.WINE_CELLAR_BE.get(), pos, state);
@@ -83,6 +91,38 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
 
     public ItemStackHandler inventory() {
         return inventory;
+    }
+
+    public int fuelTotal() {
+        return fuelReserve + inventory.getStackInSlot(FUEL_SLOT).getCount();
+    }
+
+    public void depositFuel() {
+        if (isLocked()) return;
+        ItemStack stack = inventory.getStackInSlot(FUEL_SLOT);
+        fuelReserve += stack.getCount();
+        inventory.setStackInSlot(FUEL_SLOT, ItemStack.EMPTY);
+        setChanged();
+    }
+
+    public void withdrawFuel() {
+        if (isLocked()) return;
+        ItemStack stack = inventory.getStackInSlot(FUEL_SLOT);
+        int count = Math.min(fuelReserve, 64 - stack.getCount());
+        if (count == 0) return;
+        fuelReserve -= count;
+        if (stack.isEmpty()) stack = new ItemStack(BrewerItems.DRIED_WHEAT.get(), count);
+        else stack.grow(count);
+        inventory.setStackInSlot(FUEL_SLOT, stack);
+        setChanged();
+    }
+
+    public int drainFuelReserve() {
+        if (isLocked()) return 0;
+        int count = fuelReserve;
+        fuelReserve = 0;
+        setChanged();
+        return count;
     }
 
     // ---- 服务端 tick: 节流唤醒, 按现实挂钟差懒结算陈酿 ----
@@ -95,6 +135,14 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
             return;
         }
 
+        settleNow();
+    }
+
+    /** 玩家操作前先结清旧库存，防止新酒或新补燃料被追溯到上次结算时刻。 */
+    public void settleNow() {
+        if (isLocked() || level == null || level.isClientSide) {
+            return;
+        }
         long now = System.currentTimeMillis();
         if (lastSettleEpochMillis == UNSET) {
             // 新建 / 刚加载且无记录: 锚定当前挂钟, 本次不补结算 (避免把"放下前"的时间误算进陈酿)。
@@ -127,13 +175,13 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
                 continue;
             }
             slotIndices.add(slot);
-            states.add(new CellarSettle.BottleState(WineNbt.readVintage(stack), WineNbt.isSpoiled(stack)));
+            states.add(new CellarSettle.BottleState(WineNbt.readVintage(stack), WineNbt.isSpoiled(stack), stack.getCount()));
         }
         if (states.isEmpty()) {
             return; // 无酒可陈: 不动燃料 (空窖不烧粮)。
         }
 
-        int fuelAvailable = inventory.getStackInSlot(FUEL_SLOT).getCount();
+        int fuelAvailable = fuelTotal();
         CellarSettle.Result result = CellarSettle.settle(states, elapsedMillis, fuelAvailable, moonPhase, fuelDebt);
         fuelDebt = result.fuelDebt();
 
@@ -151,8 +199,10 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
 
         // 扣燃料 (结算耗量不会超过 fuelAvailable, 纯函数已封顶在燃料池内)。
         if (result.fuelConsumed() > 0) {
+            int fromReserve = Math.min(fuelReserve, result.fuelConsumed());
+            fuelReserve -= fromReserve;
             ItemStack fuel = inventory.getStackInSlot(FUEL_SLOT);
-            fuel.shrink(result.fuelConsumed());
+            fuel.shrink(result.fuelConsumed() - fromReserve);
             inventory.setStackInSlot(FUEL_SLOT, fuel.isEmpty() ? ItemStack.EMPTY : fuel);
         }
     }
@@ -167,6 +217,8 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
     @Nullable
     @Override
     public AbstractContainerMenu createMenu(int windowId, Inventory inv, Player player) {
+        if (isLocked()) return null;
+        settleNow();
         return new WineCellarMenu(windowId, inv, this);
     }
 
@@ -175,23 +227,57 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
     private static final String K_INV = "Inventory";
     private static final String K_LAST_SETTLE = "LastSettleEpochMillis";
     private static final String K_FUEL_DEBT = "FuelDebt";
+    private static final String K_FUEL_RESERVE = "FuelReserve";
 
     @Override
     protected void saveAdditional(CompoundTag tag) {
+        if (lockedSave != null) {
+            tag.merge(lockedSave);
+            return;
+        }
         super.saveAdditional(tag);
         tag.put(K_INV, inventory.serializeNBT());
         tag.putLong(K_LAST_SETTLE, lastSettleEpochMillis);
         tag.putDouble(K_FUEL_DEBT, fuelDebt);
+        tag.putInt(K_FUEL_RESERVE, fuelReserve);
     }
 
     @Override
     public void load(CompoundTag tag) {
+        CompoundTag savedInventory = tag.getCompound(K_INV);
+        if (tag.contains(K_FUEL_RESERVE) && !tag.contains(K_FUEL_RESERVE, Tag.TAG_INT)) {
+            lockSave(tag, "FuelReserve must be an integer");
+            return;
+        }
+        if (savedInventory.contains("Size") && savedInventory.getInt("Size") != TOTAL_SLOTS) {
+            lockSave(tag, "unexpected Inventory.Size");
+            return;
+        }
         super.load(tag);
-        if (tag.contains(K_INV)) {
-            inventory.deserializeNBT(tag.getCompound(K_INV));
+        inventory.deserializeNBT(savedInventory);
+        // 旧档没有整数储备，缺键表示旧版初始状态。
+        int reserve = tag.getInt(K_FUEL_RESERVE);
+        ItemStack legacyFuel = inventory.getStackInSlot(FUEL_SLOT);
+        if (!legacyFuel.isEmpty() && !legacyFuel.is(BrewerItems.DRIED_WHEAT.get())) {
+            lockSave(tag, "unexpected fuel slot item");
+            return;
+        }
+        if (tag.contains(K_FUEL_RESERVE) && legacyFuel.getCount() > 64) {
+            lockSave(tag, "fuel slot exceeds 64");
+            return;
+        }
+        if (reserve < 0 || (long) reserve + legacyFuel.getCount() > BrewerConstants.FUEL_SLOT_CAPACITY) {
+            lockSave(tag, "fuel total outside supported range");
+            return;
+        }
+        fuelReserve = reserve;
+        if (!tag.contains(K_FUEL_RESERVE) && legacyFuel.getCount() > 64) {
+            fuelReserve = legacyFuel.getCount() - 64;
+            legacyFuel.setCount(64);
         }
         // 旧档无此键 -> UNSET, 首次 tick 锚定当前挂钟 (不把缺键误算成 1970 起的巨量陈酿)。
-        lastSettleEpochMillis = tag.contains(K_LAST_SETTLE) ? tag.getLong(K_LAST_SETTLE) : UNSET;
+        lastSettleEpochMillis = isLocked() ? UNSET : tag.getLong(K_LAST_SETTLE);
+        lockedSave = null;
 
         // F027 修复后的结算算法保证 debt 恒落在 [0,1) (见 CellarSettle 类 javadoc 不变式)。旧档里 >=1 的债是
         // 本缺陷 (燃料债无上限累加) 累积出的产物: 强行让玩家偿还一笔本不该存在的欠款只会把缺陷后果延续下去,
@@ -204,5 +290,20 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
             LOGGER.warn("[miningdim] wine cellar at {} had out-of-invariant fuel debt {} (pre-F027 artifact); discarded to 0.0",
                     worldPosition, loadedFuelDebt);
         }
+    }
+
+    private void lockSave(CompoundTag original, String reason) {
+        lockedSave = original.copy();
+        LOGGER.error("Wine cellar at {} locked ({}). Original block entity NBT retained for repair.",
+                worldPosition, reason);
+    }
+
+    /** 管理指令或结构替换可以跳过挖掘检查。原始内容随世界存入原版指令存储，供管理员恢复。 */
+    void archiveRemovedSave(ServerLevel level) {
+        if (lockedSave == null) return;
+        ResourceLocation key = new ResourceLocation("miningdim", "locked_wine_cellar/" + UUID.randomUUID());
+        level.getServer().getCommandStorage().set(key, lockedSave.copy());
+        LOGGER.error("Removed locked wine cellar in {} at {}. Recovery NBT: /data get storage {}",
+                level.dimension().location(), worldPosition, key);
     }
 }

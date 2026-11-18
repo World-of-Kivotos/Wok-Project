@@ -3,6 +3,7 @@ package com.miningdim.job.chef.fryer;
 import com.miningdim.economy.EconomyOperationDomain;
 import com.miningdim.economy.EconomyOperationStatus;
 import com.miningdim.economy.EconomyServices;
+import com.miningdim.economy.IEconomyService;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
@@ -17,7 +18,6 @@ import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.level.storage.DimensionDataStorage;
 
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -254,32 +254,52 @@ public final class FryerPlayerData extends SavedData {
             ActiveSession running = active.get(entry.getValue());
             return running != null && entry.getKey().equals(running.operation());
         })) return;
-        // 上次检查点写盘失败时，内存队列仍可能较磁盘新；先持久化意图再改变账本终态。
-        if (isDirty() || pendingIO != null) sync();
-        boolean changed = false;
-        Iterator<Map.Entry<UUID, UUID>> completions = pendingCompletions.entrySet().iterator();
-        while (completions.hasNext()) {
-            Map.Entry<UUID, UUID> entry = completions.next();
-            EconomyOperationStatus result = EconomyServices.economyService().completeBundle(
-                    EconomyOperationDomain.CHEF_FRYER, entry.getValue(), entry.getKey());
-            if (result != EconomyOperationStatus.COMPLETED) throw new IllegalStateException("Cannot complete persisted fryer transaction " + entry.getKey() + ": " + result);
-            completions.remove(); changed = true;
+        settleQueuedTransactions(EconomyServices.economyService(), journalFile());
+    }
+
+    void settleQueuedTransactions(IEconomyService economy, File file) {
+        try {
+            // 重试队列与开局的同步检查点共用 journal。账本只能处理已落盘的意图。
+            sync(file);
+            boolean completed = pendingCompletions.entrySet().removeIf(entry ->
+                    completeQueued(economy, entry.getKey(), entry.getValue()));
+            boolean refunded = pendingRefunds.entrySet().removeIf(entry ->
+                    refundQueued(economy, entry.getKey(), entry.getValue()));
+            if (completed || refunded) {
+                setDirty();
+                sync(file);
+            }
+        } catch (UncheckedIOException failure) {
+            reportWriteFailure(file, failure);
         }
-        Iterator<Map.Entry<UUID, UUID>> iterator = pendingRefunds.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<UUID, UUID> entry = iterator.next();
-            ActiveSession running = active.get(entry.getValue());
-            if (running != null && entry.getKey().equals(running.operation())) continue;
-            EconomyOperationStatus result = EconomyServices.economyService().refundBundle(
-                    EconomyOperationDomain.CHEF_FRYER, entry.getValue(), entry.getKey());
-            if (result == EconomyOperationStatus.COMPLETED) {
-                LOGGER.error("Fryer refund encountered completed operation={} player={}", entry.getKey(), entry.getValue());
-                iterator.remove(); changed = true;
-            } else if (result == EconomyOperationStatus.REFUNDED || result == EconomyOperationStatus.NONE) {
-                iterator.remove(); changed = true;
-            } else throw new IllegalStateException("Cannot refund persisted fryer transaction " + entry.getKey() + ": " + result);
+    }
+
+    private boolean completeQueued(IEconomyService economy, UUID operation, UUID player) {
+        try {
+            EconomyOperationStatus status = economy.completeBundle(EconomyOperationDomain.CHEF_FRYER, player, operation);
+            if (status == EconomyOperationStatus.COMPLETED) return true;
+            LOGGER.error("Fryer completion retained operation={} player={} ledgerStatus={}", operation, player, status);
+        } catch (RuntimeException failure) {
+            LOGGER.error("Fryer completion retained operation={} player={}", operation, player, failure);
         }
-        if (changed) { setDirty(); sync(); }
+        return false;
+    }
+
+    private boolean refundQueued(IEconomyService economy, UUID operation, UUID player) {
+        ActiveSession running = active.get(player);
+        if (running != null && operation.equals(running.operation())) return false;
+        try {
+            EconomyOperationStatus status = economy.refundBundle(EconomyOperationDomain.CHEF_FRYER, player, operation);
+            if (status == EconomyOperationStatus.REFUNDED || status == EconomyOperationStatus.NONE) return true;
+            if (status == EconomyOperationStatus.COMPLETED) {
+                LOGGER.error("Fryer refund encountered completed operation={} player={}", operation, player);
+                return true;
+            }
+            LOGGER.error("Fryer refund retained operation={} player={} ledgerStatus={}", operation, player, status);
+        } catch (RuntimeException failure) {
+            LOGGER.error("Fryer refund retained operation={} player={}", operation, player, failure);
+        }
+        return false;
     }
 
     @Override public CompoundTag save(CompoundTag tag) {

@@ -81,6 +81,8 @@ public final class WebUiClient {
     @Nullable
     private static Runnable socialScreenOpenedHook;
     @Nullable
+    private static Runnable browserClosedHook;
+    @Nullable
     private static Runnable socialScreenClosedAnimatedHook;
     @Nullable
     private static Runnable socialScreenClosedDirectHook;
@@ -253,6 +255,16 @@ public final class WebUiClient {
             hook.run();
         }
         return true;
+    }
+
+    public static void setBrowserClosedHook(@Nullable Runnable hook) {
+        browserClosedHook = hook;
+    }
+
+    static void notifyBrowserClosed() {
+        if (browserClosedHook != null) {
+            browserClosedHook.run();
+        }
     }
 
     /** 社交平板动画的宿主钩子（由 social 客户端注入，避免 webui 反向依赖 social）。 */

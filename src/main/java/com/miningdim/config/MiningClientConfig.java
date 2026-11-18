@@ -101,15 +101,27 @@ public final class MiningClientConfig {
         SOCIAL_TABLET_ANIMATION = b.comment(
                         "Tablet take-out / put-away animation: full (3D tablet and gloved hands), "
                                 + "quick (80 ms) or off (open the page directly)")
-                .define("tabletAnimation", "full");
+                .define("tabletAnimation", "full", value -> isOption(value, "full", "quick", "off"));
         SOCIAL_TABLET_SOUNDS = b.comment("Play the tablet take-out / put-away sounds")
                 .define("tabletSounds", true);
         SOCIAL_TABLET_HANDS = b.comment(
                         "Hands in the tablet take-out animation: glove (white gloves) or skin (the player's own skin arm)")
-                .define("tabletHands", "glove");
+                .define("tabletHands", "glove", value -> isOption(value, "glove", "skin"));
         b.pop();
 
         SPEC = b.build();
+    }
+
+    private static boolean isOption(Object raw, String... options) {
+        if (!(raw instanceof String value)) {
+            return false;
+        }
+        for (String option : options) {
+            if (option.equalsIgnoreCase(value.strip())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

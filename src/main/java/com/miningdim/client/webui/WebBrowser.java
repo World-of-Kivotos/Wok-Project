@@ -391,6 +391,7 @@ public final class WebBrowser {
             active = null;
         }
         b.close();
+        WebUiClient.notifyBrowserClosed();
         LOGGER.info("WebUI 浏览器已关闭");
     }
 }

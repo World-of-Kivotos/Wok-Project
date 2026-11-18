@@ -13,6 +13,7 @@ import net.minecraft.util.profiling.InactiveProfiler;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.CraftingBookCategory;
+import net.minecraft.world.item.crafting.CookingBookCategory;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeType;
@@ -22,6 +23,7 @@ import java.util.concurrent.CompletableFuture;
 import net.minecraftforge.event.AddReloadListenerEvent;
 import net.minecraft.world.item.crafting.ShapedRecipe;
 import net.minecraft.world.item.crafting.ShapelessRecipe;
+import net.minecraft.world.item.crafting.SmeltingRecipe;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -87,9 +89,10 @@ public final class FreshnessRecipeFilterGameTests {
                     "两种原料的配方不是压缩块, 不许误删");
 
             // 不是合成配方: 不动。
-            Recipe<?> notCrafting = shapeless("test:not_crafting", Items.HAY_BLOCK, new ItemStack(Items.WHEAT, 9));
-            helper.assertTrue(FreshnessRecipeFilter.shouldRemove(notCrafting, RegistryAccess.EMPTY),
-                    "前提: 这条合成配方本身命中规则");
+            Recipe<?> smelting = new SmeltingRecipe(new ResourceLocation("test:not_crafting"), "test",
+                    CookingBookCategory.MISC, Ingredient.of(Items.HAY_BLOCK), new ItemStack(Items.WHEAT, 9), 0.0F, 200);
+            helper.assertTrue(!FreshnessRecipeFilter.shouldRemove(smelting, RegistryAccess.EMPTY),
+                    "同样的原料和产物在熔炉中必须保留");
             helper.succeed();
         } finally {
             FreshnessConfig.MODE.set(previousMode);

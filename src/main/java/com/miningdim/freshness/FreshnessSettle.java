@@ -104,11 +104,6 @@ public final class FreshnessSettle {
         return new ItemStack(FreshnessItems.ROT.get(), count);
     }
 
-    /** 腐烂物物品是否已注册 (配置成「关闭」或在极早期阶段, 物品可能还取不到)。 */
-    public static boolean rotItemAvailable() {
-        return FreshnessItems.ROT.isPresent();
-    }
-
     /**
      * 碗装、瓶装的食物腐烂时把碗和瓶按件退回 (规格「怎么换」)。
      *

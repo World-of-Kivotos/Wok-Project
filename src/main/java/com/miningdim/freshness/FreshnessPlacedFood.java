@@ -16,9 +16,11 @@ import net.minecraft.world.level.storage.loot.parameters.LootContextParams;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.registries.ForgeRegistries;
 
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 放置食物记录 (Spoilage_Granary_DesignSpec「物品数据与存档」: 区块附加数据; 「观察点」第一行:
@@ -48,15 +50,29 @@ public final class FreshnessPlacedFood {
     private static final String KEY_BLOCK = "B";
     private static final String KEY_H = "H";
     private static final String KEY_F = "F";
+    private static final String KEY_M = "M";
+    private static final String KEY_V = "V";
 
-    /** 一条记录: 这个位置摆着哪个方块、它的批次时刻与已停表小时。 */
-    public record Placed(ResourceLocation block, int batchMinute, int stoppedHours) {
+    /** 来源标记也必须继承，否则迁移货可借放置再拆除洗成新货。 */
+    public record Placed(ResourceLocation block, int batchMinute, int stoppedHours,
+                         boolean migrated, boolean villagerGoods) {
+        public void stampOnto(ItemStack stack) {
+            FreshnessData.stampAt(stack, batchMinute, stoppedHours);
+            if (migrated) {
+                FreshnessData.markMigrated(stack);
+            }
+            if (villagerGoods) {
+                FreshnessData.markVillagerGoodsFlag(stack);
+            }
+        }
     }
 
-    /** 每个已加载区块一份 (区块卸载时丢掉, 存盘由 ChunkDataEvent.Save 负责)。 */
+    /** 每个已加载区块一份，卸载后的最后一次存盘完成后才释放。 */
     private record ChunkKey(ResourceKey<Level> dimension, long pos) {}
 
-    private static final Map<ChunkKey, Map<BlockPos, Placed>> BY_CHUNK = new HashMap<>();
+    // ChunkDataEvent.Load 在 IO 线程发布；记录需安全发布给服务端线程。
+    private static final Map<ChunkKey, Map<BlockPos, Placed>> BY_CHUNK = new ConcurrentHashMap<>();
+    private static final Set<ChunkKey> UNLOADING = new HashSet<>();
 
     private FreshnessPlacedFood() {
     }
@@ -88,7 +104,7 @@ public final class FreshnessPlacedFood {
             return ItemStack.EMPTY;
         }
         ItemStack source = new ItemStack(state.getBlock().asItem());
-        FreshnessData.stampAt(source, found.get().batchMinute(), found.get().stoppedHours());
+        found.get().stampOnto(source);
         return source;
     }
 
@@ -120,9 +136,10 @@ public final class FreshnessPlacedFood {
         if (block == null) {
             return;
         }
-        BY_CHUNK.computeIfAbsent(key(level.dimension(), pos), key -> new HashMap<>())
+        BY_CHUNK.computeIfAbsent(key(level.dimension(), pos), key -> new ConcurrentHashMap<>())
                 .put(pos.immutable(), new Placed(block, (int) FreshnessData.batchMinute(stack),
-                        FreshnessData.stoppedHours(stack)));
+                        FreshnessData.stoppedHours(stack), FreshnessData.isMigrated(stack),
+                        FreshnessData.isVillagerGoods(stack)));
         level.getChunkAt(pos).setUnsaved(true);
     }
 
@@ -130,7 +147,7 @@ public final class FreshnessPlacedFood {
     public static void forget(ResourceKey<Level> dimension, BlockPos pos) {
         Map<BlockPos, Placed> chunk = BY_CHUNK.get(key(dimension, pos));
         if (chunk != null && chunk.remove(pos) != null && chunk.isEmpty()) {
-            BY_CHUNK.remove(key(dimension, pos));
+            BY_CHUNK.remove(key(dimension, pos), chunk);
         }
     }
 
@@ -159,14 +176,29 @@ public final class FreshnessPlacedFood {
         return found;
     }
 
-    /** 区块卸载: 丢掉这一片的记录 (存盘在 ChunkDataEvent.Save 里做过)。 */
+    /** Forge 47.3.0 先发布 Unload 再同步保存；此处不能提前清空待保存记录。 */
     public static void unload(ResourceKey<Level> dimension, ChunkPos chunkPos) {
-        BY_CHUNK.remove(new ChunkKey(dimension, chunkPos.toLong()));
+        synchronized (BY_CHUNK) {
+            UNLOADING.add(new ChunkKey(dimension, chunkPos.toLong()));
+        }
+    }
+
+    /** 服务端 tick END 调用；卸载回调中的同步序列化此时已经完成。 */
+    public static void finishChunkUnloads() {
+        synchronized (BY_CHUNK) {
+            for (ChunkKey key : UNLOADING) {
+                BY_CHUNK.remove(key);
+            }
+            UNLOADING.clear();
+        }
     }
 
     /** 用例与诊断用: 清空全部内存记录。 */
     public static void resetForTest() {
-        BY_CHUNK.clear();
+        synchronized (BY_CHUNK) {
+            BY_CHUNK.clear();
+            UNLOADING.clear();
+        }
     }
 
     // ============================================================
@@ -175,25 +207,35 @@ public final class FreshnessPlacedFood {
 
     /** 把一个区块的附加数据读进内存 (没有就是空)。 */
     public static void loadFrom(ResourceKey<Level> dimension, ChunkPos chunkPos, CompoundTag data) {
-        if (!data.contains(KEY_PLACED, Tag.TAG_LIST)) {
-            return;
-        }
-        ListTag list = data.getList(KEY_PLACED, Tag.TAG_COMPOUND);
-        if (list.isEmpty()) {
-            return;
-        }
-        Map<BlockPos, Placed> chunk = new HashMap<>();
-        for (int i = 0; i < list.size(); i++) {
-            CompoundTag entry = list.getCompound(i);
-            if (!entry.contains(KEY_POS, Tag.TAG_LONG) || !entry.contains(KEY_BLOCK, Tag.TAG_STRING)) {
-                continue;
+        Map<BlockPos, Placed> chunk = new ConcurrentHashMap<>();
+        if (data.contains(KEY_PLACED)) {
+            if (!(data.get(KEY_PLACED) instanceof ListTag list)) {
+                throw new IllegalArgumentException("Invalid placed food list in " + dimension.location() + " " + chunkPos);
             }
-            chunk.put(BlockPos.of(entry.getLong(KEY_POS)),
-                    new Placed(new ResourceLocation(entry.getString(KEY_BLOCK)),
-                            entry.getInt(KEY_H), entry.getInt(KEY_F)));
+            for (int i = 0; i < list.size(); i++) {
+                if (!(list.get(i) instanceof CompoundTag entry)
+                        || !entry.contains(KEY_POS, Tag.TAG_LONG) || !entry.contains(KEY_BLOCK, Tag.TAG_STRING)
+                        || !entry.contains(KEY_H, Tag.TAG_INT) || !entry.contains(KEY_F, Tag.TAG_INT)
+                        || (entry.contains(KEY_M) && !entry.contains(KEY_M, Tag.TAG_BYTE))
+                        || (entry.contains(KEY_V) && !entry.contains(KEY_V, Tag.TAG_BYTE))) {
+                    throw new IllegalArgumentException("Invalid placed food entry " + i + " in "
+                            + dimension.location() + " " + chunkPos);
+                }
+                // 标记为 false 时不写键；旧版只保存 P/B/H/F，已丢失的来源标记无法追溯恢复。
+                chunk.put(BlockPos.of(entry.getLong(KEY_POS)),
+                        new Placed(new ResourceLocation(entry.getString(KEY_BLOCK)),
+                                entry.getInt(KEY_H), entry.getInt(KEY_F),
+                                entry.getBoolean(KEY_M), entry.getBoolean(KEY_V)));
+            }
         }
-        if (!chunk.isEmpty()) {
-            BY_CHUNK.put(new ChunkKey(dimension, chunkPos.toLong()), chunk);
+        synchronized (BY_CHUNK) {
+            ChunkKey key = new ChunkKey(dimension, chunkPos.toLong());
+            if (chunk.isEmpty()) {
+                BY_CHUNK.remove(key);
+            } else {
+                BY_CHUNK.put(key, chunk);
+            }
+            UNLOADING.remove(key);
         }
     }
 
@@ -213,6 +255,12 @@ public final class FreshnessPlacedFood {
                     tag.putString(KEY_BLOCK, entry.getValue().block().toString());
                     tag.putInt(KEY_H, entry.getValue().batchMinute());
                     tag.putInt(KEY_F, entry.getValue().stoppedHours());
+                    if (entry.getValue().migrated()) {
+                        tag.putBoolean(KEY_M, true);
+                    }
+                    if (entry.getValue().villagerGoods()) {
+                        tag.putBoolean(KEY_V, true);
+                    }
                     list.add(tag);
                 });
         data.put(KEY_PLACED, list);

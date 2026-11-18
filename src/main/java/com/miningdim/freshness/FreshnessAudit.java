@@ -144,8 +144,9 @@ public final class FreshnessAudit {
      * Forge 物品接口优先 (压缩抽屉这类只开接口), 没有再退回原版 {@link Container}。
      */
     private static List<ItemStack> contentsOf(BlockEntity blockEntity) {
-        IItemHandler handler = blockEntity.getCapability(ForgeCapabilities.ITEM_HANDLER, null)
-                .resolve().orElse(null);
+        // Forge exposes both halves through either chest's capability. A position scan visits each half.
+        IItemHandler handler = blockEntity instanceof net.minecraft.world.level.block.entity.ChestBlockEntity
+                ? null : blockEntity.getCapability(ForgeCapabilities.ITEM_HANDLER, null).resolve().orElse(null);
         if (handler != null) {
             List<ItemStack> stacks = new ArrayList<>(handler.getSlots());
             for (int slot = 0; slot < handler.getSlots(); slot++) {

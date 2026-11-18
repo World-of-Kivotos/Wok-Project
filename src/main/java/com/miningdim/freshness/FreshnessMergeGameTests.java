@@ -256,7 +256,7 @@ public final class FreshnessMergeGameTests {
             int shelf = FreshnessConfig.shelfLifeHours(FreshnessCategory.FRESH);
 
             SimpleContainer container = new SimpleContainer(3);
-            container.setItem(0, new ItemStack(Items.DIAMOND, 5));
+            container.setItem(0, beef(shelf, 600L, 63, 0));
             container.setItem(1, beef(shelf, 600L, 10, 0));
             container.setItem(2, beef(shelf, 600L + FreshMerge.windowMinutes(shelf) + 60L, 10, 0));
 
@@ -269,6 +269,9 @@ public final class FreshnessMergeGameTests {
                             == FreshnessData.batchMinute(incoming),
                     "入包追加前先把两边的章对齐");
             helper.assertTrue(container.getItem(2).getCount() == 10, "窗口外的那一格一动不动");
+            FreshnessConfig.MODE.set(FreshnessConfig.Mode.OFF);
+            helper.assertTrue(FreshnessMergeHooks.findMergeableSlot(container, incoming) == -1,
+                    "关闭后旧存货的章也不得触发特殊合并");
             helper.succeed();
         } finally {
             FreshnessConfig.MODE.set(previousMode);

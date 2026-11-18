@@ -80,10 +80,10 @@ public final class FreshnessProcessingGameTests {
             int meatShelf = FreshnessConfig.shelfLifeHours(FreshnessCategory.FRESH);
             int cookedShelf = FreshnessConfig.shelfLifeHours(FreshnessCategory.COOKED);
 
-            ItemStack nearlyGone = ratio(meatShelf, 1.0D / 12.0D, Items.BEEF, 1);
+            ItemStack nearlyGone = ratio(meatShelf, 0.3D, Items.BEEF, 1);
             ItemStack product = new ItemStack(Items.COOKED_BEEF);
             FreshnessProcessing.inherit(product, List.of(nearlyGone), FreshnessProcessing.NO_BONUS, FIXED_NOW);
-            long expected = (long) Math.floor(cookedShelf * 60.0D / 12.0D);
+            long expected = 14L * 60L; // 48 小时 × 30% = 14.4 小时，舍去 24 分钟。
             helper.assertTrue(FreshnessData.remainingMinutes(product, cookedShelf, FIXED_NOW) == expected,
                     "产物剩余按保质期 × 比例向下取整");
 

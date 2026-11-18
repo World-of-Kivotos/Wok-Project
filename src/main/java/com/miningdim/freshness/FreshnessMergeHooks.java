@@ -27,7 +27,9 @@ public final class FreshnessMergeHooks {
             return -1;
         }
         for (int slot = 0; slot < container.getContainerSize(); slot++) {
-            if (FreshMerge.canMerge(container.getItem(slot), incoming)) {
+            ItemStack target = container.getItem(slot);
+            int room = Math.min(target.getMaxStackSize(), container.getMaxStackSize()) - target.getCount();
+            if (room >= incoming.getCount() && FreshMerge.canMerge(target, incoming)) {
                 return slot;
             }
         }
@@ -82,7 +84,8 @@ public final class FreshnessMergeHooks {
             Slot slot = menu.slots.get(index);
             if (FreshnessContainers.isMergeTarget(menu, slot) && slot.mayPlace(stack)) {
                 ItemStack target = slot.getItem();
-                if (FreshMerge.mergeInto(target, stack) > 0) {
+                if (stack.getCount() <= slot.getMaxStackSize(stack) - target.getCount()
+                        && FreshMerge.mergeInto(target, stack) > 0) {
                     slot.set(target);
                     slot.setChanged();
                     menu.broadcastChanges();
@@ -105,7 +108,7 @@ public final class FreshnessMergeHooks {
         ItemStack target = event.getStackedOnItem();
         ItemStack carried = event.getCarriedItem();
         // Forge 在 vanilla 的槽准入检查之前发事件，提前合并也必须遵守同一限制。
-        if (!event.getSlot().mayPlace(carried)) {
+        if (!FreshnessContainers.isMergeTarget(player.containerMenu, event.getSlot()) || !event.getSlot().mayPlace(carried)) {
             return;
         }
         if (FreshMerge.mergeInto(target, carried) <= 0) {

@@ -333,10 +333,12 @@ public final class WineCellarGameTests {
                             && player.getInventory().getItem(9).getCount() == 54,
                     "shift insertion respects remaining capacity and preserves the remainder");
             WineCellarMenu clientMenu = new WineCellarMenu(2, player.getInventory(), pos);
-            int expected = BrewerConstants.FUEL_SLOT_CAPACITY;
-            clientMenu.setData(0, (short) (expected & 0xffff));
-            clientMenu.setData(1, (short) (expected >>> 16));
-            helper.assertTrue(clientMenu.fuelTotal() == expected, "signed short fields reconstruct full capacity");
+            // 旧容量的低位会变为负 short，新容量跨入第三个 16 位区间；两者都必须完整还原。
+            for (int expected : new int[]{123840, BrewerConstants.FUEL_SLOT_CAPACITY}) {
+                clientMenu.setData(0, (short) (expected & 0xffff));
+                clientMenu.setData(1, (short) (expected >>> 16));
+                helper.assertTrue(clientMenu.fuelTotal() == expected, "signed short fields reconstruct fuel total");
+            }
             helper.assertTrue(!menu.clickMenuButton(player, 99), "unknown button rejected");
         } finally {
             MockGameTestPlayers.logout(player);

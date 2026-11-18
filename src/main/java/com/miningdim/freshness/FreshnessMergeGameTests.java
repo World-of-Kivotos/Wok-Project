@@ -11,9 +11,11 @@ import net.minecraft.world.CompoundContainer;
 import net.minecraft.world.entity.SlotAccess;
 import net.minecraft.world.inventory.ClickAction;
 import net.minecraft.world.inventory.ChestMenu;
+import net.minecraft.world.inventory.DispenserMenu;
 import net.minecraft.world.inventory.FurnaceMenu;
 import net.minecraft.world.inventory.HopperMenu;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.DispenserBlockEntity;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.entity.HopperBlockEntity;
 import net.minecraft.world.item.ItemStack;
@@ -297,9 +299,9 @@ public final class FreshnessMergeGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void secondaryClickTransfersOnlyOneItemAndRespectsMachineSlots(GameTestHelper helper) {
         FreshnessConfig.Mode previous = FreshnessConfig.MODE.get();
+        var player = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
         FreshnessConfig.MODE.set(FreshnessConfig.Mode.DRY_RUN);
         try {
-            var player = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
             var slot = player.inventoryMenu.getSlot(36);
             int shelf = FreshnessConfig.shelfLifeHours(FreshnessCategory.FRESH);
             slot.set(beef(shelf, 600L, 3, 0));
@@ -339,10 +341,17 @@ public final class FreshnessMergeGameTests {
             helper.setBlock(pos.above(), Blocks.HOPPER);
             var hopper = new HopperMenu(5, player.getInventory(), (HopperBlockEntity) helper.getBlockEntity(pos.above()));
             helper.assertTrue(!FreshnessContainers.isMergeTarget(hopper, hopper.getSlot(0)), "漏斗不参与加权合并");
+            helper.setBlock(pos.above(), Blocks.DROPPER);
+            var dropper = new DispenserMenu(6, player.getInventory(), (DispenserBlockEntity) helper.getBlockEntity(pos.above()));
+            helper.assertTrue(FreshnessContainers.isMergeTarget(dropper, dropper.getSlot(0)), "投掷器是真实白名单库存");
+            helper.setBlock(pos.above(), Blocks.DISPENSER);
+            var dispenser = new DispenserMenu(7, player.getInventory(), (DispenserBlockEntity) helper.getBlockEntity(pos.above()));
+            helper.assertTrue(!FreshnessContainers.isMergeTarget(dispenser, dispenser.getSlot(0)), "发射器沿用原版叠放");
             player.containerMenu = player.inventoryMenu;
             helper.succeed();
         } finally {
             FreshnessConfig.MODE.set(previous);
+            MockGameTestPlayers.logout(player);
         }
     }
 

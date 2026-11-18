@@ -70,7 +70,7 @@ public final class TabletCues {
             return A3D;
         }
         if (path == TabletPath.B2D) {
-            return screen != null && screen.isTerminal() ? B2D_TERMINAL : B2D_MAP;
+            return screen.isTerminal() ? B2D_TERMINAL : B2D_MAP;
         }
         return List.of();
     }

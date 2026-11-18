@@ -24,6 +24,9 @@ import java.util.Objects;
  * <p>Java additions (not in the preview): {@link #switchPath} (IMPL_PLAN D17: fall back to B on the
  * first frame), {@link #carry} (D4: the sink of a wake-band close fades over 100 ms) and
  * {@link #freeze} / {@link #unfreeze} (uiTest freeze frames).
+ *
+ * <p>WOK 保留上游纯状态机的输入决策、路径切换和坐标映射方法，供按同一接口比对和同步时间轴。
+ * 社交平板的界面与输入由本体控制器处理，未接入上游的键位转发或二维动画。</p>
  */
 public final class TabletMotion {
     public enum State { IDLE, OPENING, SHOWN, CLOSING }
@@ -80,9 +83,9 @@ public final class TabletMotion {
                 TabletAnimationModel.CAPTURE_DEFAULT, TabletScreenKind.SQUAD);
 
         public Config {
-            mode = mode == null ? TabletMode.FULL : mode;
-            hand = hand == null ? TabletHand.GUN : hand;
-            screen = screen == null ? TabletScreenKind.SQUAD : screen;
+            Objects.requireNonNull(mode, "mode");
+            Objects.requireNonNull(hand, "hand");
+            Objects.requireNonNull(screen, "screen");
         }
 
         public Config withMode(TabletMode value) {
@@ -162,7 +165,7 @@ public final class TabletMotion {
     private double carryAt = Double.NaN;
 
     public TabletMotion(Config config) {
-        this.cfg = config == null ? Config.DEFAULT : config;
+        this.cfg = Objects.requireNonNull(config, "config");
     }
 
     public TabletMotion() {
@@ -472,7 +475,7 @@ public final class TabletMotion {
         }
         double t = now - t0;
         double prev = p;
-        p = TabletEasing.clamp01(map.eval(t));
+        p = map.eval(t);
         cues(prev, p, now);
         if (t >= map.durMs()) {
             if (state == State.OPENING) {
@@ -607,7 +610,7 @@ public final class TabletMotion {
 
     /** Time since the current map started (0 when no map runs). */
     public double elapsed(double now) {
-        return map == null ? 0.0D : Math.max(0.0D, now - t0);
+        return map == null ? 0.0D : now - t0;
     }
 
     /** Length of the current map (0 when none runs). */
@@ -674,7 +677,7 @@ public final class TabletMotion {
             case A3D -> TabletTimeMap.of(capture ? TabletAnimationModel.closeCapturePts(empty)
                     : TabletAnimationModel.closePts(empty), 1.0D);
             case B2D -> TabletTimeMap.of(TabletAnimationModel.bClosePts(
-                    screen == null || screen.isTerminal()), 1.0D);
+                    screen.isTerminal()), 1.0D);
             case QUICK -> TabletTimeMap.of(TabletAnimationModel.quickClosePts(), 1.0D);
             case OFF -> TabletTimeMap.of(new double[][]{{0, 0}}, 1.0D);
         };
@@ -689,7 +692,7 @@ public final class TabletMotion {
     }
 
     private static String phaseKey(TabletPath path, TabletScreenKind screen) {
-        boolean map = screen != null && !screen.isTerminal();
+        boolean map = !screen.isTerminal();
         return (path == TabletPath.B2D || path == TabletPath.QUICK) && map
                 ? path.name() + "_MAP" : path.name();
     }
@@ -774,7 +777,7 @@ public final class TabletMotion {
      */
     public static InputDecision inputAction(TabletPath path, State state, double atP, Input input,
                                             TabletScreenKind screen, boolean visible) {
-        boolean ignoresTerminalKey = screen == null || !screen.closesOnTerminalKey();
+        boolean ignoresTerminalKey = !screen.closesOnTerminalKey();
         double pStar = TabletAnimationModel.pStar(path);
         if (input == Input.MOUSE_MOVE) {
             return pass(Effect.NONE);

@@ -7,6 +7,8 @@ import com.miningdim.job.brewer.cellar.WineCellarBlockEntity;
 import com.miningdim.job.brewer.cellar.WineCellarMenu;
 import com.miningdim.menu.AbstractMiningScreen;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
+import com.miningdim.job.brewer.BrewerConstants;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
@@ -31,6 +33,17 @@ public final class WineCellarScreen extends AbstractMiningScreen<WineCellarMenu>
     }
 
     @Override
+    protected void init() {
+        super.init();
+        addRenderableWidget(Button.builder(Component.translatable("brewer.cellar.deposit"),
+                b -> minecraft.gameMode.handleInventoryButtonClick(menu.containerId, WineCellarMenu.DEPOSIT))
+                .bounds(leftPos + 119, topPos + 55, 25, 18).build());
+        addRenderableWidget(Button.builder(Component.translatable("brewer.cellar.withdraw"),
+                b -> minecraft.gameMode.handleInventoryButtonClick(menu.containerId, WineCellarMenu.WITHDRAW))
+                .bounds(leftPos + 145, topPos + 55, 25, 18).build());
+    }
+
+    @Override
     protected void renderExtra(GuiGraphics graphics, int leftPos, int topPos,
                                int mouseX, int mouseY, float partialTick) {
         WineCellarBlockEntity be = menu.blockEntity();
@@ -41,7 +54,9 @@ public final class WineCellarScreen extends AbstractMiningScreen<WineCellarMenu>
                 break;
             }
         }
-        boolean fuelEmpty = be.inventory().getStackInSlot(WineCellarBlockEntity.FUEL_SLOT).isEmpty();
+        boolean fuelEmpty = menu.fuelTotal() == 0;
+        graphics.drawString(this.font, menu.fuelTotal() + "/" + BrewerConstants.FUEL_SLOT_CAPACITY,
+                leftPos + 94, topPos + 75, 0xFF404040, false);
 
         // 缺粮警示: 有酒但燃料槽空 -> 酒会衰退变质, 醒目提示玩家补干小麦。
         if (hasWine && fuelEmpty) {

@@ -612,6 +612,8 @@
   "block.miningdim.brewing_station": "Brewing Station",
   "block.miningdim.wine_cellar": "Wine Cellar",
   "brewer.cellar.out_of_fuel": "No dried wheat! Aging paused",
+  "brewer.cellar.deposit": "In",
+  "brewer.cellar.withdraw": "Out",
   "brewer.cellar.empty": "Empty",
   "brewer.cellar.aging": "Aging",
   "brewer.cellar.spoiled": "Spoiled",

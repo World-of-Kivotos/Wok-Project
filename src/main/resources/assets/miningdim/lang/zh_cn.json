@@ -613,6 +613,8 @@
   "block.miningdim.brewing_station": "酿酒台",
   "block.miningdim.wine_cellar": "酒窖箱",
   "brewer.cellar.out_of_fuel": "缺干小麦! 陈酿暂停",
+  "brewer.cellar.deposit": "存入",
+  "brewer.cellar.withdraw": "取出",
   "brewer.cellar.empty": "空",
   "brewer.cellar.aging": "陈酿中",
   "brewer.cellar.spoiled": "已变质",

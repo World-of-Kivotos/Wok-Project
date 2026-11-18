@@ -40,34 +40,8 @@ public final class BrewerConstants {
     /** 酒窖箱的陈酿酒槽数 (干小麦燃料槽另算)。12 瓶高年份满产 ≈ 满级 L10 农夫供给 (对标农夫产量, 见设计文档)。 */
     public static final int CELLAR_WINE_SLOTS = 12;
 
-    /**
-     * 燃料槽单槽容量上限 (F027 二段修复: 复核确认"64 槽 vs 设计吞吐的量级差"须一并修, 建议原文二选一
-     * "提高 slot limit 或开放受控的燃料输入通道"; 本项目选前者, 后者 (漏斗/机器自动注入燃料) 与
-     * {@link com.miningdim.job.brewer.cellar.WineCellarBlockEntity} 类 javadoc 明载的反挂机决策冲突,
-     * 不擅自推翻)。
-     *
-     * 数值系派生量, 非新拍的平衡数值: 取 {@link com.miningdim.job.brewer.cellar.CellarSettle} 结算步进的
-     * 最大粒度 (1 现实天, 即
-     * {@link #MILLIS_PER_VINTAGE_YEAR}) 下, 满窖 ({@link #CELLAR_WINE_SLOTS}=12 瓶) 全部停在闪耀永久层
-     * 最低门槛 ({@link #VINTAGE_LAYER_T1}=10, 阶段五主线可达的最低目标年份) 时, 一天的满额应耗:
-     * {@code 12 × (BrewerConfig.DRIED_WHEAT_PER_BOTTLE_YEAR + BrewerConfig.FUEL_QUAD_COEF × 10²)
-     * = 12 × (16 + 5×100) = 12 × 516 = 6192} (系数取自 BrewerConfig 当前默认值)。
-     *
-     * 意义: fullDemand 随 elapsed 线性缩放 (CellarSettle.settle 每步 stepYears ∝ stepMillis), 故只要单次
-     * 离线/区块卸载间隔不超过一个结算步 (1 天), 满槽一次即可让 budget≥fullDemand 恒成立、agedFraction=1、
-     * 零衰退。继续陈酿到 v18/v25 后应耗随年份平方递增会重新吃紧, 这是设计文档"老酒烧钱凶, 自然经济封顶"
-     * 故意保留的经济压力 (软上限的经济一面), 不在本次修复范围内。
-     *
-     * 生效前提 (缺一不可, 因 Forge {@code ItemStackHandler.getStackLimit} 取两者较小值):
-     * {@link com.miningdim.job.brewer.BrewerItems#DRIED_WHEAT} 的 {@code stacksTo} 必须同步设为本值,
-     * 且酒窖箱燃料槽的 {@code getSlotLimit} 必须覆写为本值 (均已配套修改)。
-     *
-     * 注: 此值在 Item 注册期 (static 初始化) 求值, 早于 ForgeConfigSpec 加载, 不能改读 BrewerConfig 的
-     * 实时配置 —— 若运营方调整 DRIED_WHEAT_PER_BOTTLE_YEAR / FUEL_QUAD_COEF / VINTAGE_LAYER_T1 的默认值,
-     * 需手动同步重算本常量 (WineCellarGameTests#fuelSlotCapacityCoversFullDayAtMainlineThreshold 会在
-     * 二者失配时挂测, 充当漂移警报)。
-     */
-    public static final int FUEL_SLOT_CAPACITY = 6192;
+    /** 酒窖总燃料容量：192 瓶 v10 满月单次一天结算消耗 12 × 16 × (16 + 5 × 10²) × 1.25 = 123840。 */
+    public static final int FUEL_SLOT_CAPACITY = 123840;
 
     // ---- 闪耀永久增益 (一条命 = 永久层数系统, 阶段 5(iii)(iv)) ----
 

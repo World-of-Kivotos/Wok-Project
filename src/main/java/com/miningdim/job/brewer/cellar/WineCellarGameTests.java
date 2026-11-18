@@ -195,7 +195,7 @@ public final class WineCellarGameTests {
     // ============================================================
     // 下面两测的 fuelAvailable=64/1 是显式传给 CellarSettle.settle 的参数, 验证的是"预算不足时截断增龄比例
     // 而不是无界欠账"这条算法性质本身, 与酒窖箱燃料槽的实际物理容量 (二段修复后为 BrewerConstants
-    // .FUEL_SLOT_CAPACITY=6192, 见 fuelSlotCapacityCoversFullDayAtMainlineThreshold) 是两回事 —— 早期
+    // .FUEL_SLOT_CAPACITY, 见 fuelSlotCapacityCoversFullDayAtMainlineThreshold) 是两回事 —— 早期
     // 只囤了几十颗干小麦、或槽内燃料被连续多日结算耗尽剩个位数, 仍是这条算法路径会被走到的真实场景。
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
@@ -240,41 +240,94 @@ public final class WineCellarGameTests {
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void fuelSlotCapacityCoversFullDayAtMainlineThreshold(GameTestHelper helper) {
         BrewerConfig.ensureLoadedForTest();
-        // F027 二段修复的存在性证明: 满槽 (FUEL_SLOT_CAPACITY) 对 12 瓶 vintage 10 (闪耀主线可达的最低门槛,
-        // VINTAGE_LAYER_T1) 一个结算步 (1 天) 的满额应耗 12×(16+5×10²)=6192 应恰好覆盖: agedFraction=1,
-        // 零衰退、燃料烧满、债清零。若 BrewerConfig 的费率/BrewerConstants.VINTAGE_LAYER_T1 改了默认值导致
-        // 本测挂掉, 说明 FUEL_SLOT_CAPACITY 需要跟着重新推导 (见该常量 javadoc)。
+        // 默认配置下满窖 192 瓶 v10，分别验证非满月和满月单步一天。
         List<CellarSettle.BottleState> tenYearBottles = java.util.Collections.nCopies(12,
-                new CellarSettle.BottleState(BrewerConstants.VINTAGE_LAYER_T1, false));
-        CellarSettle.Result r = CellarSettle.settle(tenYearBottles, DAY, BrewerConstants.FUEL_SLOT_CAPACITY, NO_MOON, 0.0D);
-        helper.assertTrue(r.fuelConsumed() == BrewerConstants.FUEL_SLOT_CAPACITY,
-                "a full fuel slot pays the entire day's demand at the mainline threshold, got " + r.fuelConsumed());
-        helper.assertTrue(Math.abs(r.fuelDebt() - 0.0D) < EPS, "debt fully settled, no leftover, got " + r.fuelDebt());
-        for (int i = 0; i < r.bottles().size(); i++) {
-            CellarSettle.BottleState b = r.bottles().get(i);
-            helper.assertTrue(!b.spoiled(), "bottle " + i + " must not spoil when the fuel slot covers the full day's demand");
-            helper.assertTrue(Math.abs(b.vintage() - (BrewerConstants.VINTAGE_LAYER_T1 + 1.0D)) < EPS,
-                    "bottle " + i + " ages the full day with zero decay, got " + b.vintage());
+                new CellarSettle.BottleState(BrewerConstants.VINTAGE_LAYER_T1, false, 16));
+        for (int phase : new int[]{NO_MOON, FULL_MOON}) {
+            CellarSettle.Result r = CellarSettle.settle(tenYearBottles, DAY, BrewerConstants.FUEL_SLOT_CAPACITY, phase, 0.0D);
+            int expected = phase == FULL_MOON ? 123840 : 99072;
+            helper.assertTrue(r.fuelConsumed() == expected, "full cellar cost at moon phase " + phase);
+            for (CellarSettle.BottleState bottle : r.bottles()) {
+                double vintage = phase == FULL_MOON ? 11.25D : 11.0D;
+                helper.assertTrue(!bottle.spoiled() && Math.abs(bottle.vintage() - vintage) < EPS,
+                        "full cellar ages without decay");
+            }
         }
         helper.succeed();
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void fuelSlotAcceptsMainlineCapacityInASingleStack(GameTestHelper helper) {
-        BrewerConfig.ensureLoadedForTest();
+    public static void fuelReserveSurvivesSaveAndCanBeWithdrawn(GameTestHelper helper) {
         BlockPos rel = new BlockPos(1, 1, 1);
         helper.setBlock(rel, WineCellarRegistry.WINE_CELLAR.get().defaultBlockState());
         WineCellarBlockEntity be = requireCellar(helper, rel);
+        for (int i = 0; i < 2; i++) {
+            be.inventory().setStackInSlot(WineCellarBlockEntity.FUEL_SLOT, new ItemStack(BrewerItems.DRIED_WHEAT.get(), 64));
+            be.depositFuel();
+        }
+        CompoundTag tag = new CompoundTag();
+        be.saveAdditional(tag);
+        be.load(tag);
+        helper.assertTrue(be.fuelTotal() == 128, "reserve survives NBT round trip");
+        be.withdrawFuel();
+        helper.assertTrue(be.fuelTotal() == 128 && be.inventory().getStackInSlot(WineCellarBlockEntity.FUEL_SLOT).getCount() == 64,
+                "withdrawing one stack preserves total");
+        tag.remove("FuelReserve");
+        be.load(tag);
+        helper.assertTrue(be.fuelTotal() == 0, "legacy empty fuel slot is not credited twice");
+        be.inventory().setStackInSlot(WineCellarBlockEntity.FUEL_SLOT, new ItemStack(BrewerItems.DRIED_WHEAT.get(), 127));
+        CompoundTag legacy = new CompoundTag();
+        be.saveAdditional(legacy);
+        legacy.remove("FuelReserve");
+        be.load(legacy);
+        helper.assertTrue(be.fuelTotal() == 127 && be.inventory().getStackInSlot(WineCellarBlockEntity.FUEL_SLOT).getCount() == 64,
+                "recoverable legacy stack migrates to slot and reserve");
+        tag.putInt("FuelReserve", BrewerConstants.FUEL_SLOT_CAPACITY - 10);
+        be.load(tag);
+        ItemStack remainder = be.inventory().insertItem(WineCellarBlockEntity.FUEL_SLOT,
+                new ItemStack(BrewerItems.DRIED_WHEAT.get(), 64), false);
+        helper.assertTrue(remainder.getCount() == 54 && be.fuelTotal() == BrewerConstants.FUEL_SLOT_CAPACITY,
+                "ordinary input cannot exceed total capacity");
+        helper.succeed();
+    }
 
-        // F027 二段修复: 燃料槽真实能一次性吃下 FUEL_SLOT_CAPACITY 颗干小麦, 而不是被 ItemStackHandler
-        // 默认 64 上限或 DRIED_WHEAT 物品自身默认 64 stacksTo 卡住 (两者缺一都会导致 insertItem 在 64 截断)。
-        ItemStack overfill = new ItemStack(BrewerItems.DRIED_WHEAT.get(), BrewerConstants.FUEL_SLOT_CAPACITY + 500);
-        ItemStack remainder = be.inventory().insertItem(WineCellarBlockEntity.FUEL_SLOT, overfill, false);
-        helper.assertTrue(remainder.getCount() == 500,
-                "insert spills back only the 500 over capacity, got " + remainder.getCount());
-        int held = be.inventory().getStackInSlot(WineCellarBlockEntity.FUEL_SLOT).getCount();
-        helper.assertTrue(held == BrewerConstants.FUEL_SLOT_CAPACITY,
-                "fuel slot holds exactly FUEL_SLOT_CAPACITY after an overfill insert, got " + held);
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void fuelMenuButtonsAndClicksPreserveTotal(GameTestHelper helper) {
+        BlockPos rel = new BlockPos(1, 1, 1);
+        helper.setBlock(rel, WineCellarRegistry.WINE_CELLAR.get().defaultBlockState());
+        WineCellarBlockEntity be = requireCellar(helper, rel);
+        ServerPlayer player = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
+        BlockPos pos = helper.absolutePos(rel);
+        player.setPos(pos.getX() + 0.5D, pos.getY(), pos.getZ() + 0.5D);
+        try {
+            WineCellarMenu menu = (WineCellarMenu) be.createMenu(1, player.getInventory(), player);
+            player.containerMenu = menu;
+            menu.setCarried(new ItemStack(BrewerItems.DRIED_WHEAT.get(), 64));
+            menu.clicked(WineCellarBlockEntity.FUEL_SLOT, 0, ClickType.PICKUP, player);
+            helper.assertTrue(menu.clickMenuButton(player, WineCellarMenu.DEPOSIT), "deposit accepted");
+            helper.assertTrue(be.fuelTotal() == 64 && be.inventory().getStackInSlot(WineCellarBlockEntity.FUEL_SLOT).isEmpty(), "deposit retains fuel");
+            helper.assertTrue(menu.clickMenuButton(player, WineCellarMenu.WITHDRAW), "withdraw accepted");
+            menu.clicked(WineCellarBlockEntity.FUEL_SLOT, 0, ClickType.QUICK_MOVE, player);
+            helper.assertTrue(be.fuelTotal() == 0 && player.getInventory().items.stream().filter(stack -> stack.is(BrewerItems.DRIED_WHEAT.get())).mapToInt(ItemStack::getCount).sum() == 64,
+                    "shift extraction preserves fuel");
+            CompoundTag nearFull = new CompoundTag();
+            be.saveAdditional(nearFull);
+            nearFull.putInt("FuelReserve", BrewerConstants.FUEL_SLOT_CAPACITY - 10);
+            be.load(nearFull);
+            player.getInventory().setItem(9, new ItemStack(BrewerItems.DRIED_WHEAT.get(), 64));
+            menu.clicked(WineCellarMenu.CONTAINER_SLOTS, 0, ClickType.QUICK_MOVE, player);
+            helper.assertTrue(be.fuelTotal() == BrewerConstants.FUEL_SLOT_CAPACITY
+                            && player.getInventory().getItem(9).getCount() == 54,
+                    "shift insertion respects remaining capacity and preserves the remainder");
+            WineCellarMenu clientMenu = new WineCellarMenu(2, player.getInventory(), pos);
+            int expected = BrewerConstants.FUEL_SLOT_CAPACITY;
+            clientMenu.setData(0, (short) (expected & 0xffff));
+            clientMenu.setData(1, (short) (expected >>> 16));
+            helper.assertTrue(clientMenu.fuelTotal() == expected, "signed short fields reconstruct full capacity");
+            helper.assertTrue(!menu.clickMenuButton(player, 99), "unknown button rejected");
+        } finally {
+            MockGameTestPlayers.logout(player);
+        }
         helper.succeed();
     }
 
@@ -323,13 +376,15 @@ public final class WineCellarGameTests {
         WineCellarBlockEntity cellar = requireCellar(helper, rel);
         ItemStack bottles = testWine(16);
         cellar.inventory().insertItem(0, bottles, false);
-        cellar.inventory().setStackInSlot(WineCellarBlockEntity.FUEL_SLOT,
-                new ItemStack(BrewerItems.DRIED_WHEAT.get(), 512));
+        for (int i = 0; i < 8; i++) {
+            cellar.inventory().setStackInSlot(WineCellarBlockEntity.FUEL_SLOT, new ItemStack(BrewerItems.DRIED_WHEAT.get(), 64));
+            cellar.depositFuel();
+        }
         cellar.settleElapsed(DAY, NO_MOON);
         helper.assertTrue(cellar.inventory().getStackInSlot(0).getCount() == 16, "all 16 bottles survive");
         helper.assertTrue(Math.abs(WineNbt.readVintage(cellar.inventory().getStackInSlot(0)) - 1.0D) < EPS,
                 "the whole stack ages one year");
-        helper.assertTrue(cellar.inventory().getStackInSlot(WineCellarBlockEntity.FUEL_SLOT).getCount() == 256,
+        helper.assertTrue(cellar.fuelTotal() == 256,
                 "16 bottles owe 16 * 16 = 256 fuel, not one bottle's 16");
         helper.succeed();
     }

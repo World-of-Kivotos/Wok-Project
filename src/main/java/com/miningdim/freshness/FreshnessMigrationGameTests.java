@@ -305,7 +305,11 @@ public final class FreshnessMigrationGameTests {
             CompoundTag savedChunk = new CompoundTag();
             helper.assertTrue(!FreshnessMigrationHooks.hasCurrentMigrationMarker(savedChunk, ENABLED_AT),
                     "尚未写回的区块没有迁移代号");
-            FreshnessMigrationHooks.writeMigrationMarker(savedChunk, ENABLED_AT);
+            net.minecraft.server.level.ServerLevel level = helper.getLevel();
+            net.minecraft.world.level.chunk.LevelChunk chunk = level.getChunkAt(helper.absolutePos(new net.minecraft.core.BlockPos(1, 1, 1)));
+            long position = chunk.getPos().toLong();
+            FreshnessMigrationHooks.rememberMarker(level, position, ENABLED_AT);
+            FreshnessMigrationHooks.onChunkSave(new net.minecraftforge.event.level.ChunkDataEvent.Save(chunk, level, savedChunk));
 
             // 模拟重启后的区块 NBT 反序列化: 磁盘标记相同则跳过, 代号改变才重新迁移。
             CompoundTag reloadedChunk = savedChunk.copy();
@@ -318,15 +322,15 @@ public final class FreshnessMigrationGameTests {
             helper.assertTrue(reloadedChunk.getCompound("miningdim_fresh_mig").getInt("Version") == 1,
                     "marker 应持久保存迁移格式版本");
 
-            net.minecraft.server.level.ServerLevel level = helper.getLevel();
-            net.minecraft.world.level.chunk.LevelChunk chunk = level.getChunkAt(helper.absolutePos(new net.minecraft.core.BlockPos(1, 1, 1)));
-            long position = chunk.getPos().toLong();
-            FreshnessMigrationHooks.rememberMarker(level, position, ENABLED_AT);
+            FreshnessMigrationHooks.resetWalkedChunksForTest();
+            FreshnessConfig.MODE.set(FreshnessConfig.Mode.OFF);
+            FreshnessMigrationHooks.onChunkLoad(new net.minecraftforge.event.level.ChunkDataEvent.Load(
+                    chunk, reloadedChunk, net.minecraft.world.level.chunk.ChunkStatus.ChunkType.LEVELCHUNK));
             FreshnessMigrationHooks.onChunkUnload(new net.minecraftforge.event.level.ChunkEvent.Unload(chunk));
             CompoundTag unloadSave = new CompoundTag();
             FreshnessMigrationHooks.onChunkSave(new net.minecraftforge.event.level.ChunkDataEvent.Save(chunk, level, unloadSave));
             helper.assertTrue(FreshnessMigrationHooks.hasCurrentMigrationMarker(unloadSave, ENABLED_AT),
-                    "卸载后的同步保存仍能读取 marker");
+                    "暂停迁移期间加载再卸载，同步保存仍须写回原迁移标记");
             FreshnessMigrationHooks.finishChunkUnloads();
             CompoundTag afterCleanup = new CompoundTag();
             FreshnessMigrationHooks.onChunkSave(new net.minecraftforge.event.level.ChunkDataEvent.Save(chunk, level, afterCleanup));

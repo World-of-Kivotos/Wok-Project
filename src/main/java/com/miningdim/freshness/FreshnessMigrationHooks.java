@@ -8,8 +8,6 @@ import net.minecraft.world.Container;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.decoration.ItemFrame;
 import net.minecraft.world.entity.item.ItemEntity;
-import net.minecraft.world.entity.vehicle.AbstractMinecartContainer;
-import net.minecraft.world.entity.vehicle.ChestBoat;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
@@ -55,7 +53,7 @@ public final class FreshnessMigrationHooks {
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/freshness");
 
     /** 每次保存都构建新 NBT 根，卸载后的同步保存完成前必须保留代号。 */
-    private static final Map<ChunkIdentity, Long> PENDING_MARKERS = new ConcurrentHashMap<>();
+    private static final Map<ChunkIdentity, CompoundTag> PENDING_MARKERS = new ConcurrentHashMap<>();
     private static final Set<ChunkIdentity> PENDING_UNLOADS = new LinkedHashSet<>();
     private static final String CHUNK_MIGRATION_MARKER = "miningdim_fresh_mig";
     private static final int CHUNK_MIGRATION_MARKER_VERSION = 1;
@@ -163,7 +161,16 @@ public final class FreshnessMigrationHooks {
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void onChunkLoad(ChunkDataEvent.Load event) {
-        if (!enabled() || !(event.getLevel() instanceof ServerLevel level)) {
+        if (!(event.getLevel() instanceof ServerLevel level)) {
+            return;
+        }
+        CompoundTag chunkData = event.getData();
+        long chunkPos = event.getChunk().getPos().toLong();
+        if (!enabled()) {
+            // Forge rebuilds the chunk NBT root at save time, even while migration is paused.
+            if (chunkData.contains(CHUNK_MIGRATION_MARKER, net.minecraft.nbt.Tag.TAG_COMPOUND)) {
+                rememberMarker(level, chunkPos, chunkData.getCompound(CHUNK_MIGRATION_MARKER).copy());
+            }
             return;
         }
         FreshnessMigrationData data = ensureMigrationStartedSynchronized(level);
@@ -171,8 +178,6 @@ public final class FreshnessMigrationHooks {
         if (enabledAt == FreshnessMigrationData.UNSET_MINUTE) {
             return;
         }
-        CompoundTag chunkData = event.getData();
-        long chunkPos = event.getChunk().getPos().toLong();
         if (hasCurrentMigrationMarker(chunkData, enabledAt)) {
             rememberMarker(level, chunkPos, enabledAt);
             return;
@@ -209,9 +214,13 @@ public final class FreshnessMigrationHooks {
     }
 
     static void rememberMarker(ServerLevel level, long chunkPos, long generation) {
+        rememberMarker(level, chunkPos, migrationMarker(generation));
+    }
+
+    private static void rememberMarker(ServerLevel level, long chunkPos, CompoundTag marker) {
         ChunkIdentity identity = identity(level, chunkPos);
         synchronized (PENDING_UNLOADS) {
-            PENDING_MARKERS.put(identity, generation);
+            PENDING_MARKERS.put(identity, marker);
             PENDING_UNLOADS.remove(identity);
         }
     }
@@ -230,9 +239,9 @@ public final class FreshnessMigrationHooks {
         if (!(event.getLevel() instanceof ServerLevel level)) {
             return;
         }
-        Long generation = PENDING_MARKERS.get(identity(level, event.getChunk().getPos().toLong()));
-        if (generation != null) {
-            writeMigrationMarker(event.getData(), generation);
+        CompoundTag marker = PENDING_MARKERS.get(identity(level, event.getChunk().getPos().toLong()));
+        if (marker != null) {
+            event.getData().put(CHUNK_MIGRATION_MARKER, marker.copy());
         }
     }
 
@@ -256,11 +265,11 @@ public final class FreshnessMigrationHooks {
                 && marker.getLong("Generation") == generation;
     }
 
-    static void writeMigrationMarker(CompoundTag chunkData, long generation) {
+    private static CompoundTag migrationMarker(long generation) {
         CompoundTag marker = new CompoundTag();
         marker.putInt("Version", CHUNK_MIGRATION_MARKER_VERSION);
         marker.putLong("Generation", generation);
-        chunkData.put(CHUNK_MIGRATION_MARKER, marker);
+        return marker;
     }
 
     static Object identityForTest(ResourceKey<Level> dimension, long chunkPos) {
@@ -313,10 +322,6 @@ public final class FreshnessMigrationHooks {
         }
         if (entity instanceof Container container) {
             migrated += FreshnessMigration.migrateContainer(container, enabledAt, grace, cap);
-        } else if (entity instanceof AbstractMinecartContainer || entity instanceof ChestBoat
-                || entity instanceof net.minecraft.world.entity.animal.horse.AbstractChestedHorse) {
-            // 这三种在原版里各有各的存法, 统一走物品接口能力 (见下), 这里只是把意图写明白。
-            migrated += 0;
         }
         migrated += migrateCapability(entity, enabledAt, grace, cap);
         return migrated;

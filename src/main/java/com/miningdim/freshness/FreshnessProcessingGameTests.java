@@ -294,6 +294,19 @@ public final class FreshnessProcessingGameTests {
             ItemStack dropped = FreshnessHooks.stampCampfireProduct(level, campfire, new ItemStack(Items.COOKED_BEEF, 1));
             helper.assertTrue(FreshnessItems.ROT.get() == dropped.getItem(),
                     "原料过期就换腐烂物、不出品, 实得 " + dropped.getItem());
+            campfire.clearContent();
+            campfire.placeFood(null, rotten.copy(), 1);
+            for (int i = 1; i < 4; i++) {
+                campfire.placeFood(null, new ItemStack(Items.BEEF), 100);
+            }
+            var area = new net.minecraft.world.phys.AABB(campfire.getBlockPos()).inflate(1);
+            var previousDrops = level.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class, area);
+            net.minecraft.world.level.block.entity.CampfireBlockEntity.cookTick(level,
+                    campfire.getBlockPos(), campfire.getBlockState(), campfire);
+            helper.assertTrue(campfire.getItems().get(0).isEmpty()
+                            && level.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class, area).stream()
+                            .anyMatch(entity -> !previousDrops.contains(entity) && entity.getItem().is(FreshnessItems.ROT.get())),
+                    "满载营火首次出品必须通过实际掉落实体继承腐烂结果");
             helper.succeed();
         } finally {
             FreshnessConfig.MODE.set(previousMode);

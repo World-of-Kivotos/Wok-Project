@@ -305,6 +305,60 @@ public final class WineCellarGameTests {
     }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void damagedFuelLocksWholeSaveUntilRepaired(GameTestHelper helper) {
+        BlockPos rel = new BlockPos(1, 1, 1);
+        helper.setBlock(rel, WineCellarRegistry.WINE_CELLAR.get().defaultBlockState());
+        WineCellarBlockEntity cellar = requireCellar(helper, rel);
+        BlockPos pos = cellar.getBlockPos();
+        ServerPlayer player = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
+        try {
+            player.setPos(pos.getX() + 0.5D, pos.getY(), pos.getZ() + 0.5D);
+            ItemStack wine = new ItemStack(BrewerItems.itemFor(WineType.VODKA), 3);
+            WineNbt.stamp(wine, WineQuality.LOW, player.getUUID());
+            cellar.inventory().setStackInSlot(0, wine.copy());
+            cellar.inventory().setStackInSlot(WineCellarBlockEntity.FUEL_SLOT, new ItemStack(BrewerItems.DRIED_WHEAT.get(), 7));
+            WineCellarMenu menu = (WineCellarMenu) cellar.createMenu(1, player.getInventory(), player);
+            player.containerMenu = menu;
+            CompoundTag original = cellar.saveWithFullMetadata();
+            original.putString("RecoveryMarker", UUID.randomUUID().toString());
+            for (var bad : List.of(net.minecraft.nbt.StringTag.valueOf("unknown"),
+                    net.minecraft.nbt.IntTag.valueOf(-1), net.minecraft.nbt.IntTag.valueOf(Integer.MAX_VALUE))) {
+                original.put("FuelReserve", bad);
+                var restored = net.minecraft.world.level.block.entity.BlockEntity.loadStatic(pos, cellar.getBlockState(), original);
+                helper.assertTrue(restored instanceof WineCellarBlockEntity locked && locked.isLocked()
+                        && locked.saveWithFullMetadata().equals(original), "vanilla chunk load retains the complete damaged tag");
+            }
+            cellar.load(original);
+            cellar.settleNow();
+            cellar.depositFuel();
+            cellar.withdrawFuel();
+            menu.clicked(0, 0, ClickType.PICKUP, player);
+            helper.assertTrue(menu.getCarried().isEmpty() && !menu.stillValid(player)
+                    && !menu.clickMenuButton(player, WineCellarMenu.WITHDRAW)
+                    && cellar.createMenu(2, player.getInventory(), player) == null, "new and existing menus stay locked");
+            player.gameMode.destroyBlock(pos);
+            helper.assertTrue(helper.getLevel().getBlockEntity(pos) == cellar && cellar.saveWithFullMetadata().equals(original),
+                    "player break and settlement preserve the original NBT");
+            CompoundTag repaired = original.copy();
+            repaired.putInt("FuelReserve", 91);
+            cellar.load(repaired);
+            helper.assertTrue(!cellar.isLocked() && cellar.fuelTotal() == 98
+                    && cellar.inventory().getStackInSlot(0).getCount() == 3
+                    && ItemStack.isSameItemSameTags(wine, cellar.inventory().getStackInSlot(0)), "repair restores wine and fuel");
+            cellar.load(original);
+            helper.getLevel().removeBlock(pos, false);
+            var storage = helper.getLevel().getServer().getCommandStorage();
+            var archived = storage.getKeys().filter(key -> key.getPath().startsWith("locked_wine_cellar/"))
+                    .filter(key -> storage.get(key).equals(original)).findFirst();
+            helper.assertTrue(archived.isPresent(), "forced replacement archives exactly the damaged NBT");
+            archived.ifPresent(key -> storage.set(key, new CompoundTag()));
+        } finally {
+            MockGameTestPlayers.logout(player);
+        }
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
     public static void fuelMenuButtonsAndClicksPreserveTotal(GameTestHelper helper) {
         BlockPos rel = new BlockPos(1, 1, 1);
         helper.setBlock(rel, WineCellarRegistry.WINE_CELLAR.get().defaultBlockState());

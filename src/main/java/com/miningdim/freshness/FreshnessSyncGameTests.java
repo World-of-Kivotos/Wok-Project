@@ -1,6 +1,7 @@
 package com.miningdim.freshness;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.freshness.client.FreshnessClientState;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.FriendlyByteBuf;
@@ -108,43 +109,37 @@ public final class FreshnessSyncGameTests {
     // 2. 保质期读取口: 同步值优先, 且服务端走配置
     // ============================================================
 
-    /**
-     * 客户端只认同步下来的保质期: 写进去之后, 全模块的"算剩余"必须立刻按新值算 (否则客户端与服务端会给出
-     * 两个不同的数字, 玩家不知道该信哪个)。清掉之后回到兜底值。
-     */
+    /** 同 JVM 中的逻辑服务端只读服务器配置，客户端显示只读同步值。 */
     @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
-    public static void syncedShelfLivesDriveTheSharedQueries(GameTestHelper helper) {
-        FreshnessConfig.Mode previousMode = FreshnessConfig.MODE.get();
-        FreshnessConfig.MODE.set(FreshnessConfig.Mode.DRY_RUN);
+    public static void serverAndClientShelfLivesStayIndependent(GameTestHelper helper) {
+        int previous = FreshnessConfig.SHELF_LIFE_COOKED.get();
+        long now = 10_000L;
         try {
-            int[] before = FreshnessShelfLives.currentValues();
-            try {
-                int[] synced = new int[]{1, 2, 3, 4, 5, 6};
-                FreshnessShelfLives.applySynced(synced);
-                helper.assertTrue(FreshnessShelfLives.syncedFromServer(), "写进去之后要认得这是同步值");
-                for (FreshnessCategory category : FreshnessCategory.values()) {
-                    helper.assertTrue(FreshnessShelfLives.hours(category) == synced[category.ordinal()],
-                            category + " 应当按同步值算, 实得 " + FreshnessShelfLives.hours(category));
-                }
-                // 共享查询 (消费点、客户端显示都走它) 也必须跟着变: 面包按熟食 3 小时算时, 剩余必须按 3 小时算。
-                ItemStack bread = new ItemStack(Items.BREAD, 1);
-                FreshnessData.stamp(bread, 1_000L);
-                // 章是整点的 (stamp 会向下取整到整点小时), 所以剩余 = 批次 + 保质期 − 现在, 不能直接写 3 小时。
-                long expected = FreshnessData.batchMinute(bread) + 3L * 60L - 1_000L;
-                helper.assertTrue(FreshnessCheck.remainingMinutes(bread, 1_000L) == expected,
-                        "共享查询要按同步后的保质期算 (熟食 3 小时), 期望 " + expected + " 实得 "
-                                + FreshnessCheck.remainingMinutes(bread, 1_000L));
-            } finally {
-                FreshnessShelfLives.clearSynced();
-            }
-            helper.assertTrue(!FreshnessShelfLives.syncedFromServer(), "清掉之后不再认同步值");
-            helper.assertTrue(java.util.Arrays.equals(before, FreshnessShelfLives.currentValues()),
-                    "清掉之后回到兜底值 (服务端即配置), 实得 "
-                            + java.util.Arrays.toString(FreshnessShelfLives.currentValues()));
-            helper.succeed();
+            FreshnessConfig.SHELF_LIFE_COOKED.set(24);
+            int[] synced = {1, 2, 3, 4, 5, 6};
+            FreshnessClientState.apply(new FreshnessSyncS2C(now, 0, FreshnessConfig.Mode.ON.ordinal(), synced));
+            ItemStack bread = new ItemStack(Items.BREAD);
+            FreshnessData.stampAt(bread, now - 60, 0);
+            helper.assertTrue(FreshnessClientState.remainingMinutes(bread) == 120,
+                    "客户端的 3 小时保质期扣除已过的 1 小时应剩 2 小时");
+            helper.assertTrue(FreshnessCheck.remainingMinutes(bread, now) == 23 * 60L,
+                    "同进程服务端仍按本世界 24 小时保质期结算");
+            helper.assertTrue(FreshnessSync.payloadFor(helper.getLevel()).shelfLives()[FreshnessCategory.COOKED.ordinal()] == 24,
+                    "同步新玩家时必须发送本世界的配置");
+            ItemStack later = bread.copy();
+            ItemStack earlier = bread.copy();
+            FreshnessData.stampAt(later, now - 180 + 55, 0);
+            FreshnessData.stampAt(earlier, now - 180 + 3, 0);
+            var reminder = FreshnessClientState.reminder(java.util.List.of(later, bread, earlier), now);
+            helper.assertTrue(reminder.count() == 2 && reminder.earliest() == earlier && reminder.remainingMinutes() == 3,
+                    "后面格子的 3 分钟食物必须优先于前面格子的 55 分钟食物");
         } finally {
-            FreshnessConfig.MODE.set(previousMode);
+            FreshnessClientState.clear();
+            FreshnessConfig.SHELF_LIFE_COOKED.set(previous);
         }
+        helper.assertTrue(FreshnessShelfLives.clientHours(FreshnessCategory.COOKED)
+                        == FreshnessCategory.COOKED.defaultShelfLifeHours(), "退出后清除上次同步设置");
+        helper.succeed();
     }
 
     // ============================================================

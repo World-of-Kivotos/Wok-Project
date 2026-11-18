@@ -5,10 +5,8 @@ import com.miningdim.freshness.FreshnessReminder;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.event.TickEvent;
 
-import java.util.List;
 
 /**
  * 快捷栏上方那一次提醒 (规格「客户端显示」: 每 20 tick 扫一遍自己背包, 有东西 1 小时内要烂就在快捷栏上方
@@ -48,20 +46,13 @@ public final class FreshnessHudReminder {
         if (!FreshnessReminder.cooldownElapsed(nowMinute, lastWarnMinute)) {
             return;
         }
-        List<ItemStack> expiring = FreshnessClientState.expiringSoon(player.getInventory().items.toArray(new ItemStack[0]));
-        if (expiring.isEmpty()) {
+        var reminder = FreshnessClientState.reminder(player.getInventory().items, nowMinute);
+        if (reminder.count() == 0) {
             return;
         }
         lastWarnMinute = nowMinute;
-        // 快捷栏上方那一条 (action bar); 带上最近要烂的那件的名字与剩余, 免得玩家满背包找。
-        ItemStack worst = expiring.get(0);
-        long worstRemaining = FreshnessClientState.remainingMinutes(worst);
         player.displayClientMessage(Component.translatable(FreshnessReminder.KEY_REMINDER,
-                worst.getHoverName(), FreshnessDisplay.label(worstRemaining), expiring.size()), true);
-    }
-
-    /** 仅供用例: 复位冷却。 */
-    static void resetForTest() {
-        lastWarnMinute = Long.MIN_VALUE;
+                reminder.earliest().getHoverName(), FreshnessDisplay.label(reminder.remainingMinutes()),
+                reminder.count()), true);
     }
 }

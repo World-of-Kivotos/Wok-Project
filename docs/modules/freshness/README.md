@@ -157,7 +157,7 @@ freshness/
   FreshnessMigrationHooks.java 四个迁移入口（开服、区块、实体、老玩家登录，全 HIGHEST）
   FreshnessRecipeFilter.java   压缩块拆回的判据（规则 1）与收集/重建/白名单/日志
   FreshnessRecipeFilterHooks.java  reload 与开服两个入口，把配方表整体换成筛过的副本
-  FreshnessShelfLives.java  六类保质期的唯一读取口（服务端读配置 / 客户端读同步值）
+  FreshnessShelfLives.java  服务端同步载荷和客户端显示快照
   FreshnessSyncS2C.java     时钟与保质期的同步包（S2C）
   FreshnessSync.java        登录推一次 + 每 600 tick 校准
   FreshnessDisplay.java     条长 / 标签 / 档位（两端共用的纯算术）
@@ -230,8 +230,7 @@ freshness/
     （任意一项拿了旧值或常量，客户端就会一直画错的数）。
   - 线格式：编码再解码逐字还原；越界保质期钳到 1..8760、档位越界按试运行算、长度不符退回出厂默认值
     （网络来的东西一律当不可信）。
-  - 保质期读取口：写进同步值之后，`FreshnessCategories` 与 `FreshnessCheck`（消费点与客户端显示共用的那条路）
-    立刻按新值算；清掉之后回到兜底值（服务端即配置）。
+  - 同一进程内，服务端结算和发包读取本世界配置，客户端提示读取同步快照。多个物品临期时，快捷栏提示剩余时间最短的一件。
   - 显示算术：条长 = 剩余 ÷ 保质期（上限 1、烂了是 0、没有保质期不画）、标签 `rot` / `<1h` / `5h` / `2d`、
     档位阈值 24 / 6 小时、不腐烂的东西是 UNTIMED 且不画。
   - 提醒频率：第一次提醒、同一小时内不再提醒、满一小时可以再提醒；只提醒"还没烂、但一小时内会烂"的东西；

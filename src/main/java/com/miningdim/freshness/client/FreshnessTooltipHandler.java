@@ -12,7 +12,7 @@ import net.minecraftforge.event.entity.player.ItemTooltipEvent;
 /**
  * 物品 tooltip 的新鲜度两行: 类别与剩余时间，颜色阈值与快捷栏提醒共用。
  *
- * 只读物品上的章与同步下来的钟。未同步时只显示类别，不显示剩余时间。
+ * 只读物品上的章与同步下来的钟。同步完成后显示类别和剩余时间。
  */
 public final class FreshnessTooltipHandler {
 
@@ -26,11 +26,12 @@ public final class FreshnessTooltipHandler {
             return;
         }
         ItemStack stack = event.getItemStack();
-        if (FreshnessCategories.categoryOf(stack).isEmpty()) {
+        var found = FreshnessCategories.categoryOf(stack);
+        if (found.isEmpty()) {
             return; // 不腐烂的东西不加行 (tooltip 已经够长了)
         }
-        FreshnessCategory category = FreshnessCategories.categoryOf(stack).orElseThrow();
-        int shelfLife = FreshnessShelfLives.hours(category);
+        FreshnessCategory category = found.orElseThrow();
+        int shelfLife = FreshnessShelfLives.clientHours(category);
         long remaining = FreshnessClientState.remainingMinutes(stack);
         if (remaining == Long.MAX_VALUE) {
             return;

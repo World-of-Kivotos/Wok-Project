@@ -1,6 +1,7 @@
 {
   "replace": false,
   "values": [
+    "#miningdim:freshness/fd/grain",
     "minecraft:wheat",
     "miningdim:farmer_wheat"
   ]

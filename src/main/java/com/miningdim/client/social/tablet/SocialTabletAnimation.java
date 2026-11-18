@@ -74,6 +74,7 @@ public final class SocialTabletAnimation {
                 SocialTabletAnimation::onOverlayPre);
         forgeBus.addListener(EventPriority.NORMAL, false, ClientPlayerNetworkEvent.LoggingOut.class,
                 event -> reset());
+        WebUiClient.setBrowserClosedHook(SocialTabletRenderTypes::forgetBrowsers);
         WebUiClient.setSocialScreenHooks(SocialTabletAnimation::onScreenOpened,
                 SocialTabletAnimation::onScreenClosedAnimated,
                 SocialTabletAnimation::onScreenClosedDirect);
@@ -119,7 +120,7 @@ public final class SocialTabletAnimation {
         if (!isAnimating()) {
             return;
         }
-        MOTION.freeze(Math.max(0.0D, Math.min(1.0D, p)));
+        MOTION.freeze(p);
         drainEvents();
     }
 
@@ -146,20 +147,11 @@ public final class SocialTabletAnimation {
     }
 
     private static TabletMode mode() {
-        try {
-            TabletMode parsed = TabletMode.parse(MiningClientConfig.SOCIAL_TABLET_ANIMATION.get());
-            return parsed == null ? TabletMode.FULL : parsed;
-        } catch (RuntimeException exception) {
-            return TabletMode.FULL;
-        }
+        return java.util.Objects.requireNonNull(TabletMode.parse(MiningClientConfig.SOCIAL_TABLET_ANIMATION.get()));
     }
 
     private static boolean soundsOn() {
-        try {
-            return MiningClientConfig.SOCIAL_TABLET_SOUNDS.get();
-        } catch (RuntimeException exception) {
-            return true;
-        }
+        return MiningClientConfig.SOCIAL_TABLET_SOUNDS.get();
     }
 
     /** 当前手部外观：命令覆盖优先，否则读客户端配置。 */
@@ -167,11 +159,7 @@ public final class SocialTabletAnimation {
         if (handStyleOverride != null) {
             return handStyleOverride;
         }
-        try {
-            return TabletHandStyle.parse(MiningClientConfig.SOCIAL_TABLET_HANDS.get());
-        } catch (RuntimeException exception) {
-            return TabletHandStyle.GLOVE;
-        }
+        return TabletHandStyle.parse(MiningClientConfig.SOCIAL_TABLET_HANDS.get());
     }
 
     /** `/socialanim hands`：只影响本次客户端会话，不改写配置。 */

@@ -28,6 +28,7 @@ public final class SocialClient {
 
     private static KeyMapping openKey;
     private static KeyMapping shutterKey;
+    private static boolean pendingCommandOpen;
 
     private SocialClient() {
     }
@@ -62,6 +63,10 @@ public final class SocialClient {
         if (event.phase != TickEvent.Phase.END) {
             return;
         }
+        if (pendingCommandOpen) {
+            pendingCommandOpen = false;
+            open();
+        }
         boolean fired = false;
         while (openKey.consumeClick()) {
             fired = true;
@@ -78,7 +83,7 @@ public final class SocialClient {
 
     private static void onRegisterClientCommands(RegisterClientCommandsEvent event) {
         event.getDispatcher().register(Commands.literal("social").executes(context -> {
-            open();
+            pendingCommandOpen = true;
             return 1;
         }));
         // 验收辅助：把掏平板动画冻结在某个进度，方便固定姿态截图。

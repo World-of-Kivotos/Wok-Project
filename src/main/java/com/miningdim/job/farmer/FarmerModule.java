@@ -4,10 +4,13 @@ import com.miningdim.core.Subsystem;
 import com.miningdim.job.JobId;
 import com.miningdim.job.JobXpPolicies;
 import com.miningdim.job.farmer.block.FarmerBlocks;
+import com.miningdim.job.farmer.granary.GranaryConfig;
 import com.miningdim.job.farmer.item.FarmerCreativeTab;
 import com.miningdim.job.farmer.item.FarmerItems;
 import com.miningdim.progression.ExperienceServices;
 import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.fml.ModLoadingContext;
+import net.minecraftforge.fml.config.ModConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,6 +30,8 @@ public final class FarmerModule implements Subsystem {
 
     @Override
     public void register(IEventBus modBus, IEventBus forgeBus) {
+        ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER,
+                GranaryConfig.SPEC, "miningdim-farmer.toml");
         JobXpPolicies.register(JobId.FARMER, FarmerXpCurve.POLICY);
         ExperienceServices.experienceService().registerSource(
                 FarmerExperience.HARVEST_SOURCE, FarmerExperience.TRACK_ID);

@@ -317,6 +317,32 @@ public final class FreshnessMigrationGameTests {
                     "marker 应落在约定根键下");
             helper.assertTrue(reloadedChunk.getCompound("miningdim_fresh_mig").getInt("Version") == 1,
                     "marker 应持久保存迁移格式版本");
+
+            net.minecraft.server.level.ServerLevel level = helper.getLevel();
+            net.minecraft.world.level.chunk.LevelChunk chunk = level.getChunkAt(helper.absolutePos(new net.minecraft.core.BlockPos(1, 1, 1)));
+            long position = chunk.getPos().toLong();
+            FreshnessMigrationHooks.rememberMarker(level, position, ENABLED_AT);
+            FreshnessMigrationHooks.onChunkUnload(new net.minecraftforge.event.level.ChunkEvent.Unload(chunk));
+            CompoundTag unloadSave = new CompoundTag();
+            FreshnessMigrationHooks.onChunkSave(new net.minecraftforge.event.level.ChunkDataEvent.Save(chunk, level, unloadSave));
+            helper.assertTrue(FreshnessMigrationHooks.hasCurrentMigrationMarker(unloadSave, ENABLED_AT),
+                    "卸载后的同步保存仍能读取 marker");
+            FreshnessMigrationHooks.finishChunkUnloads();
+            CompoundTag afterCleanup = new CompoundTag();
+            FreshnessMigrationHooks.onChunkSave(new net.minecraftforge.event.level.ChunkDataEvent.Save(chunk, level, afterCleanup));
+            helper.assertTrue(!FreshnessMigrationHooks.hasCurrentMigrationMarker(afterCleanup, ENABLED_AT),
+                    "END 清理释放已卸载 marker");
+
+            FreshnessMigrationHooks.rememberMarker(level, position, ENABLED_AT);
+            FreshnessMigrationHooks.onChunkUnload(new net.minecraftforge.event.level.ChunkEvent.Unload(chunk));
+            FreshnessMigrationHooks.rememberMarker(level, position, ENABLED_AT + 1);
+            FreshnessMigrationHooks.finishChunkUnloads();
+            CompoundTag reloadedSave = new CompoundTag();
+            FreshnessMigrationHooks.onChunkSave(new net.minecraftforge.event.level.ChunkDataEvent.Save(chunk, level, reloadedSave));
+            helper.assertTrue(FreshnessMigrationHooks.hasCurrentMigrationMarker(reloadedSave, ENABLED_AT + 1),
+                    "END 前重新加载应取消旧卸载清理并保留新 marker");
+            FreshnessMigrationHooks.onChunkUnload(new net.minecraftforge.event.level.ChunkEvent.Unload(chunk));
+            FreshnessMigrationHooks.finishChunkUnloads();
             helper.succeed();
         } finally {
             FreshnessConfig.MODE.set(previousMode);

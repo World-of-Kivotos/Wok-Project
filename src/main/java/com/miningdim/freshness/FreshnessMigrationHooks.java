@@ -54,8 +54,9 @@ public final class FreshnessMigrationHooks {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/freshness");
 
-    /** ChunkDataEvent.Save 收到的是新 NBT 根, 因此在 ChunkAccess 上无法暂存的标记需保留到服务停止。 */
+    /** 每次保存都构建新 NBT 根，卸载后的同步保存完成前必须保留代号。 */
     private static final Map<ChunkIdentity, Long> PENDING_MARKERS = new ConcurrentHashMap<>();
+    private static final Set<ChunkIdentity> PENDING_UNLOADS = new LinkedHashSet<>();
     private static final String CHUNK_MIGRATION_MARKER = "miningdim_fresh_mig";
     private static final int CHUNK_MIGRATION_MARKER_VERSION = 1;
 
@@ -171,13 +172,13 @@ public final class FreshnessMigrationHooks {
             return;
         }
         CompoundTag chunkData = event.getData();
-        ChunkIdentity identity = identity(level, event.getChunk().getPos().toLong());
+        long chunkPos = event.getChunk().getPos().toLong();
         if (hasCurrentMigrationMarker(chunkData, enabledAt)) {
-            PENDING_MARKERS.put(identity, enabledAt);
+            rememberMarker(level, chunkPos, enabledAt);
             return;
         }
         int migrated = FreshnessMigration.migrateTag(chunkData, enabledAt, graceHours(), stopCapHours());
-        PENDING_MARKERS.put(identity, enabledAt);
+        rememberMarker(level, chunkPos, enabledAt);
         if (migrated > 0) {
             LOGGER.info("[miningdim] freshness migration: 区块 {} 里迁移了 {} 件老货 (启用时刻剩 {} 小时)",
                     event.getChunk().getPos(), migrated, graceHours());
@@ -193,7 +194,33 @@ public final class FreshnessMigrationHooks {
         FreshnessMigrationData data = ensureMigrationStartedSynchronized(level);
         long enabledAt = data.enabledAtMinute();
         if (enabledAt != FreshnessMigrationData.UNSET_MINUTE) {
-            PENDING_MARKERS.put(identity(level, event.getChunk().getPos().toLong()), enabledAt);
+            rememberMarker(level, event.getChunk().getPos().toLong(), enabledAt);
+        }
+    }
+
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onChunkUnload(ChunkEvent.Unload event) {
+        if (event.getLevel() instanceof ServerLevel level) {
+            ChunkIdentity unloaded = identity(level, event.getChunk().getPos().toLong());
+            synchronized (PENDING_UNLOADS) {
+                PENDING_UNLOADS.add(unloaded);
+            }
+        }
+    }
+
+    static void rememberMarker(ServerLevel level, long chunkPos, long generation) {
+        ChunkIdentity identity = identity(level, chunkPos);
+        synchronized (PENDING_UNLOADS) {
+            PENDING_MARKERS.put(identity, generation);
+            PENDING_UNLOADS.remove(identity);
+        }
+    }
+
+    /** 在 ServerTick.END 调用：ChunkMap 卸载回调及其同步保存已完成。 */
+    public static void finishChunkUnloads() {
+        synchronized (PENDING_UNLOADS) {
+            PENDING_UNLOADS.forEach(PENDING_MARKERS::remove);
+            PENDING_UNLOADS.clear();
         }
     }
 
@@ -212,7 +239,7 @@ public final class FreshnessMigrationHooks {
     /** 服务停止时清掉当前进程的写回队列; 持久状态仍只以区块 NBT marker 为准。 */
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void onServerStopped(ServerStoppedEvent event) {
-        PENDING_MARKERS.clear();
+        clearMarkers();
     }
 
     private static ChunkIdentity identity(ServerLevel level, long chunkPos) {
@@ -350,6 +377,13 @@ public final class FreshnessMigrationHooks {
 
     /** 仅供用例: 清掉本次启动的区块记账。 */
     static void resetWalkedChunksForTest() {
-        PENDING_MARKERS.clear();
+        clearMarkers();
+    }
+
+    private static void clearMarkers() {
+        synchronized (PENDING_UNLOADS) {
+            PENDING_MARKERS.clear();
+            PENDING_UNLOADS.clear();
+        }
     }
 }

@@ -57,6 +57,6 @@ public final class FreshnessCategories {
 
     /** 该物品的保质期 (小时); 不腐烂返回 0。 */
     public static int shelfLifeHours(ItemStack stack) {
-        return categoryOf(stack).map(FreshnessConfig::shelfLifeHours).orElse(0);
+        return categoryOf(stack).map(FreshnessShelfLives::hours).orElse(0);
     }
 }

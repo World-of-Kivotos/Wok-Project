@@ -12,7 +12,10 @@
 - `FreshnessClockData` 保存分钟锚点、小时偏移、心跳和统计环。代码提供每五分钟心跳入口，但本切片尚未把它接到服务器事件。
 - `FreshnessData` 读写 `MiningFresh` 物品数据；`FreshnessCategories`、`FreshnessExemptions` 和 `FreshnessCheck` 提供类别、豁免与是否腐烂的查询。
 - `FreshnessStats` 和 `FreshnessStatsRing` 保存盖章、试运行过期及实际替换的统计；当前未接入运行时结算。
-- 加工、终态替换、观察点、同种合并、迁移、客户端显示和粮仓均不在当前运行入口中。
+- `FreshnessNested` 提供嵌套物品数据的读取、腐烂判断和盖章计算；市场等消费入口尚未接入。
+- `FreshnessAudit.scan` 只遍历已加载区块中的容器并统计无章及已过期物品，当前尚未注册命令。
+- `FreshnessMigration` 与 `FreshnessMigrationData` 提供旧物品迁移计算、NBT/容器处理和迁移状态存档；启动及区块钩子尚未接入。
+- 加工继承和同种合并的纯策略及合并适配方法已加入；终态替换、观察点、自动合并入口、迁移钩子、客户端显示和粮仓尚未接入运行时。
 
 ## 数据与配置
 
@@ -31,5 +34,7 @@
 - 时钟首次观测、正常推进、运行中跳变、停服补偿、跨小时不足一小时重启、版本 1 存档迁移、回拨不倒退及测试偏移入口。
 - 整点盖章、剩余时间计算、到期判定、未来章与停表上限、忽略指定字段的物品比较、村民货剩余时间。
 - 非易腐品查询、类别标签及模块登记的豁免规则。
+
+`FreshnessProcessingGameTests` 的 5 条策略测试与 `FreshnessMergeGameTests` 的 10 条合并测试直接调用纯逻辑；原版注入与观察点用例随运行入口加入。`FreshnessAuditGameTests` 的 3 条测试覆盖容器统计、无问题内容和不加载区块；命令权限测试随命令入口加入。`FreshnessMigrationGameTests` 的 6 条测试直接验证迁移计算、容器和存档，区块钩子测试随入口加入。`FreshnessNestedGameTests` 的 4 条测试覆盖嵌套读取、深度边界、畸形数据与盖章回写。
 
 每层执行 `gradlew.bat compileJava verifyModuleBoundaries` 和 `gradlew.bat runGameTestServer`；GameTest 以日志中 `All N required tests passed` 为成功判据。

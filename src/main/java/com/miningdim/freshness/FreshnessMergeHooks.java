@@ -57,10 +57,6 @@ public final class FreshnessMergeHooks {
     }
 
     /**
-     * 点击叠放 (光标上的一堆点到格子里的一堆): 两堆只差新鲜度时自己写回两边并取消原版处理。
-     * 原版只认「完全相同才叠」, 不拦的话玩家点一下会被拒 (或者叠不上)。
-     */
-    /**
      * Shift 快移的合并预跑 (规格 mixin 清单 #9 / {@code AbstractContainerMenu.moveItemStackTo}):
      * 在 vanilla 搬东西**之前**, 先试着把整堆并进"只差新鲜度"的目标槽。
      *
@@ -97,6 +93,11 @@ public final class FreshnessMergeHooks {
         }
         return null;
     }
+
+    /**
+     * 点击叠放 (光标上的一堆点到格子里的一堆): 两堆只差新鲜度时自己写回两边并取消原版处理。
+     * 原版只认「完全相同才叠」, 不拦的话玩家点一下会被拒 (或者叠不上)。
+     */
     public static void onStackedOnOther(ItemStackedOnOtherEvent event) {
         if (!(event.getPlayer() instanceof ServerPlayer player)) {
             return; // 客户端不算账, 一律以服务端结果为准

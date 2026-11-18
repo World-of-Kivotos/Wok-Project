@@ -18,6 +18,7 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.Ingredient;
@@ -35,6 +36,24 @@ import java.util.UUID;
 @PrefixGameTestTemplate(false)
 public final class FryerSupportGameTests {
     private FryerSupportGameTests() {}
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer_support")
+    public static void starterFishUseSingleIngredientOneStarRecipes(GameTestHelper helper) {
+        assertStarterFish(helper, "starter_fried_cod", Items.COD, Items.COOKED_COD);
+        assertStarterFish(helper, "starter_fried_salmon", Items.SALMON, Items.COOKED_SALMON);
+        helper.succeed();
+    }
+
+    private static void assertStarterFish(GameTestHelper helper, String name, Item raw, Item cooked) {
+        ResourceLocation id = new ResourceLocation(MiningConstants.MODID, "chef/fryer/" + name);
+        var recipe = helper.getLevel().getRecipeManager().byKey(id).orElseThrow();
+        SimpleContainer inventory = new SimpleContainer(9);
+        inventory.setItem(0, new ItemStack(raw));
+        helper.assertTrue(recipe instanceof FryerRecipe fryer && fryer.star() == 1
+                        && fryer.matches(inventory, helper.getLevel())
+                        && fryer.result().is(cooked) && fryer.result().getCount() == 1,
+                id + " must turn one raw fish into one cooked fish at one star");
+    }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer_support")
     public static void recipeOverlappingIngredientsAndNetworkRoundTrip(GameTestHelper helper) {

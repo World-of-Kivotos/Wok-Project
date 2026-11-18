@@ -4,7 +4,7 @@
     { "ingredient": { "item": "minecraft:salmon" }, "count": 1 }
   ],
   "result": { "item": "minecraft:cooked_salmon", "count": 1 },
-  "star": 2,
+  "star": 1,
   "motion": 4,
   "cookTime": 200
 }

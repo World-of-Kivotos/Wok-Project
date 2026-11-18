@@ -21,7 +21,9 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.io.File;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -37,6 +39,7 @@ public final class FryerPlayerData extends SavedData {
     private final Map<ChunkKey, Map<BlockPos, CompoundTag>> checkpoints = new HashMap<>();
     private long nextRevision;
     private CompletableFuture<Void> pendingIO;
+    private long retryAfterNanos;
     private record ActiveSession(Object identity, UUID operation) {}
     private final Map<UUID, ActiveSession> active = new HashMap<>();
     private ServerLevel storageLevel;
@@ -55,7 +58,7 @@ public final class FryerPlayerData extends SavedData {
         ServerLevel overworld = level.getServer().overworld();
         Path journalPath = level.getServer().getWorldPath(LevelResource.ROOT).resolve("data").resolve(DATA_NAME + ".dat");
         FryerPlayerData data = loadFromStorage(overworld.getDataStorage(), journalPath);
-        data.storageLevel = overworld; data.checkPending(); return data;
+        data.storageLevel = overworld; return data;
     }
 
     static FryerPlayerData loadFromStorage(DimensionDataStorage storage, Path journalPath) {
@@ -115,22 +118,54 @@ public final class FryerPlayerData extends SavedData {
         if (storageLevel == null) throw new IllegalStateException("Fryer journal is not attached to a server");
         return storageLevel.getServer().getWorldPath(LevelResource.ROOT).resolve("data").resolve(DATA_NAME + ".dat").toFile();
     }
-    private void checkPending() {
-        if (pendingIO != null && pendingIO.isCompletedExceptionally()) pendingIO.join();
+    private void awaitPending() {
+        if (pendingIO == null) return;
+        CompletableFuture<Void> write = pendingIO;
+        pendingIO = null;
+        try {
+            write.join();
+        } catch (CompletionException failure) {
+            // dirty 只记录提交快照后的变更；失败时整份内存状态都还需要落盘。
+            setDirty();
+            if (failure.getCause() instanceof UncheckedIOException io) throw io;
+            throw failure;
+        }
     }
-    public void flushAsync() {
-        checkPending();
-        if (pendingIO != null && !pendingIO.isDone()) return;
-        if (!isDirty()) return;
-        File file = journalFile(); CompoundTag snapshot = save(new CompoundTag());
+    public void flushAsync() { flushAsync(journalFile()); }
+    CompletableFuture<Void> flushAsync(File file) {
+        if (pendingIO != null && !pendingIO.isDone()) return pendingIO;
+        try {
+            awaitPending();
+        } catch (UncheckedIOException failure) {
+            reportWriteFailure(file, failure);
+            return null;
+        }
+        if (!isDirty() || (retryAfterNanos != 0 && System.nanoTime() - retryAfterNanos < 0)) return null;
+        CompoundTag snapshot = save(new CompoundTag());
         setDirty(false);
         pendingIO = CompletableFuture.runAsync(() -> FryerJournal.write(file, snapshot));
+        return pendingIO;
     }
-    public void sync() { save(journalFile()); }
-    @Override public void save(File file) {
-        if (pendingIO != null) { pendingIO.join(); pendingIO = null; }
+    public void sync() { sync(journalFile()); }
+    void sync(File file) {
+        awaitPending();
         if (!isDirty()) return;
-        FryerJournal.write(file, save(new CompoundTag())); setDirty(false);
+        FryerJournal.write(file, save(new CompoundTag()));
+        setDirty(false);
+        retryAfterNanos = 0;
+    }
+    @Override public void save(File file) {
+        // 原版逐个保存 SavedData；炸锅 I/O 故障不能中断其他数据和后续区块保存。
+        try {
+            sync(file);
+        } catch (UncheckedIOException failure) {
+            reportWriteFailure(file, failure);
+        }
+    }
+    private void reportWriteFailure(File file, UncheckedIOException failure) {
+        // 持续磁盘故障每五秒重试一次；交易 sync 与原版保存不受此节流影响。
+        retryAfterNanos = System.nanoTime() + 5_000_000_000L;
+        LOGGER.error("Cannot persist fryer journal {}; dirty state retained for retry", file, failure);
     }
 
     private PlayerRecord player(UUID id, long now) {
@@ -320,7 +355,7 @@ public final class FryerPlayerData extends SavedData {
             ResourceLocation dimension = new ResourceLocation(c.getString("Dimension"));
             BlockPos pos = BlockPos.of(c.getLong("Pos"));
             CompoundTag snapshot = c.getCompound("Snapshot").copy();
-            // Version 2 snapshots have no revision; zero preserves their legacy identity.
+            // #100 的 03895ccc 在 GameTest 世界写过 v2，快照没有 FryerRevision。迁入 v3 时以 0 表示该旧代。
             if (version == 2 && !snapshot.contains("FryerRevision")) snapshot.putLong("FryerRevision", 0);
             long revision = number(snapshot, "FryerRevision", Tag.TAG_LONG, 0, Long.MAX_VALUE);
             if (version == 3 && revision > data.nextRevision) throw new IllegalArgumentException("Fryer checkpoint revision exceeds counter");

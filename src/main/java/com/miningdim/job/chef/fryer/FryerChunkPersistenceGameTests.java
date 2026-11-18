@@ -69,6 +69,38 @@ public final class FryerChunkPersistenceGameTests {
         });
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer_support")
+    public static void migratedCheckpointMatchesOriginalChunk(GameTestHelper helper) {
+        BlockPos pos = helper.absolutePos(new BlockPos(0, 0, 0));
+        CompoundTag inventory = new CompoundTag();
+        inventory.putInt("Size", 9);
+        inventory.put("Items", new ListTag());
+        CompoundTag entity = new CompoundTag();
+        entity.putInt("FryerVersion", 2);
+        entity.put("Inventory", inventory);
+        entity.putBoolean("InProgress", false);
+        entity.put("BufferedOutputs", new ListTag());
+        entity.put("ReturnedItems", new ListTag());
+
+        CompoundTag journal = new FryerPlayerData().save(new CompoundTag());
+        journal.putInt("Version", 2);
+        journal.remove("NextRevision");
+        CompoundTag checkpoint = new CompoundTag();
+        checkpoint.putString("Dimension", helper.getLevel().dimension().location().toString());
+        checkpoint.putLong("Pos", pos.asLong());
+        checkpoint.put("Snapshot", entity.copy());
+        journal.getList("Checkpoints", 10).add(checkpoint);
+        CompoundTag migrated = FryerPlayerData.load(journal).checkpoint(helper.getLevel(), pos);
+        helper.assertTrue(migrated != null && FryerChunkPersistence.covered(migrated, entity),
+                "An unchanged v2 chunk covers the migrated checkpoint even without a revision field");
+        helper.assertTrue(FryerChunkPersistence.covered(migrated, null), "A removed v2 fryer covers its empty checkpoint");
+        entity.putBoolean("InProgress", true);
+        helper.assertTrue(!FryerChunkPersistence.covered(migrated, entity), "Different v2 contents must retain the checkpoint");
+        migrated.getList("ReturnedItems", 10).add(new CompoundTag());
+        helper.assertTrue(!FryerChunkPersistence.covered(migrated, null), "A missing fryer must retain pending items");
+        helper.succeed();
+    }
+
     @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer_support", timeoutTicks = 400)
     public static void supersededWriteCannotCollectNewerCheckpoint(GameTestHelper helper) throws IOException {
         Path dir = Files.createTempDirectory("fryer-chunk-test-"); TestWorker worker = new TestWorker(dir);

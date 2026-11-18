@@ -355,7 +355,7 @@ public final class FryerPlayerData extends SavedData {
             ResourceLocation dimension = new ResourceLocation(c.getString("Dimension"));
             BlockPos pos = BlockPos.of(c.getLong("Pos"));
             CompoundTag snapshot = c.getCompound("Snapshot").copy();
-            // Version 2 snapshots have no revision; zero preserves their legacy identity.
+            // #100 的 03895ccc 在 GameTest 世界写过 v2，快照没有 FryerRevision。迁入 v3 时以 0 表示该旧代。
             if (version == 2 && !snapshot.contains("FryerRevision")) snapshot.putLong("FryerRevision", 0);
             long revision = number(snapshot, "FryerRevision", Tag.TAG_LONG, 0, Long.MAX_VALUE);
             if (version == 3 && revision > data.nextRevision) throw new IllegalArgumentException("Fryer checkpoint revision exceeds counter");

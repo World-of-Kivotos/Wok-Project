@@ -2,6 +2,7 @@ package com.miningdim.job.chef.fryer;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
@@ -65,21 +66,21 @@ public final class FryerChunkPersistence {
     static boolean covered(CompoundTag snapshot, CompoundTag entity) {
         if (entity == null) {
             if (snapshot.getBoolean("FryerRemoved")) return true;
-            // 已发布 v2 journal 的墓碑没有 Removed 标记；只回收空闲且无任何物品的旧快照。
-            return (!snapshot.contains("FryerRevision") || snapshot.getLong("FryerRevision") == 0L)
+            // #99 的 77a74da4 拆锅时写入空库存，没有 FryerRemoved。v2 journal 迁入后代号为 0。
+            return snapshot.contains("FryerRevision", Tag.TAG_LONG) && snapshot.getLong("FryerRevision") == 0L
                     && snapshot.contains("InProgress", Tag.TAG_BYTE)
                     && !snapshot.getBoolean("InProgress") && snapshot.contains("Inventory", Tag.TAG_COMPOUND)
-                    && snapshot.getCompound("Inventory").contains("Items", Tag.TAG_LIST)
-                    && snapshot.getCompound("Inventory").getList("Items", Tag.TAG_COMPOUND).isEmpty()
-                    && snapshot.contains("BufferedOutputs", Tag.TAG_LIST)
-                    && snapshot.getList("BufferedOutputs", Tag.TAG_COMPOUND).isEmpty()
-                    && snapshot.contains("ReturnedItems", Tag.TAG_LIST)
-                    && snapshot.getList("ReturnedItems", Tag.TAG_COMPOUND).isEmpty();
+                    && snapshot.getCompound("Inventory").get("Items") instanceof ListTag items && items.isEmpty()
+                    && snapshot.get("BufferedOutputs") instanceof ListTag outputs && outputs.isEmpty()
+                    && snapshot.get("ReturnedItems") instanceof ListTag returns && returns.isEmpty();
         }
         long revision = snapshot.contains("FryerRevision", Tag.TAG_LONG) ? snapshot.getLong("FryerRevision") : 0L;
         long savedRevision = entity.contains("FryerRevision", Tag.TAG_LONG) ? entity.getLong("FryerRevision") : 0L;
         if (savedRevision > revision) return true;
         if (savedRevision < revision) return false;
-        return snapshot.getAllKeys().stream().allMatch(key -> snapshot.get(key).equals(entity.get(key)));
+        // 迁移给 journal 补的 0 不在同一代的旧区块里。其余字段仍须逐项吻合才可回收。
+        return snapshot.getAllKeys().stream().allMatch(key ->
+                (revision == 0 && key.equals("FryerRevision") && !entity.contains(key))
+                        || snapshot.get(key).equals(entity.get(key)));
     }
 }

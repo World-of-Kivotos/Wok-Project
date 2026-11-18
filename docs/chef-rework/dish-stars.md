@@ -2,7 +2,7 @@
 
 > 数据来源：只读打开 `D:\WOK测试\versions\1.20.1-Forge_47.4.22\mods` 中 9 个料理 mod 的 jar（配方 JSON、物品标签、语言文件，食物效果用 javap 反编译 FoodProperties 读取）。中文名优先取 jar 内 zh_cn，其次 Minecraft-Mod-Language-Modpack，仍缺的标“(英)”。生成日期 2026-10-10。
 
-共 **204** 道菜。机器可读版本：`dish-stars.tsv`（同目录，UTF-8 BOM）。
+整合包迁移清单共 **204** 道菜，机器可读版本见 `dish-stars.tsv`（同目录，UTF-8 BOM）。WOK 另有两份原版食材的炸锅入门配方。
 
 ## 计分规则（实际执行口径）
 
@@ -13,6 +13,15 @@
 - 多份放置型（盛宴、整派、整块蛋糕、拼盘、披萨、火锅等）另加 3 分。
 - 星级：1–2★1，3–4★2，5–6★3，7–8★4，9–10★5，11–13★6，≥14★7。
 - 配方覆盖：同一路径的配方，后加载的 mod 胜出（Delightful 声明在几乎所有乐事 mod 之后加载）。所以本服的**实际**配方是覆盖后的版本，见下方「本服配方被改写的菜」。
+
+## 炸锅入门配方
+
+这两份配方只需一条原版生鱼，未安装料理附属模组时也可加载。鳕鱼和鲑鱼都是 T1，单料加工各计 1 分。两份配方沿用原版熟鱼物品，独立于 204 道迁移菜及其厨师效果表。
+
+| 配方 ID | 食材 ×1 | 成品 ×1 | 星级 | 性子 |
+|---|---|---|---|---|
+| `miningdim:chef/fryer/starter_fried_cod` | `minecraft:cod` | `minecraft:cooked_cod` | ★1 | 浮 |
+| `miningdim:chef/fryer/starter_fried_salmon` | `minecraft:salmon` | `minecraft:cooked_salmon` | ★1 | 浮 |
 
 ## 食材分档表（实际使用）
 

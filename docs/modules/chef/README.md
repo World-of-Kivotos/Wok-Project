@@ -22,6 +22,8 @@
 
 炸锅 journal 后台写盘失败时消费失败任务、恢复脏标记并记录文件路径与异常，五秒后重试。原版自动保存与停服保存记录炸锅 I/O 故障后继续保存其他数据，失败状态留待后续保存；交易使用的同步保存仍在失败时抛出，不能将未落盘的检查点视为提交成功。定时退款/完成队列的 I/O 故障在 tick 入口记录并延后处理，不中断服务器 tick。写入成功前仍有未持久化数据，故障期间硬崩或退出不能保证这部分数据保留。
 
+炸锅 journal 当前写入 v3，保留 #100 开发版本写出的 v2。提交 `03895ccc` 的 GameTest 在测试世界同步写过 v2，后续 #99 的 `77a74da4` 拆锅时以空库存快照表示移除。迁移时给旧快照补上修订号 0，可与同一代缺少修订号的区块存档核对。测试服及玩家世界是否使用过这两个构建尚未确认。[历史 GameTest 记录](https://github.com/World-of-Kivotos/Wok-Project/pull/100#issuecomment-6476574963)
+
 ## 配置
 
 服务端配置文件为 `miningdim-chef.toml`，由 `ChefConfig.SPEC` 注册。配置分组包括：`xp`、`amplify`、`nourish_food`、`aftertaste_saturation`、`nourish_heal`、`shield`、`grease`、`aftertaste_regen`、`stable_aim`、`endurance`、`refresh`、`night_sight`、`satiation`、`exploration`、`effect_pool`、`minigame`、`quality_resolution`、`negatives` 和 `economy`。

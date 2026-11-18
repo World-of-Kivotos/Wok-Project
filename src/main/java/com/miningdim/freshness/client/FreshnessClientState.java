@@ -67,8 +67,7 @@ public final class FreshnessClientState {
         if (!synced) {
             return Long.MIN_VALUE;
         }
-        long elapsedMinutes = (System.nanoTime() - syncedAtNanos) / 60_000_000_000L;
-        return syncedNowMinute + Math.max(0L, elapsedMinutes);
+        return syncedNowMinute + (System.nanoTime() - syncedAtNanos) / 60_000_000_000L;
     }
 
     /** 一件东西现在还剩多少分钟; {@link Long#MAX_VALUE} = 不会腐烂。 */

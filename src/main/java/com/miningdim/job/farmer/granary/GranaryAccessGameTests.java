@@ -3,6 +3,9 @@ package com.miningdim.job.farmer.granary;
 import com.miningdim.core.MiningConstants;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -74,5 +77,66 @@ public final class GranaryAccessGameTests {
         helper.assertTrue(GranaryAccess.add(list, owner, list.get(0).player(),
                 GranaryAccess.Permission.STORE_AND_TAKE) == GranaryAccess.Status.UPDATED, "满员也能改权限");
         helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void accessAndTrustDefaultsSurviveSaveAndLoad(GameTestHelper helper) {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        ListTag saved = GranaryAccess.save(List.of(
+                new GranaryAccess.Trustee(first, GranaryAccess.Permission.STORE_AND_TAKE),
+                new GranaryAccess.Trustee(second, GranaryAccess.Permission.STORE_ONLY)));
+        List<GranaryAccess.Trustee> loaded = GranaryAccess.load(saved);
+        helper.assertTrue(loaded.equals(List.of(
+                new GranaryAccess.Trustee(first, GranaryAccess.Permission.STORE_AND_TAKE),
+                new GranaryAccess.Trustee(second, GranaryAccess.Permission.STORE_ONLY))), "名单原样存读");
+
+        // 重复的人只留第一个 (不是坏档)。
+        ListTag duplicate = GranaryAccess.save(List.of(
+                new GranaryAccess.Trustee(first, GranaryAccess.Permission.STORE_ONLY)));
+        duplicate.add(saved.get(0).copy());
+        helper.assertTrue(GranaryAccess.load(duplicate).size() == 1, "重复的人只留一个");
+        helper.assertTrue(GranaryAccess.load(duplicate).get(0).permission()
+                == GranaryAccess.Permission.STORE_ONLY, "留的是第一个");
+
+        // 坏档: 缺人、认不出的权限、超过 16 人。
+        ListTag missing = new ListTag();
+        missing.add(new CompoundTag());
+        helper.assertTrue(rejects(missing), "缺人直接报错");
+        ListTag badPerm = GranaryAccess.save(List.of(
+                new GranaryAccess.Trustee(first, GranaryAccess.Permission.STORE_ONLY)));
+        ((CompoundTag) badPerm.get(0)).putString(GranaryConstants.KEY_PERM, "OWNER");
+        helper.assertTrue(rejects(badPerm), "认不出的权限直接报错");
+        ListTag tooLong = new ListTag();
+        for (int i = 0; i <= GranaryAccess.MAX_TRUSTEES; i++) {
+            tooLong.add(GranaryAccess.save(List.of(new GranaryAccess.Trustee(UUID.randomUUID(),
+                    GranaryAccess.Permission.STORE_ONLY))).get(0));
+        }
+        helper.assertTrue(rejects(tooLong), "超过 16 人直接报错");
+
+        // 账本的默认名单: 存读往返 + 老档没有这个键按空读。
+        ServerLevel level = helper.getLevel();
+        GranarySavedData data = GranarySavedData.get(level);
+        data.setTrustDefault(first, List.of(new GranaryAccess.Trustee(second,
+                GranaryAccess.Permission.STORE_AND_TAKE)));
+        GranarySavedData reloaded = GranarySavedData.load(data.save(new CompoundTag()));
+        helper.assertTrue(reloaded.trustDefault(first).size() == 1
+                        && reloaded.trustDefault(first).get(0).player().equals(second),
+                "默认名单随账本往返");
+        CompoundTag withoutTrust = data.save(new CompoundTag());
+        withoutTrust.remove(GranaryConstants.KEY_TRUST_DEFAULTS);
+        helper.assertTrue(GranarySavedData.load(withoutTrust).trustDefault(first).isEmpty(),
+                "这张表落地之前的档照读 (按空名单)");
+        data.setTrustDefault(first, List.of());
+        helper.succeed();
+    }
+
+    private static boolean rejects(ListTag tag) {
+        try {
+            GranaryAccess.load(tag);
+            return false;
+        } catch (IllegalArgumentException expected) {
+            return true;
+        }
     }
 }

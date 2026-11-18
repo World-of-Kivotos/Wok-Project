@@ -348,7 +348,7 @@ public final class WineCellarGameTests {
             cellar.load(original);
             helper.getLevel().removeBlock(pos, false);
             var storage = helper.getLevel().getServer().getCommandStorage();
-            var archived = storage.getKeys().filter(key -> key.getPath().startsWith("locked_wine_cellar/"))
+            var archived = storage.keys().filter(key -> key.getPath().startsWith("locked_wine_cellar/"))
                     .filter(key -> storage.get(key).equals(original)).findFirst();
             helper.assertTrue(archived.isPresent(), "forced replacement archives exactly the damaged NBT");
             archived.ifPresent(key -> storage.set(key, new CompoundTag()));

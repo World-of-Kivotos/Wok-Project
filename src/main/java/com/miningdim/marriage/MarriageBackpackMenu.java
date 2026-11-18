@@ -51,13 +51,6 @@ public final class MarriageBackpackMenu extends AbstractMiningMenu {
     private final MarriageBackpackSessions sessions;
 
     /**
-     * 打开这个窗口的玩家 (合并入栈归属闸判据, 见 {@link #moveItemStackTo}); 客户端纯视图构造无该概念, 为 null
-     * (客户端槽不是 {@link DepositAccountingSlot}, 闸判据用不到, 留 null 不影响行为)。
-     */
-    @Nullable
-    private final UUID viewerId;
-
-    /**
      * 服务端构造 (由 {@link Provider} 调)。绑真权威容器 + 婚龄等级派生可见格数 + 远程有效性谓词 + 槽级归属记账。
      *
      * @param windowId      窗口 id
@@ -74,7 +67,6 @@ public final class MarriageBackpackMenu extends AbstractMiningMenu {
         super(MarriageRegistration.BACKPACK_MENU.get(), windowId, visibleSlots, validity);
         this.marriageId = container.marriageId();
         this.sessions = sessions;
-        this.viewerId = viewerId;
         addAuthoritativeBackpackSlots(container, visibleSlots, viewerId);
         addPlayerInventory(playerInv, 8, playerInvOriginY(visibleSlots));
     }
@@ -91,7 +83,6 @@ public final class MarriageBackpackMenu extends AbstractMiningMenu {
         super(MarriageRegistration.BACKPACK_MENU.get(), windowId, visibleSlots, MenuValidity.ofRemote(Player::isAlive));
         this.marriageId = marriageId;
         this.sessions = null;
-        this.viewerId = null;
         SimpleContainer view = new SimpleContainer(Math.max(visibleSlots, 1));
         addViewOnlyBackpackSlots(view, visibleSlots);
         addPlayerInventory(playerInv, 8, playerInvOriginY(visibleSlots));
@@ -137,7 +128,7 @@ public final class MarriageBackpackMenu extends AbstractMiningMenu {
      * {@link AbstractContainerMenu} 的 doClick 与 moveItemStackTo 的全部放入路径都经 setByPlayer, 故覆写此一处
      * 即覆盖点击/拖拽/Shift 快移; 取出走 container.removeItem, 归属释放已在容器层做 (见 MarriageBackpackContainer)。
      */
-    private static final class DepositAccountingSlot extends Slot {
+    private static final class DepositAccountingSlot extends Slot implements com.miningdim.menu.FoodStorageSlot {
 
         private final MarriageBackpackContainer container;
         private final UUID viewerId;
@@ -164,8 +155,10 @@ public final class MarriageBackpackMenu extends AbstractMiningMenu {
         }
 
         /** 该槽当前归属 (合并入栈归属闸判据, 见 {@link MarriageBackpackMenu#moveItemStackTo}); 无归属为 null。 */
-        UUID depositor() {
-            return container.depositorOf(this.getSlotIndex());
+        @Override
+        public boolean mayMergeForViewer() {
+            UUID depositor = container.depositorOf(this.getSlotIndex());
+            return depositor == null || depositor.equals(viewerId);
         }
     }
 
@@ -243,8 +236,7 @@ public final class MarriageBackpackMenu extends AbstractMiningMenu {
         if (!(slot instanceof DepositAccountingSlot accounted)) {
             return true;
         }
-        UUID depositor = accounted.depositor();
-        return depositor == null || depositor.equals(viewerId);
+        return accounted.mayMergeForViewer();
     }
 
     @Override

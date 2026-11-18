@@ -1,43 +1,80 @@
 package com.miningdim.freshness;
 
+import com.miningdim.menu.FoodStorageSlot;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.CompoundContainer;
+import net.minecraft.world.Container;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.DispenserMenu;
-import net.minecraft.world.inventory.HopperMenu;
+import net.minecraft.world.inventory.PlayerEnderChestContainer;
 import net.minecraft.world.inventory.ShulkerBoxMenu;
 import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.level.block.entity.BarrelBlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.ChestBlockEntity;
+import net.minecraft.world.level.block.entity.DropperBlockEntity;
+import net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity;
 
-/**
- * 「哪些容器参与合并」的唯一判据 (规格「同种食物合并」: 只对**玩家背包**和白名单容器生效)。
- *
- * 白名单只在两处: 观察点结算 (开/关容器时给整箱盖章) 与 Shift 快移合并。两处必须**同一份名单** ——
- * 名单宽一处窄一处, 就会出现"开了箱结算、Shift 却并进机器里"这种半通不通的行为。
- *
- * 白名单目前是四种原版容器界面: 箱子 / 潜影盒 / 漏斗 / 发射器。机器 (熔炉、酿酒台、粮仓囤、各职业台)
- * 一律**不是**合并目标: 那些格子有自己的批次与事务规矩, 让 Shift 快移并进去会绕开它们。
- */
+import java.util.Set;
+
+/** 观察与合并共用真实库存的归属判断。原版容器界面也可能承载插件的展示格。 */
 public final class FreshnessContainers {
+
+    private static final Set<String> IRON_CHESTS = Set.of("iron_chest", "gold_chest", "diamond_chest",
+            "crystal_chest", "copper_chest", "obsidian_chest", "dirt_chest");
 
     private FreshnessContainers() {
     }
 
-    /** 这个界面是不是白名单容器 (箱子 / 潜影盒 / 漏斗 / 发射器)。 */
-    public static boolean isWhitelistedMenu(AbstractContainerMenu menu) {
-        return menu instanceof ChestMenu
-                || menu instanceof ShulkerBoxMenu
-                || menu instanceof HopperMenu
-                || menu instanceof DispenserMenu;
+    public static boolean isStorageSlot(AbstractContainerMenu menu, Slot slot) {
+        if (slot instanceof FoodStorageSlot) {
+            return true;
+        }
+        Container inventory = slot.container;
+        if (menu instanceof ChestMenu chest && chest.getContainer() == inventory) {
+            if (inventory instanceof CompoundContainer pair) {
+                return pair.container1 instanceof ChestBlockEntity && pair.container2 instanceof ChestBlockEntity;
+            }
+            if (inventory instanceof ChestBlockEntity || inventory instanceof BarrelBlockEntity
+                    || inventory instanceof PlayerEnderChestContainer) {
+                return true;
+            }
+        }
+        if (inventory instanceof ShulkerBoxBlockEntity) {
+            return menu instanceof ShulkerBoxMenu;
+        }
+        if (inventory instanceof DropperBlockEntity) {
+            return menu instanceof DispenserMenu;
+        }
+        if (!(inventory instanceof BlockEntity storage)) {
+            return false;
+        }
+        ResourceLocation id = BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(storage.getType());
+        if ("farmersdelight".equals(id.getNamespace())) {
+            return menu instanceof ChestMenu chest && chest.getContainer() == inventory
+                    && ("cabinet".equals(id.getPath()) || "basket".equals(id.getPath()));
+        }
+        if ("ironchest".equals(id.getNamespace())) {
+            String path = id.getPath();
+            String material = path.startsWith("trapped_") ? path.substring("trapped_".length()) : path;
+            if (IRON_CHESTS.contains(material)) {
+                ResourceLocation menuId = BuiltInRegistries.MENU.getKey(menu.getType());
+                return new ResourceLocation("ironchest", material).equals(menuId);
+            }
+        }
+        return false;
     }
 
-    /**
-     * 这个槽能不能当合并目标: 玩家背包的槽 (含快捷栏、副手、盔甲 —— 它们都在同一个 {@link Inventory} 里),
-     * 或者白名单容器界面里的槽。
-     */
     public static boolean isMergeTarget(AbstractContainerMenu menu, Slot slot) {
         if (menu == null || slot == null) {
             return false;
         }
-        return slot.container instanceof Inventory || isWhitelistedMenu(menu);
+        if (slot instanceof FoodStorageSlot storage) {
+            return storage.mayMergeForViewer();
+        }
+        return slot.container instanceof Inventory || isStorageSlot(menu, slot);
     }
 }

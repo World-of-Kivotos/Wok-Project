@@ -1,12 +1,17 @@
 package com.miningdim.freshness;
 
 import com.miningdim.core.MiningConstants;
+import com.miningdim.testutil.MockGameTestPlayers;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.entity.SlotAccess;
+import net.minecraft.world.inventory.ClickAction;
+import net.minecraft.world.inventory.FurnaceMenu;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraftforge.event.ItemStackedOnOtherEvent;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
@@ -279,8 +284,38 @@ public final class FreshnessMergeGameTests {
     }
 
     // ============================================================
-    // 夹具
+    // 点击与槽权限
     // ============================================================
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void secondaryClickTransfersOnlyOneItemAndRespectsMachineSlots(GameTestHelper helper) {
+        FreshnessConfig.Mode previous = FreshnessConfig.MODE.get();
+        FreshnessConfig.MODE.set(FreshnessConfig.Mode.DRY_RUN);
+        try {
+            var player = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
+            var slot = player.inventoryMenu.getSlot(36);
+            int shelf = FreshnessConfig.shelfLifeHours(FreshnessCategory.FRESH);
+            slot.set(beef(shelf, 600L, 3, 0));
+            var cursor = SlotAccess.forContainer(new SimpleContainer(beef(shelf, 640L, 8, 0)), 0);
+            var click = new ItemStackedOnOtherEvent(cursor.get(), slot.getItem(), slot, ClickAction.SECONDARY, player, cursor);
+            FreshnessMergeHooks.onStackedOnOther(click);
+            helper.assertTrue(click.isCanceled() && slot.getItem().getCount() == 4 && remaining(shelf, slot.getItem()) == 610L
+                            && cursor.get().getCount() == 7 && remaining(shelf, cursor.get()) == 640L,
+                    "右键只取一件参加加权，光标余下七件保持原批次");
+
+            player.containerMenu = new FurnaceMenu(1, player.getInventory());
+            var input = player.containerMenu.getSlot(0);
+            input.set(beef(shelf, 600L, 3, 0));
+            var machineClick = new ItemStackedOnOtherEvent(cursor.get(), input.getItem(), input, ClickAction.PRIMARY, player, cursor);
+            FreshnessMergeHooks.onStackedOnOther(machineClick);
+            helper.assertTrue(!machineClick.isCanceled() && input.getItem().getCount() == 3 && cursor.get().getCount() == 7,
+                    "机器槽接受原料也必须保留原版叠放行为");
+            player.containerMenu = player.inventoryMenu;
+            helper.succeed();
+        } finally {
+            FreshnessConfig.MODE.set(previous);
+        }
+    }
 
     /** 一堆生牛肉: 在 NOW 时正好剩 remainingMinutes, 并带 stoppedHours 的停表额度。 */
     private static ItemStack beef(int shelfLifeHours, long remainingMinutes, int count, int stoppedHours) {

@@ -35,6 +35,6 @@
 - 整点盖章、剩余时间计算、到期判定、未来章与停表上限、忽略指定字段的物品比较、村民货剩余时间。
 - 非易腐品查询、类别标签及模块登记的豁免规则。
 
-`FreshnessProcessingGameTests` 的 5 条策略测试与 `FreshnessMergeGameTests` 的 10 条合并测试直接调用纯逻辑；原版注入与观察点用例随运行入口加入。`FreshnessAuditGameTests` 的 3 条测试覆盖容器统计、无问题内容和不加载区块；命令权限测试随命令入口加入。`FreshnessMigrationGameTests` 的 6 条测试直接验证迁移计算、容器和存档，区块钩子测试随入口加入。`FreshnessNestedGameTests` 的 4 条测试覆盖嵌套读取、深度边界、畸形数据与盖章回写。
+`FreshnessProcessingGameTests` 的 5 条策略测试与 `FreshnessMergeGameTests` 的 11 条合并测试验证合并策略、右键单件加权和机器槽准入；原版注入与观察点用例随运行入口加入。`FreshnessAuditGameTests` 的 3 条测试覆盖容器统计、无问题内容和不加载区块；命令权限测试随命令入口加入。`FreshnessMigrationGameTests` 的 6 条测试直接验证迁移计算、容器和存档，区块钩子测试随入口加入。`FreshnessNestedGameTests` 的 4 条测试覆盖嵌套读取、深度边界、畸形数据与盖章回写。
 
 每层执行 `gradlew.bat compileJava verifyModuleBoundaries` 和 `gradlew.bat runGameTestServer`；GameTest 以日志中 `All N required tests passed` 为成功判据。

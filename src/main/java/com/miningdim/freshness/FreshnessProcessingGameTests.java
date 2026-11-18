@@ -87,11 +87,13 @@ public final class FreshnessProcessingGameTests {
             helper.assertTrue(FreshnessData.remainingMinutes(product, cookedShelf, FIXED_NOW) == expected,
                     "产物剩余按保质期 × 比例向下取整");
 
-            ItemStack dust = ratio(meatShelf, 0.0001D, Items.BEEF, 1);
+            long processedAt = FIXED_NOW + 50L;
+            ItemStack dust = ratioAt(meatShelf, 0.0001D, Items.BEEF, 1, processedAt);
             ItemStack floored = new ItemStack(Items.COOKED_BEEF);
-            FreshnessProcessing.inherit(floored, List.of(dust), FreshnessProcessing.NO_BONUS, FIXED_NOW);
-            helper.assertTrue(FreshnessData.remainingMinutes(floored, cookedShelf, FIXED_NOW) == 60L,
-                    "产物最少给 1 小时, 不会做出立刻就烂的东西");
+            FreshnessProcessing.inherit(floored, List.of(dust), FreshnessProcessing.NO_BONUS, processedAt);
+            helper.assertTrue(FreshnessData.remainingMinutes(floored, cookedShelf, processedAt) == 60L
+                            && FreshnessData.batchMinute(floored) % 60L == 50L,
+                    "在第 50 分钟加工仍保留完整 60 分钟，不向前锚到整点");
             helper.succeed();
         } finally {
             FreshnessConfig.MODE.set(previousMode);

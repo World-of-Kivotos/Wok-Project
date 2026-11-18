@@ -39,7 +39,7 @@ public final class FreshMerge {
 
     /** 两堆能不能合并 (两堆都必须是已盖章的易腐品)。 */
     public static boolean canMerge(ItemStack target, ItemStack incoming) {
-        if (target.isEmpty() || incoming.isEmpty()) {
+        if (!FreshnessConfig.stampingEnabled() || target.isEmpty() || incoming.isEmpty()) {
             return false;
         }
         if (!FreshnessData.sameExceptFreshness(target, incoming)) {
@@ -114,7 +114,7 @@ public final class FreshMerge {
      * 追加时原版只搬一件, 平均会把这件新货的年龄当分母 (反漏洞 #9)。
      */
     public static void preferOlderBatch(ItemStack target, ItemStack incoming) {
-        if (target.isEmpty() || incoming.isEmpty()
+        if (!FreshnessConfig.stampingEnabled() || target.isEmpty() || incoming.isEmpty()
                 || !FreshnessData.sameExceptFreshness(target, incoming)
                 || !FreshnessData.isStamped(target) || !FreshnessData.isStamped(incoming)) {
             return;

@@ -63,7 +63,7 @@ public final class SocialDeviceArt {
             Minecraft minecraft = Minecraft.getInstance();
             Optional<Resource> resource = minecraft.getResourceManager().getResource(FRONT);
             if (resource.isEmpty()) {
-                LOGGER.warn("Tablet mesh resource {} is missing", FRONT);
+                LOGGER.error("Tablet mesh resource {} is missing", FRONT);
                 meshFailed = true;
                 return null;
             }
@@ -87,7 +87,7 @@ public final class SocialDeviceArt {
             }
             return mesh;
         } catch (IOException | RuntimeException exception) {
-            LOGGER.warn("Failed to build tablet mesh from {}", FRONT, exception);
+            LOGGER.error("Failed to build tablet mesh from {}", FRONT, exception);
             meshFailed = true;
             return null;
         }

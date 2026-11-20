@@ -7,7 +7,7 @@ import net.minecraftforge.common.ForgeConfigSpec;
  *
  * 保质期**只写在配置里**, 不写进物品: 改完推送在线客户端, 全服存量立刻按新值算 (规格「怎么算」)。
  * 总开关三档是安全阀 (规格「安全阀」): 试运行只盖章、不换腐烂物、不拦截, 只把「本该腐烂多少件」记进统计;
- * 分层集成期间默认关闭，完整接入后再按部署计划开启。
+ * 默认停在试运行, 测试服看满一周统计没有误烂再切开启。
  */
 public final class FreshnessConfig {
 
@@ -35,7 +35,6 @@ public final class FreshnessConfig {
     public static final ForgeConfigSpec.IntValue MARKET_MIN_REMAINING_HOURS;
     public static final ForgeConfigSpec.IntValue MERGE_WINDOW_DIVISOR;
     public static final ForgeConfigSpec.IntValue MERGE_WINDOW_MIN_HOURS;
-
     public static final ForgeConfigSpec.BooleanValue MIGRATION_ENABLED;
     public static final ForgeConfigSpec.LongValue MIGRATION_ENABLED_AT_MINUTE;
     public static final ForgeConfigSpec.IntValue MIGRATION_GRACE_HOURS;
@@ -46,7 +45,7 @@ public final class FreshnessConfig {
         ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
         builder.push("freshness");
         MODE = builder.comment("Overall switch: OFF / DRY_RUN (stamp and count only) / ON")
-                .defineEnum("mode", Mode.OFF);
+                .defineEnum("mode", Mode.DRY_RUN);
         builder.pop();
 
         builder.push("shelfLife");

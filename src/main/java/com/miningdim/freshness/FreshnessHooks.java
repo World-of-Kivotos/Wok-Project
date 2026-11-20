@@ -18,8 +18,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 当前仅包含实现，运行监听与 mixin 配置尚未接入。
- *
  * mixin 的适配层: 注入点只负责把「看到了什么」转给本类, 判据全部落在 {@link FreshnessSettle} 与
  * {@link FreshnessProcessing} 这两个可测的纯实现上。
  *

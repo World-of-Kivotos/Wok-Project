@@ -1,5 +1,7 @@
 package com.miningdim.freshness;
 
+import net.minecraft.commands.CommandSource;
+import net.minecraft.network.chat.Component;
 import com.miningdim.core.MiningConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -230,4 +232,76 @@ public final class FreshnessAuditGameTests {
                 + " findings=" + parts;
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void theCommandReportsAndNeedsOperator(GameTestHelper helper) {
+        int slot = 3;
+        clear(helper, slot);
+        ServerLevel level = helper.getLevel();
+        BlockPos origin = helper.absolutePos(origin(slot));
+        Container chest = chest(helper, chest(slot, 2, 0), Blocks.CHEST);
+        chest.setItem(0, new ItemStack(Items.BREAD, 4));
+
+        Capture output = new Capture();
+        var source = helper.getLevel().getServer().createCommandSourceStack()
+                .withLevel(level).withPosition(net.minecraft.world.phys.Vec3.atCenterOf(
+                        helper.absolutePos(chest(slot, 2, 0))))
+                .withSource(output);
+        // 非 OP: 根字面量就带权限门, 直接拒掉。
+        helper.assertTrue(level.getServer().getCommands().performPrefixedCommand(
+                source.withPermission(0), "freshness audit 3") == 0, "非 OP 用不了");
+        helper.assertTrue(output.texts().stream().noneMatch(text -> text.contains("无章")),
+                "被拒时不该吐出巡查结果: " + output.texts());
+
+        output.clear();
+        helper.assertTrue(level.getServer().getCommands().performPrefixedCommand(
+                source.withPermission(2), "freshness audit 3") == 4, "OP 跑一次, 返回值 = 要处理的 4 件");
+        helper.assertTrue(output.texts().stream().anyMatch(text -> text.contains("无章 4")),
+                "要报出无章的件数: " + output.texts());
+
+        // 站到十格开外再看同一个半径: 那个箱子在半径外, 干净收场 (返回值 0)。
+        output.clear();
+        var farSource = helper.getLevel().getServer().createCommandSourceStack()
+                .withLevel(level)
+                .withPosition(net.minecraft.world.phys.Vec3.atCenterOf(
+                        helper.absolutePos(chest(slot, 2, 10))))
+                .withSource(output);
+        helper.assertTrue(level.getServer().getCommands().performPrefixedCommand(
+                farSource.withPermission(2), "freshness audit 3") == 0, "半径外的不算");
+        helper.assertTrue(output.texts().stream().anyMatch(text -> text.contains("没发现")),
+                "干净时说清楚: " + output.texts());
+        helper.succeed();
+    }
+
+    private static final class Capture implements CommandSource {
+
+        private final List<String> texts = new ArrayList<>();
+
+        @Override
+        public void sendSystemMessage(Component component) {
+            texts.add(component.getString());
+        }
+
+        @Override
+        public boolean acceptsSuccess() {
+            return true;
+        }
+
+        @Override
+        public boolean acceptsFailure() {
+            return true;
+        }
+
+        @Override
+        public boolean shouldInformAdmins() {
+            return false;
+        }
+
+        void clear() {
+            texts.clear();
+        }
+
+        List<String> texts() {
+            return List.copyOf(texts);
+        }
+    }
 }

@@ -364,6 +364,11 @@ public final class MarketPlaceAtomicityAndPagingGameTests {
         }
 
         @Override
+        public boolean markExpired(long id) {
+            return delegate.markExpired(id);
+        }
+
+        @Override
         public boolean reduceListing(long id, int newCount, byte[] newNbt) {
             return delegate.reduceListing(id, newCount, newNbt);
         }

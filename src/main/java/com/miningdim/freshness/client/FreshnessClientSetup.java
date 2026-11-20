@@ -10,8 +10,6 @@ import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.config.ModConfig;
 
 /**
- * 当前仅提供客户端装配实现，尚未由模块注册。
- *
  * 客户端装配 (规格「客户端显示」): tooltip、快捷栏提醒、客户端配置与断开清理。
  *
  * 单列一个类、并且**只由 {@link FreshnessModule} 里的 DistExecutor 调用**, 是为了保证专用服务器永远不碰

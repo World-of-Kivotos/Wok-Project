@@ -1,6 +1,7 @@
 package com.miningdim.freshness;
 
 import com.miningdim.core.MiningConstants;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -12,10 +13,16 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.storage.loot.LootContext;
+import net.minecraft.world.level.storage.loot.LootParams;
+import net.minecraft.world.level.storage.loot.parameters.LootContextParamSets;
+import net.minecraft.world.level.storage.loot.parameters.LootContextParams;
+import net.minecraft.world.level.storage.loot.predicates.LootItemCondition;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
-/** 放置食物记录的区块存读测试；事件与掉落测试随运行入口接入。 */
+/** 放置食物记录的区块存读与战利品继承回归。 */
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
 public final class FreshnessPlacedFoodGameTests {
@@ -129,6 +136,44 @@ public final class FreshnessPlacedFoodGameTests {
             helper.succeed();
         } finally {
             FreshnessPlacedFood.resetForTest();
+        }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void onlyBlockLootConsumesThePlacedBatch(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        BlockPos pos = helper.absolutePos(CAKE_REL);
+        FreshnessConfig.Mode previous = FreshnessConfig.MODE.get();
+        FreshnessConfig.MODE.set(FreshnessConfig.Mode.DRY_RUN);
+        try {
+            ItemStack cake = new ItemStack(Items.CAKE);
+            long batch = FreshnessClockData.nowMinute(level) - 600;
+            FreshnessData.stampAt(cake, batch, 3);
+            FreshnessData.markMigrated(cake);
+            FreshnessData.markVillagerGoodsFlag(cake);
+            FreshnessPlacedFood.record(level, pos, cake, Blocks.CAKE.defaultBlockState());
+
+            var modifier = new FreshnessLootModifier(new LootItemCondition[0]);
+            var params = new LootParams.Builder(level).withParameter(LootContextParams.ORIGIN, Vec3.atCenterOf(pos));
+            var chest = new LootContext.Builder(params.create(LootContextParamSets.CHEST)).create(null);
+            var unrelated = new ItemStack(Items.CAKE);
+            modifier.doApply(ObjectArrayList.of(unrelated), chest);
+            helper.assertTrue(!FreshnessData.isMigrated(unrelated) && FreshnessPlacedFood.at(level.dimension(), pos).isPresent(),
+                    "同位置的非方块战利品不可取走放置食物记录");
+
+            params.withParameter(LootContextParams.BLOCK_STATE, Blocks.CAKE.defaultBlockState())
+                    .withParameter(LootContextParams.TOOL, ItemStack.EMPTY);
+            var block = new LootContext.Builder(params.create(LootContextParamSets.BLOCK)).create(null);
+            var dropped = new ItemStack(Items.CAKE);
+            modifier.doApply(ObjectArrayList.of(dropped), block);
+            helper.assertTrue(FreshnessData.batchMinute(dropped) == batch && FreshnessData.stoppedHours(dropped) == 3
+                            && FreshnessData.isMigrated(dropped) && FreshnessData.isVillagerGoods(dropped)
+                            && FreshnessPlacedFood.at(level.dimension(), pos).isEmpty(),
+                    "拆除掉落必须一次继承完整批次、停表与来源标记");
+            helper.succeed();
+        } finally {
+            FreshnessPlacedFood.forget(level.dimension(), pos);
+            FreshnessConfig.MODE.set(previous);
         }
     }
 

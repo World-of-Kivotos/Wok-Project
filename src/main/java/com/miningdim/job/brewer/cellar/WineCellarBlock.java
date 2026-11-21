@@ -1,18 +1,29 @@
 package com.miningdim.job.brewer.cellar;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Containers;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.item.ItemStack;
+import com.miningdim.job.brewer.BrewerItems;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraftforge.network.NetworkHooks;
 import org.jetbrains.annotations.Nullable;
@@ -39,9 +50,66 @@ public final class WineCellarBlock extends Block implements EntityBlock {
         }
         if (player instanceof ServerPlayer serverPlayer
                 && level.getBlockEntity(pos) instanceof WineCellarBlockEntity be) {
-            NetworkHooks.openScreen(serverPlayer, be, buf -> buf.writeBlockPos(pos));
+            if (be.isLocked()) {
+                serverPlayer.displayClientMessage(Component.translatable("message.miningdim.wine_cellar.locked"), true);
+            } else {
+                NetworkHooks.openScreen(serverPlayer, be, buf -> buf.writeBlockPos(pos));
+            }
         }
         return InteractionResult.CONSUME;
+    }
+
+    @Override
+    public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean moved) {
+        if (!state.is(newState.getBlock()) && level instanceof ServerLevel server
+                && level.getBlockEntity(pos) instanceof WineCellarBlockEntity be) {
+            if (be.isLocked()) {
+                be.archiveRemovedSave(server);
+                super.onRemove(state, level, pos, newState, moved);
+                return;
+            }
+            be.settleNow();
+            int reserve = be.drainFuelReserve();
+            while (reserve > 0) {
+                int count = Math.min(64, reserve);
+                double width = net.minecraft.world.entity.EntityType.ITEM.getWidth();
+                double spread = 1.0D - width;
+                ItemEntity drop = new ItemEntity(level,
+                        pos.getX() + level.random.nextDouble() * spread + width / 2.0D,
+                        pos.getY() + level.random.nextDouble() * spread,
+                        pos.getZ() + level.random.nextDouble() * spread + width / 2.0D,
+                        new ItemStack(BrewerItems.DRIED_WHEAT.get(), count));
+                drop.setDeltaMovement(level.random.triangle(0.0D, 0.11485D),
+                        level.random.triangle(0.2D, 0.11485D), level.random.triangle(0.0D, 0.11485D));
+                level.addFreshEntity(drop);
+                reserve -= count;
+            }
+            for (int slot = 0; slot < be.inventory().getSlots(); slot++) {
+                Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), be.inventory().getStackInSlot(slot));
+            }
+        }
+        super.onRemove(state, level, pos, newState, moved);
+    }
+
+    private static boolean locked(BlockGetter level, BlockPos pos) {
+        return level.getBlockEntity(pos) instanceof WineCellarBlockEntity cellar && cellar.isLocked();
+    }
+
+    @Override
+    public boolean onDestroyedByPlayer(BlockState state, Level level, BlockPos pos, Player player,
+                                       boolean willHarvest, FluidState fluid) {
+        return !locked(level, pos) && super.onDestroyedByPlayer(state, level, pos, player, willHarvest, fluid);
+    }
+
+    @Override
+    public float getExplosionResistance(BlockState state, BlockGetter level, BlockPos pos, Explosion explosion) {
+        return locked(level, pos) ? Blocks.BEDROCK.getExplosionResistance()
+                : super.getExplosionResistance(state, level, pos, explosion);
+    }
+
+    @Override
+    public boolean canEntityDestroy(BlockState state, BlockGetter level, BlockPos pos, Entity entity) {
+        return !locked(level, pos) && super.canEntityDestroy(state, level, pos, entity);
     }
 
     @Nullable

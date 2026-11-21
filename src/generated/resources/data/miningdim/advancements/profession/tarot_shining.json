@@ -1,0 +1,54 @@
+{
+  "parent": "miningdim:profession/root",
+  "criteria": {
+    "collected": {
+      "conditions": {
+        "milestone": "shining"
+      },
+      "trigger": "miningdim:tarot_codex"
+    }
+  },
+  "display": {
+    "announce_to_chat": true,
+    "description": {
+      "translate": "achievement.miningdim.profession.tarot_shining.desc"
+    },
+    "frame": "goal",
+    "hidden": false,
+    "icon": {
+      "item": "miningdim:tarot_card"
+    },
+    "show_toast": true,
+    "title": {
+      "extra": [
+        {
+          "bold": true,
+          "color": "#FFFFFF",
+          "text": "闪"
+        },
+        {
+          "bold": true,
+          "color": "#FFF6DB",
+          "text": "耀"
+        },
+        {
+          "bold": true,
+          "color": "#FFE8AA",
+          "text": "星"
+        },
+        {
+          "bold": true,
+          "color": "#FFD66B",
+          "text": "辰"
+        }
+      ],
+      "text": ""
+    }
+  },
+  "requirements": [
+    [
+      "collected"
+    ]
+  ],
+  "sends_telemetry_event": false
+}

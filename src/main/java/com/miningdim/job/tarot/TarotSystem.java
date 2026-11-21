@@ -82,6 +82,8 @@ public final class TarotSystem implements Subsystem {
         // 战斗窗口事件 (LivingHurt/LivingKnockBack/LivingDeath 读 TarotCombatState 窗口快照)。
         forgeBus.register(combatHandlers);
         forgeBus.register(new TarotPackDropHandler());
+        // 图鉴补扫：登录/重生后把当前背包里的牌记进图鉴（“图鉴里程碑→平板主题”的回调由社交模块自行注册）。
+        forgeBus.register(new com.miningdim.job.tarot.codex.TarotCodexEvents());
 
         // 客户端 setup 仅在客户端接线 (专用服务器不触客户端类链)。
         if (TarotClientSetup.isClient()) {

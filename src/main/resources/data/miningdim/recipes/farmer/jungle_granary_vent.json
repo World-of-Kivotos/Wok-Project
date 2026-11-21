@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "F",
+    "T",
+    "T"
+  ],
+  "key": {
+    "F": {
+      "item": "minecraft:jungle_fence"
+    },
+    "T": {
+      "item": "minecraft:jungle_trapdoor"
+    }
+  },
+  "result": {
+    "item": "miningdim:jungle_granary_vent",
+    "count": 2
+  }
+}

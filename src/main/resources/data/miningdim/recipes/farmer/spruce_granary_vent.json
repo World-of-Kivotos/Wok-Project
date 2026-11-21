@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "F",
+    "T",
+    "T"
+  ],
+  "key": {
+    "F": {
+      "item": "minecraft:spruce_fence"
+    },
+    "T": {
+      "item": "minecraft:spruce_trapdoor"
+    }
+  },
+  "result": {
+    "item": "miningdim:spruce_granary_vent",
+    "count": 2
+  }
+}

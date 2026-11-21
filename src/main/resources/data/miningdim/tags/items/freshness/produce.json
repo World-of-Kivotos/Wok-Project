@@ -1,0 +1,11 @@
+{
+  "replace": false,
+  "values": [
+    "#miningdim:freshness/fd/produce",
+    "minecraft:apple",
+    "minecraft:melon_slice",
+    "minecraft:sweet_berries",
+    "minecraft:glow_berries",
+    "minecraft:egg"
+  ]
+}

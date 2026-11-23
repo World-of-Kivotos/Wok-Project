@@ -1,0 +1,11 @@
+{
+  "conditions": [{ "type": "forge:mod_loaded", "modid": "casualness_delight" }],
+  "type": "miningdim:frying",
+  "ingredients": [
+    { "ingredient": { "item": "casualness_delight:raw_spring_roll" }, "count": 1 }
+  ],
+  "result": { "item": "casualness_delight:spring_roll", "count": 1 },
+  "star": 2,
+  "motion": 4,
+  "cookTime": 200
+}

@@ -8,6 +8,9 @@
 
 ## 当前代码边界
 
+- 客户端状态、同步包及 FD 兼容 mixin 实现和标签已加入。事件、网络和 mixin 配置在后续装配。
+- 专用服务器和内置服务器均读取当前世界的保质期配置。客户端的物品提示与快捷栏按同步快照计算，多个物品临期时提示剩余时间最短的一件。
+
 - 观察点、加工钩子、原版 mixin 和 FD 兼容探测的实现已加入。观察事件与 mixin 配置在后续装配。
 
 - `FreshnessClock` 用分钟维护挂钟观测和不回退的逻辑时间。开服时按最后观测分钟与当前分钟的差，补偿满整小时的停服时间；运行中跨多小时的跳变计入补偿，挂钟回拨不倒退逻辑时间。
@@ -40,6 +43,6 @@
 - 整点盖章、剩余时间计算、到期判定、未来章与停表上限、忽略指定字段的物品比较、村民货剩余时间。
 - 非易腐品查询、类别标签及模块登记的豁免规则。
 
-`FreshnessProcessingGameTests` 的 5 条策略测试与 `FreshnessMergeGameTests` 的 11 条合并测试验证合并策略、右键单件加权和机器槽准入；原版注入与观察点用例随运行入口加入。`FreshnessAuditGameTests` 的 3 条测试覆盖容器统计、无问题内容和不加载区块；命令权限测试随命令入口加入。`FreshnessMigrationGameTests` 的 11 条测试覆盖迁移计算、容器、存档、区块标记及暂停重开时的区块、实体与玩家行为；事件接线测试随入口加入。`FreshnessPlacedFoodGameTests` 的 4 条测试覆盖区块记录存读、异步重载、损坏字段与掉落继承。结算、村民货与配方过滤另有 13 条直接测试；统计和标签自检有 7 条直接测试，命令测试随入口加入。加工钩子另有 4 条直接测试。`FreshnessNestedGameTests` 的 4 条测试覆盖嵌套读取、深度边界、畸形数据与盖章回写。
+`FreshnessProcessingGameTests` 的 5 条策略测试与 `FreshnessMergeGameTests` 的 11 条合并测试验证合并策略、右键单件加权和机器槽准入；原版注入与观察点用例随运行入口加入。`FreshnessAuditGameTests` 的 3 条测试覆盖容器统计、无问题内容和不加载区块；命令权限测试随命令入口加入。`FreshnessMigrationGameTests` 的 11 条测试覆盖迁移计算、容器、存档、区块标记及暂停重开时的区块、实体与玩家行为；事件接线测试随入口加入。`FreshnessPlacedFoodGameTests` 的 4 条测试覆盖区块记录存读、异步重载、损坏字段与掉落继承。结算、村民货与配方过滤另有 13 条直接测试；统计和标签自检有 7 条直接测试，命令测试随入口加入。加工钩子另有 4 条直接测试。同步、显示与 FD 标签另有 8 条直接测试。`FreshnessNestedGameTests` 的 4 条测试覆盖嵌套读取、深度边界、畸形数据与盖章回写。
 
 每层执行 `gradlew.bat compileJava verifyModuleBoundaries` 和 `gradlew.bat runGameTestServer`；GameTest 以日志中 `All N required tests passed` 为成功判据。

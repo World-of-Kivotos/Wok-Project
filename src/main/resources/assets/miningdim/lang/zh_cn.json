@@ -2124,6 +2124,8 @@
   "message.miningdim.login_gate.required": "请先在聊天栏输入 /login 登录",
   "message.miningdim.login_gate.unavailable": "登录校验暂不可用，请联系管理员",
   "message.miningdim.login_gate.command_blocked": "登录前只能使用 /login、/register、/changepassword",
+  "ui.miningdim.social.camera.move": "%1$s %2$s %3$s %4$s 移动  ·  鼠标转视角",
+  "ui.miningdim.social.camera.controls": "%1$s 拍照     %2$s 退出",
   "key.miningdim.social.shutter": "相机快门",
   "subtitles.miningdim.tablet.holster": "平板入套",
   "subtitles.miningdim.tablet.draw": "抽出平板",

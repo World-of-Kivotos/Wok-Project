@@ -168,14 +168,17 @@ public final class SocialCameraMode {
 
         graphics.fill(0, 0, width, 38, 0x66000000);
         graphics.drawString(mc.font, Component.literal("HALOLINK · CAMERA"), 16, 12, 0xFFEAF7FF, true);
-        graphics.drawString(mc.font, Component.literal("WASD 移动  ·  鼠标转视角"), 16, 48, 0x99EAF7FF, true);
+        graphics.drawString(mc.font, Component.translatable("ui.miningdim.social.camera.move",
+                Component.keybind("key.forward"), Component.keybind("key.left"),
+                Component.keybind("key.back"), Component.keybind("key.right")), 16, 48, 0x99EAF7FF, true);
 
-        String hint = "ENTER 拍照     ESC 退出";
+        Component hint = Component.translatable("ui.miningdim.social.camera.controls",
+                Component.keybind("key.miningdim.social.shutter"), Component.translatable("key.keyboard.escape"));
         int textWidth = mc.font.width(hint);
         int boxX = width / 2 - textWidth / 2 - 16;
         int boxY = height - 52;
         graphics.fill(boxX, boxY, boxX + textWidth + 32, height - 16, 0x66000000);
-        graphics.drawString(mc.font, Component.literal(hint), width / 2 - textWidth / 2, height - 40,
+        graphics.drawString(mc.font, hint, width / 2 - textWidth / 2, height - 40,
                 0xFFFFFFFF, true);
 
         graphics.fill(width / 2 - 8, height / 2, width / 2 + 9, height / 2 + 1, 0xAAFFFFFF);

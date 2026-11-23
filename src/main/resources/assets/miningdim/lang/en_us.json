@@ -2124,6 +2124,8 @@
   "message.miningdim.login_gate.required": "Log in first: type /login in chat",
   "message.miningdim.login_gate.unavailable": "Login check is unavailable right now; please contact an admin",
   "message.miningdim.login_gate.command_blocked": "Before you log in, only /login, /register and /changepassword work",
+  "ui.miningdim.social.camera.move": "%1$s %2$s %3$s %4$s to move  ·  Mouse to look",
+  "ui.miningdim.social.camera.controls": "%1$s to shoot     %2$s to exit",
   "key.miningdim.social.shutter": "Camera Shutter",
   "subtitles.miningdim.tablet.holster": "Tablet holstered",
   "subtitles.miningdim.tablet.draw": "Tablet drawn",

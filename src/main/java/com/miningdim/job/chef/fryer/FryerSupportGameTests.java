@@ -48,7 +48,7 @@ public final class FryerSupportGameTests {
     private static void assertStarterFish(GameTestHelper helper, String name, Item raw, Item cooked) {
         ResourceLocation id = new ResourceLocation(MiningConstants.MODID, "chef/fryer/" + name);
         var recipe = helper.getLevel().getRecipeManager().byKey(id).orElseThrow();
-        SimpleContainer inventory = new SimpleContainer(9);
+        SimpleContainer inventory = new SimpleContainer(FryerRecipe.INVENTORY_SLOTS);
         inventory.setItem(0, new ItemStack(raw));
         helper.assertTrue(recipe instanceof FryerRecipe fryer && fryer.star() == 1
                         && fryer.matches(inventory, helper.getLevel())

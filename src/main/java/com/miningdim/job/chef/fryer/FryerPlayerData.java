@@ -104,6 +104,8 @@ public final class FryerPlayerData extends SavedData {
         return chunk == null ? Map.of() : Map.copyOf(chunk);
     }
     public void acknowledgeChunk(ServerLevel level, Map<BlockPos, CompoundTag> receipts) {
+        // 停服后 submit 可能直接在 I/O 线程执行。保留检查点，下次保存区块时再回收。
+        if (!level.getServer().isSameThread()) return;
         for (Map.Entry<BlockPos, CompoundTag> receipt : receipts.entrySet()) {
             ChunkKey key = chunkKey(level.dimension().location(), receipt.getKey());
             Map<BlockPos, CompoundTag> chunk = checkpoints.get(key);

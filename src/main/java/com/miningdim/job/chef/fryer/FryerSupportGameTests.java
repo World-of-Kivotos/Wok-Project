@@ -31,6 +31,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
@@ -180,7 +181,11 @@ public final class FryerSupportGameTests {
         CompoundTag second = new CompoundTag(); second.putInt("Value", 2);
         data.checkpoint(helper.getLevel(), pos, second); data.acknowledgeChunk(helper.getLevel(), receipt);
         helper.assertTrue(data.checkpoint(helper.getLevel(), pos).getInt("Value") == 2, "Stale receipt preserves newer checkpoint");
-        data.acknowledgeChunk(helper.getLevel(), data.checkpointsInChunk(helper.getLevel(), new ChunkPos(pos)));
+        var level = helper.getLevel();
+        Map<BlockPos, CompoundTag> currentReceipt = data.checkpointsInChunk(level, new ChunkPos(pos));
+        CompletableFuture.runAsync(() -> data.acknowledgeChunk(level, currentReceipt)).join();
+        helper.assertTrue(data.checkpoint(level, pos).getInt("Value") == 2, "A shutdown I/O receipt preserves the checkpoint");
+        data.acknowledgeChunk(level, currentReceipt);
         helper.assertTrue(data.checkpoint(helper.getLevel(), pos) == null, "Current receipt removes checkpoint");
         helper.succeed();
     }

@@ -56,6 +56,79 @@ public final class FryerGameTests {
     private static void fund(ServerPlayer player) { EconomyServices.economyService().grant(player, Currency.CREDIT, 1000); }
 
     @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer")
+    public static void liveLoadAndNewerCheckpointKeepOnlyValidInventorySlots(GameTestHelper helper) {
+        Fixture f = fixture(helper);
+        try {
+            f.fryer.inventory().setStackInSlot(0, new ItemStack(Items.SALMON));
+            CompoundTag older = f.fryer.saveWithoutMetadata();
+            BlockPos livePos = f.pos.relative(net.minecraft.core.Direction.EAST);
+            helper.getLevel().setBlockAndUpdate(livePos, ChefBlocks.DEEP_FRYER_STEEL.get().defaultBlockState());
+            FryerBlockEntity live = (FryerBlockEntity) helper.getLevel().getBlockEntity(livePos);
+            // onPlace has already checkpointed this empty entity; live load must replace it with the supplied state.
+            live.load(older);
+            helper.assertTrue(live.inventory().getStackInSlot(0).is(Items.SALMON),
+                    "Live load after placement replaces the onPlace empty checkpoint");
+            CompoundTag newer = older.copy();
+            CompoundTag cod = newer.getCompound("Inventory").getList("Items", 10).getCompound(0);
+            cod.putString("id", "minecraft:cod"); cod.putByte("Count", (byte) 2);
+            CompoundTag invalid = new CompoundTag();
+            invalid.putInt("Slot", 1); invalid.putString("id", "removed_optional_mod:ingredient"); invalid.putByte("Count", (byte) 1);
+            newer.getCompound("Inventory").getList("Items", 10).add(invalid);
+            FryerPlayerData.get(helper.getLevel()).checkpoint(helper.getLevel(), f.pos, newer);
+            f.fryer.setRemoved();
+            FryerBlockEntity restored = new FryerBlockEntity(f.pos, f.fryer.getBlockState());
+            restored.load(older); helper.getLevel().setBlockEntity(restored);
+            restored.serverTick();
+            helper.assertTrue(restored.inventory().getStackInSlot(0).is(Items.COD)
+                            && restored.inventory().getStackInSlot(0).getCount() == 2
+                            && restored.inventory().getStackInSlot(1).isEmpty(),
+                    "Newer checkpoint replaces lower-version chunk and drops only its unknown item slot");
+            helper.succeed();
+        } finally { MockGameTestPlayers.logout(f.player); }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer")
+    public static void structurallyDamagedCheckpointLocksFryerWithoutDestroyingEvidence(GameTestHelper helper) {
+        Fixture f = fixture(helper);
+        try {
+            CompoundTag valid = f.fryer.saveWithoutMetadata(), damaged = valid.copy();
+            damaged.remove("InProgress");
+            FryerPlayerData journal = FryerPlayerData.get(helper.getLevel());
+            journal.checkpoint(helper.getLevel(), f.pos, damaged);
+            CompoundTag evidence = journal.checkpoint(helper.getLevel(), f.pos);
+            f.fryer.setRemoved();
+            FryerBlockEntity restored = new FryerBlockEntity(f.pos, f.fryer.getBlockState());
+            restored.load(valid); helper.getLevel().setBlockEntity(restored);
+            restored.serverTick();
+            helper.assertTrue(restored.busy(), "Malformed checkpoint locks the fryer instead of escaping from the block tick");
+            boolean protectedEvidence = false;
+            try { restored.breakAndDrop(); }
+            catch (IllegalStateException expected) { protectedEvidence = true; }
+            helper.assertTrue(protectedEvidence, "A replay-locked fryer cannot be broken into a replacement snapshot");
+            helper.getLevel().destroyBlock(f.pos, false);
+            helper.assertTrue(restored.isRemoved() && evidence.equals(journal.checkpoint(helper.getLevel(), f.pos)),
+                    "Removing the locked block cleans up its entity and retains the original checkpoint");
+            helper.succeed();
+        } finally { MockGameTestPlayers.logout(f.player); }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer")
+    public static void shutdownRecoveryReturnsPaidManualIngredientsAndRefunds(GameTestHelper helper) {
+        Fixture f = fixture(helper);
+        try {
+            fund(f.player); long money = balance(f.player);
+            helper.assertTrue(f.fryer.start(f.player, true), "Funded manual round starts before shutdown recovery");
+            helper.assertTrue(balance(f.player) == money - ChefConfig.seasoningCreditCost(), "Manual round charges its one fee");
+            f.fryer.recoverForShutdown();
+            helper.assertTrue(f.fryer.inventory().getStackInSlot(0).is(Items.COD)
+                            && f.fryer.inventory().getStackInSlot(0).getCount() == 2
+                            && f.fryer.inventory().getStackInSlot(8).isEmpty() && balance(f.player) == money && !f.fryer.busy(),
+                    "Shutdown recovery returns all reserved ingredients and refunds the paid fee without a dish");
+            helper.succeed();
+        } finally { MockGameTestPlayers.logout(f.player); }
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer")
     public static void inventoryCoalescesAndNewerChunkDoesNotReplayOldJournal(GameTestHelper helper) throws IOException {
         Fixture f = fixture(helper);
         try {
@@ -231,7 +304,8 @@ public final class FryerGameTests {
         } finally { MockGameTestPlayers.logout(f.player); }
     }
 
-    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer", timeoutTicks = 700)
+    // This test deliberately sends inputs at wall-clock cadence; unrestricted GameTest ticks can finish 700 ticks before it does.
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_fryer", timeoutTicks = 6000)
     public static void realTimeInputsSettleServerQualityAndChargeOnce(GameTestHelper helper) {
         Fixture f = fixture(helper);
         fund(f.player);
@@ -305,15 +379,17 @@ public final class FryerGameTests {
             ItemStack collected = f.player.containerMenu.quickMoveStack(f.player, FryerMenu.OUTPUT);
             helper.assertTrue(f.player.getInventory().countItem(Items.COOKED_COD) == 1,
                     "Shift collection delivers exactly one dish to the player after the fryer checkpoint");
-            restored.load(oldChunk); restored.serverTick();
-            helper.assertTrue(collected.getCount() == 1 && restored.inventory().getStackInSlot(8).isEmpty()
+            restored.setRemoved();
+            FryerBlockEntity reloaded = new FryerBlockEntity(f.pos, f.fryer.getBlockState());
+            reloaded.load(oldChunk); helper.getLevel().setBlockEntity(reloaded); reloaded.serverTick();
+            helper.assertTrue(collected.getCount() == 1 && reloaded.inventory().getStackInSlot(8).isEmpty()
                     && balance(f.player) == money - ChefConfig.seasoningCreditCost(),
-                    "Collected output cannot reappear or refund when the old chunk is loaded again");
-            List<ItemStack> drops = restored.breakAndDrop();
+                    "Collected output cannot reappear or refund when the old chunk is loaded after a fresh entity restore");
+            List<ItemStack> drops = reloaded.breakAndDrop();
             helper.assertTrue(drops.stream().noneMatch(s -> s.is(Items.COOKED_COD))
                     && drops.stream().filter(s -> s.is(Items.COD)).mapToInt(ItemStack::getCount).sum() == 1,
                     "Breaking the settled fryer drops only the untouched remainder");
-            helper.assertTrue(restored.breakAndDrop().stream().allMatch(ItemStack::isEmpty), "Second teardown cannot duplicate drops");
+            helper.assertTrue(reloaded.breakAndDrop().stream().allMatch(ItemStack::isEmpty), "Second teardown cannot duplicate drops");
             helper.succeed();
         } finally { MockGameTestPlayers.logout(f.player); }
     }
@@ -336,10 +412,12 @@ public final class FryerGameTests {
                     && restored.inventory().getStackInSlot(0).getCount() == 2 && restored.inventory().getStackInSlot(8).isEmpty(),
                     "Journal overrides stale chunk and restores the exact raw ingredients without a dish");
             helper.assertTrue(balance(f.player) == money, "Recovery refunds the reserved fee exactly once");
-            CompoundTag saved = restored.saveWithoutMetadata(); restored.load(saved); restored.serverTick();
+            CompoundTag saved = restored.saveWithoutMetadata(); restored.setRemoved();
+            FryerBlockEntity reloaded = new FryerBlockEntity(f.pos, f.fryer.getBlockState());
+            reloaded.load(saved); helper.getLevel().setBlockEntity(reloaded); reloaded.serverTick();
             FryerPlayerData.get(helper.getLevel()).retryRefunds();
-            helper.assertTrue(balance(f.player) == money && restored.inventory().getStackInSlot(0).getCount() == 2,
-                    "Loading the recovered state again cannot refund or restore twice");
+            helper.assertTrue(balance(f.player) == money && reloaded.inventory().getStackInSlot(0).getCount() == 2,
+                    "Fresh-entity loading the recovered state again cannot refund or restore twice");
             // 区块 NBT 是磁盘输入，不支持的版本不能绕过余容器队列校验。
             CompoundTag unsupported = saved.copy(); unsupported.putInt("FryerVersion", 1);
             FryerBlockEntity incompatible = new FryerBlockEntity(f.pos, f.fryer.getBlockState());

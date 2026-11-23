@@ -6,6 +6,7 @@ import com.miningdim.job.chef.fryer.client.FryerClient;
 import com.miningdim.job.chef.zhangshao.ZhangshaoKernel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
@@ -19,6 +20,8 @@ import net.minecraftforge.network.NetworkEvent;
 import net.minecraftforge.network.NetworkRegistry;
 import net.minecraftforge.network.PacketDistributor;
 import net.minecraftforge.network.simple.SimpleChannel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -26,6 +29,7 @@ import java.util.function.Supplier;
 @Mod.EventBusSubscriber(modid = MiningConstants.MODID, bus = Mod.EventBusSubscriber.Bus.MOD)
 public final class FryerNetwork {
     private static final Gson GSON = new Gson();
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/fryer");
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(MiningConstants.MODID, "fryer"), () -> "1", "1"::equals, "1"::equals);
 
@@ -71,6 +75,12 @@ public final class FryerNetwork {
         if (player == null || !(player.containerMenu instanceof FryerMenu menu)
                 || !menu.stillValid(player) || !menu.position().equals(pos)) return null;
         return menu.blockEntity();
+    }
+
+    static void reportActionFailure(ServerPlayer player, BlockPos pos, String action, long round, RuntimeException failure) {
+        LOGGER.error("Fryer {} failed player={} dimension={} pos={} round={}", action, player.getUUID(),
+                player.level().dimension().location(), pos, round, failure);
+        player.displayClientMessage(Component.literal("炸锅操作失败，请联系管理员查看日志"), true);
     }
 
     public record Session(BlockPos pos, long roundId, int seed, int[] params, ItemStack dish) {
@@ -123,8 +133,13 @@ public final class FryerNetwork {
             context.enqueueWork(() -> {
                 ServerPlayer player = context.getSender();
                 FryerBlockEntity fryer = currentFryer(player, message.pos);
-                if (fryer != null) fryer.acceptInput(player, message.roundId, message.seq, message.firstTick,
-                        message.inputs, message.hash, message.last);
+                if (fryer == null) return;
+                try {
+                    fryer.acceptInput(player, message.roundId, message.seq, message.firstTick,
+                            message.inputs, message.hash, message.last);
+                } catch (RuntimeException failure) {
+                    reportActionFailure(player, message.pos, "input " + message.seq, message.roundId, failure);
+                }
             });
             context.setPacketHandled(true);
         }
@@ -138,7 +153,12 @@ public final class FryerNetwork {
             context.enqueueWork(() -> {
                 ServerPlayer player = context.getSender();
                 FryerBlockEntity fryer = currentFryer(player, message.pos);
-                if (fryer != null) fryer.abort(player, message.roundId, "主动撂勺");
+                if (fryer == null) return;
+                try {
+                    fryer.abort(player, message.roundId, "主动撂勺");
+                } catch (RuntimeException failure) {
+                    reportActionFailure(player, message.pos, "abort", message.roundId, failure);
+                }
             });
             context.setPacketHandled(true);
         }

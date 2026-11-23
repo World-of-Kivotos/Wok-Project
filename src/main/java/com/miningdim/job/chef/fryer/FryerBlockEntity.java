@@ -59,7 +59,11 @@ public final class FryerBlockEntity extends BlockEntity implements MenuProvider 
             finally { if (!committed && !internal) restoreUncommittedSlot(slot, before); }
         }
         @Override public boolean isItemValid(int slot, ItemStack stack) {
-            return slot != 8 && (slot != 7 || SeasoningTag.isSeasoning(stack));
+            // 已预留的原料/余容器必须能回到原槽，即使数据包或配方热重载后不再匹配当前目录。
+            if (internal) return slot < 8;
+            if (slot == 8) return false;
+            if (slot == 7) return SeasoningTag.isSeasoning(stack);
+            return acceptsInput(level, slot, stack);
         }
         @Override public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
             ensureHydrated();
@@ -101,7 +105,7 @@ public final class FryerBlockEntity extends BlockEntity implements MenuProvider 
         @Override public boolean isItemValid(int slot, ItemStack stack) { return slot < 7 && inventory.isItemValid(slot, stack); }
     };
     private LazyOptional<IItemHandler> capability = LazyOptional.of(() -> automation);
-    private boolean internal, recoverLoaded, hydrated, loading, journalFailed;
+    private boolean internal, recoverLoaded, hydrated, loading, journalFailed, desyncLogged;
     private int phase, remaining, finalQuality = -1, lastStar, lastMastery, lastProgress, lastBest, lastLevel = 1;
     private int lastAccuracy, lastPen, lastPerfect, lastBottle;
     private UUID owner, operation;
@@ -136,7 +140,9 @@ public final class FryerBlockEntity extends BlockEntity implements MenuProvider 
                 case 11 -> lastBottle;
                 case 12 -> Math.min(100, lastProgress);
                 // 玩家 tick 先同步再检查菜单有效性；拆台后的旧菜单不能再查询该坐标的热源。
-                case 13 -> !isRemoved() && level != null && FryerStationBlock.fryerBlockedReason(level, worldPosition) == null ? 1 : 0;
+                case 13 -> !isRemoved() && level != null
+                        && level.getBlockState(worldPosition).getBlock() instanceof FryerStationBlock
+                        && FryerStationBlock.fryerBlockedReason(level, worldPosition) == null ? 1 : 0;
                 case 14 -> lastLevel;
                 default -> throw new IndexOutOfBoundsException("Fryer data " + index);
             };
@@ -170,6 +176,13 @@ public final class FryerBlockEntity extends BlockEntity implements MenuProvider 
         return level.getRecipeManager().getAllRecipesFor(FryerRecipeRegistry.recipeType()).stream()
                 .filter(r -> r.matches(container, level)).sorted(java.util.Comparator.comparing(r -> r.getId().toString())).findFirst().orElse(null);
     }
+    static boolean acceptsInput(@Nullable Level level, int slot, ItemStack stack) {
+        if (stack.isEmpty()) return true;
+        if (level == null) return false;
+        return level.getRecipeManager().getAllRecipesFor(FryerRecipeRegistry.recipeType()).stream().anyMatch(recipe ->
+                slot == 6 ? recipe.containerMatches(stack)
+                        : recipe.inputs().stream().anyMatch(input -> input.ingredient().test(stack)));
+    }
     private static SimpleContainer snapshot(ItemStackHandler inventory) {
         SimpleContainer container = new SimpleContainer(9);
         for (int i = 0; i < 9; i++) container.setItem(i, inventory.getStackInSlot(i).copy());
@@ -188,18 +201,27 @@ public final class FryerBlockEntity extends BlockEntity implements MenuProvider 
     private void ensureHydrated() {
         if (hydrated || loading || !(level instanceof ServerLevel serverLevel)) return;
         CompoundTag checkpoint = playerData().checkpoint(serverLevel, worldPosition);
-        if (checkpoint != null && checkpoint.getLong("FryerRevision") >= revision) readSnapshot(checkpoint);
+        if (checkpoint != null && checkpoint.getLong("FryerRevision") >= revision) {
+            try {
+                readSnapshot(checkpoint);
+            } catch (RuntimeException failure) {
+                journalFailed = true;
+                LOGGER.error("Cannot replay fryer checkpoint at {} revision {}; fryer remains locked and checkpoint is retained",
+                        worldPosition, checkpoint.getLong("FryerRevision"), failure);
+            }
+        }
         // 新区块也可能仍在原版待写缓存里；跳过旧 journal，但只能由真实落盘回执回收它。
         hydrated = true;
-        setChanged();
-        if (recoverLoaded) recoverInterrupted();
+        if (!journalFailed) setChanged();
+        if (recoverLoaded && !journalFailed) recoverInterruptedSafely();
     }
     /** SlotItemHandler 的原地 grow/shrink 由菜单 setChanged 调用此入口。 */
     public void inventoryChanged() {
         setChanged();
         if (internal || loading || !(level instanceof ServerLevel)) return;
+        ensureHydrated();
         if (journalFailed) throw new IllegalStateException("Fryer journal failed; inventory remains locked at " + worldPosition);
-        ensureHydrated(); stageCheckpoint(false);
+        stageCheckpoint(false);
     }
     private void stageCheckpoint(boolean removed) {
         if (!(level instanceof ServerLevel serverLevel)) return;
@@ -212,6 +234,9 @@ public final class FryerBlockEntity extends BlockEntity implements MenuProvider 
         boolean committed = false;
         try {
             stageCheckpoint(false); playerData().sync(); committed = true;
+        } catch (RuntimeException failure) {
+            LOGGER.error("Cannot persist fryer checkpoint at {}; fryer remains locked for recovery", worldPosition, failure);
+            throw failure;
         } finally {
             // 写盘异常自然上抛；本进程同时锁住未持久化库存，不能继续取菜或推进这局。
             if (!committed) journalFailed = true;
@@ -263,7 +288,7 @@ public final class FryerBlockEntity extends BlockEntity implements MenuProvider 
             state = ZhangshaoKernel.init(new ZhangshaoKernel.Params(params), seed);
             gold = params[15] > 0 && RANDOM.nextInt(params[15]) < params[16];
             // 金瓶概率字段只在服务端使用；会话包不泄露私下抽签结果。
-            seq = received = latePackets = 0; minOffset = Long.MAX_VALUE; slow = bottleSent = false;
+            seq = received = latePackets = 0; minOffset = Long.MAX_VALUE; slow = bottleSent = desyncLogged = false;
         }
         internal = true;
         for (int slot = 0; slot < 7; slot++) held[slot] = inventory.extractItem(slot, allocation[slot], false);
@@ -321,8 +346,11 @@ public final class FryerBlockEntity extends BlockEntity implements MenuProvider 
             if (state.end != ZhangshaoKernel.RUNNING) break;
             replay[received++] = input; ZhangshaoKernel.step(state, input);
         }
-        if (ZhangshaoKernel.hash(state) != clientHash) LOGGER.warn("Fryer desync player={} round={} seed={} params={} inputs={} serverHash={} clientHash={}",
-                owner, roundId, state.seed, Arrays.toString(state.p.block()), Arrays.toString(Arrays.copyOf(replay, received)), ZhangshaoKernel.hash(state), clientHash);
+        if (ZhangshaoKernel.hash(state) != clientHash && !desyncLogged) {
+            desyncLogged = true;
+            LOGGER.warn("Fryer desync player={} round={} seed={} params={} inputs={} serverHash={} clientHash={}",
+                    owner, roundId, state.seed, Arrays.toString(state.p.block()), Arrays.toString(Arrays.copyOf(replay, received)), ZhangshaoKernel.hash(state), clientHash);
+        }
         if (finalPacket && state.end == ZhangshaoKernel.RUNNING) {
             LOGGER.warn("Fryer premature client end player={} round={} tick={}", owner, roundId, received);
             while (state.end == ZhangshaoKernel.RUNNING) { replay[received++] = 0; ZhangshaoKernel.step(state, 0); }
@@ -351,7 +379,8 @@ public final class FryerBlockEntity extends BlockEntity implements MenuProvider 
     public void serverTick() {
         if (isRemoved() || journalFailed) return;
         ensureHydrated();
-        if (recoverLoaded) { recoverInterrupted(); return; }
+        if (journalFailed) return;
+        if (recoverLoaded) { recoverInterruptedSafely(); return; }
         flushOutputs();
         flushReturns();
         if (phase == 1) {
@@ -517,18 +546,45 @@ public final class FryerBlockEntity extends BlockEntity implements MenuProvider 
     }
 
     public List<ItemStack> breakAndDrop() {
-        if (journalFailed) throw new IllegalStateException("Fryer journal failed; cannot drop unpersisted inventory at " + worldPosition);
         ensureHydrated();
+        if (journalFailed) throw new IllegalStateException("Cannot drop inventory from a locked fryer at " + worldPosition);
         if (phase == 2) { ZhangshaoKernel.abandon(state); settleManual(null, "炸锅被拆除"); }
         else if (phase == 1) settleHome(null, "炸锅被拆除");
         if (recoverLoaded) recoverInterrupted();
+        CompoundTag beforeRemoval = new CompoundTag();
+        saveAdditional(beforeRemoval);
         List<ItemStack> drops = new ArrayList<>();
         internal = true;
         for (int i = 0; i < 9; i++) { drops.add(inventory.getStackInSlot(i)); inventory.setStackInSlot(i, ItemStack.EMPTY); }
         drops.addAll(bufferedOutputs); bufferedOutputs.clear();
         drops.addAll(returnedItems); returnedItems.clear(); internal = false;
         // 空快照是拆除 tombstone；旧 chunk 即使恢复了方块，也不能复活已取走/掉落的库存。
-        stageCheckpoint(true); playerData().sync(); return drops;
+        try {
+            stageCheckpoint(true); playerData().sync();
+        } catch (RuntimeException failure) {
+            // 未交付掉落物。保留拆除前的物品检查点，避免后续自动存盘提交空墓碑。
+            readSnapshot(beforeRemoval);
+            stageCheckpoint(false);
+            journalFailed = true;
+            throw failure;
+        }
+        return drops;
+    }
+    /** Server shutdown preserves unfinished transactions as raw inputs and an idempotent refund intent. */
+    public void recoverForShutdown() {
+        if (journalFailed || (phase != 1 && phase != 2 && !recoverLoaded)) return;
+        recoverInterrupted();
+    }
+    private void recoverInterruptedSafely() {
+        CompoundTag previous = new CompoundTag();
+        saveAdditional(previous);
+        try {
+            recoverInterrupted();
+        } catch (RuntimeException failure) {
+            readSnapshot(previous);
+            journalFailed = true;
+            LOGGER.error("Cannot persist interrupted fryer recovery at {}; fryer remains locked for recovery", worldPosition, failure);
+        }
     }
     private void recoverInterrupted() {
         if (charged) playerData().enqueueRefund(operation, owner);
@@ -570,12 +626,24 @@ public final class FryerBlockEntity extends BlockEntity implements MenuProvider 
         }
     }
     @Override public void load(CompoundTag tag) {
-        super.load(tag); readSnapshot(tag); hydrated = false;
+        super.load(tag); readSnapshot(tag);
+        if (level instanceof ServerLevel) {
+            // Live entities receive NBT after onPlace may have staged an empty checkpoint; make this loaded state newest.
+            hydrated = true;
+            stageCheckpoint(false);
+        } else hydrated = false;
     }
     private void readSnapshot(CompoundTag tag) {
+        CompoundTag previous = new CompoundTag();
+        saveAdditional(previous);
         boolean wasInternal = internal;
         loading = internal = true;
         try { readState(tag); }
+        catch (RuntimeException failure) {
+            // NBT 是不可信边界；绝不让半解析状态覆盖仍可保存的上一份实体状态。
+            readState(previous);
+            throw failure;
+        }
         finally { internal = wasInternal; loading = false; }
     }
     private void readState(CompoundTag tag) {
@@ -590,6 +658,9 @@ public final class FryerBlockEntity extends BlockEntity implements MenuProvider 
         if (!tag.contains("Inventory", Tag.TAG_COMPOUND)) throw new IllegalArgumentException("Missing fryer inventory");
         CompoundTag inv = tag.getCompound("Inventory");
         FryerPlayerData.number(inv, "Size", Tag.TAG_INT, 9, 9);
+        CompoundTag validInventory = new CompoundTag();
+        validInventory.putInt("Size", 9);
+        ListTag validItems = new ListTag();
         boolean[] inventorySeen = new boolean[9];
         for (Tag entry : FryerPlayerData.list(inv, "Items", 9)) {
             CompoundTag item = (CompoundTag) entry;
@@ -597,9 +668,14 @@ public final class FryerBlockEntity extends BlockEntity implements MenuProvider 
             if (inventorySeen[slot]) throw new IllegalArgumentException("Duplicate fryer inventory slot " + slot);
             inventorySeen[slot] = true;
             ItemStack stack = ItemStack.of(item);
-            if (stack.isEmpty() || stack.getCount() > stack.getMaxStackSize()) throw new IllegalArgumentException("Invalid fryer inventory stack");
+            if (stack.isEmpty() || stack.getCount() > stack.getMaxStackSize()) {
+                LOGGER.warn("Discarding invalid fryer inventory stack at {} slot {} nbt={}", worldPosition, slot, item);
+                continue;
+            }
+            validItems.add(item.copy());
         }
-        inventory.deserializeNBT(inv); bufferedOutputs.clear();
+        validInventory.put("Items", validItems);
+        inventory.deserializeNBT(validInventory); bufferedOutputs.clear();
         for (Tag entry : FryerPlayerData.list(tag, "BufferedOutputs", 2)) {
             ItemStack stack = ItemStack.of((CompoundTag) entry);
             if (stack.isEmpty() || stack.getCount() > stack.getMaxStackSize()) throw new IllegalArgumentException("Invalid fryer buffered output");

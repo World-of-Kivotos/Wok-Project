@@ -19,8 +19,11 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraftforge.network.NetworkHooks;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class FryerStationBlock extends CookingStationBlock implements EntityBlock {
+    private static final Logger LOGGER = LoggerFactory.getLogger("miningdim/fryer");
     FryerStationBlock(BlockBehaviour.Properties properties, Style style, StationShape shape,
                       StationParticles.Emitter particles) {
         super(properties, Kind.DEEP_FRYER, style, shape, particles);
@@ -66,8 +69,12 @@ public class FryerStationBlock extends CookingStationBlock implements EntityBloc
     public void onRemove(BlockState state, Level level, BlockPos pos, BlockState next, boolean moved) {
         if (!state.is(next.getBlock()) && !level.isClientSide
                 && level.getBlockEntity(pos) instanceof FryerBlockEntity fryer) {
-            for (var stack : fryer.breakAndDrop()) {
-                Containers.dropItemStack(level, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, stack);
+            try {
+                for (var stack : fryer.breakAndDrop()) {
+                    Containers.dropItemStack(level, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, stack);
+                }
+            } catch (RuntimeException failure) {
+                LOGGER.error("Cannot finish fryer removal in {} at {}", level.dimension().location(), pos, failure);
             }
             level.updateNeighbourForOutputSignal(pos, this);
         }

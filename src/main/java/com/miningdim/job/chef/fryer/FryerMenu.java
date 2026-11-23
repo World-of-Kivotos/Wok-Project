@@ -48,7 +48,12 @@ public final class FryerMenu extends AbstractMiningMenu {
                 ContainerLevelAccess.create(playerInventory.player.level(), pos),
                 playerInventory.player.level().getBlockState(pos).getBlock()));
         blockEntity = null;
-        inventory = new ItemStackHandler(SLOTS);
+        inventory = new ItemStackHandler(SLOTS) {
+            @Override public boolean isItemValid(int slot, ItemStack stack) {
+                if (slot == SEASONING) return SeasoningTag.isSeasoning(stack);
+                return slot != OUTPUT && FryerBlockEntity.acceptsInput(playerInventory.player.level(), slot, stack);
+            }
+        };
         data = new SimpleContainerData(DATA_SIZE);
         this.pos = pos.immutable();
         level = playerInventory.player.level();
@@ -139,7 +144,11 @@ public final class FryerMenu extends AbstractMiningMenu {
         if (!(player instanceof ServerPlayer serverPlayer) || blockEntity == null
                 || player.containerMenu != this || !stillValid(player) || blockEntity.busy()) return false;
         if (button == 0 || button == 1) {
-            blockEntity.start(serverPlayer, button == 1);
+            try {
+                blockEntity.start(serverPlayer, button == 1);
+            } catch (RuntimeException failure) {
+                FryerNetwork.reportActionFailure(serverPlayer, pos, "start", blockEntity.roundId(), failure);
+            }
             return true;
         }
         return false;
@@ -150,7 +159,16 @@ public final class FryerMenu extends AbstractMiningMenu {
         super.removed(player);
         if (player instanceof ServerPlayer serverPlayer && blockEntity != null && blockEntity.busy()
                 && blockEntity.isOperator(serverPlayer)) {
-            blockEntity.abort(serverPlayer, blockEntity.roundId(), "关闭炸锅界面，本锅按家常结算。");
+            try {
+                var server = serverPlayer.serverLevel().getServer();
+                if (server.isStopped() || !server.isRunning()) {
+                    blockEntity.recoverForShutdown();
+                } else {
+                    blockEntity.abort(serverPlayer, blockEntity.roundId(), "关闭炸锅界面，本锅按家常结算。");
+                }
+            } catch (RuntimeException failure) {
+                FryerNetwork.reportActionFailure(serverPlayer, pos, "close", blockEntity.roundId(), failure);
+            }
         }
     }
 

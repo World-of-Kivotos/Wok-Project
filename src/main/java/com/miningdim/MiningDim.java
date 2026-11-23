@@ -125,8 +125,6 @@ public final class MiningDim {
         subsystems.add(new com.miningdim.job.JobFrameworkSystem());
         // 16.2 腐烂底座 (wok-freshness): 腐烂时钟 + 物品保鲜章 + 类别与豁免判定
         //      (docs/Spoilage_Granary_DesignSpec.md「模块落位」要求排在 JobFrameworkSystem 之后)。
-        //      本切片只注册服务端配置, 不挂任何事件; 位置按文档钉死,
-        //      后续观察点、终态、粮仓按同一处插入。
         subsystems.add(new com.miningdim.freshness.FreshnessModule());
         // 16.5 战斗基建: 玩家受击减伤的单点乘法结算 (各职业把命名减伤源 register 进 PlayerDamageReduction 静态表)。
         //      静态注册表对 register 顺序不敏感; 挂减伤源的职业 (厨师凝脂/矿工矿脉抗性/酿酒烈酒钝感) 在场即生效。

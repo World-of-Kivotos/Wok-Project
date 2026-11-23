@@ -9,7 +9,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.event.ItemStackedOnOtherEvent;
 
 /**
- * 同种食物合并的适配层，判据位于 {@link FreshMerge}。拾取、点击、配方书与粮仓入口尚未接入。
+ * 同种食物合并的适配层，判据位于 {@link FreshMerge}。处理拾取、点击叠放、Shift 快移与配方书追加。
  *
  * 计划中不合并的路径（规格「不合并的地方」）:
  * 漏斗、拖拽分发、双击收集、掉落物互相合并、机器与第三方容器接口、创造模式 —— 这些路径不会调到这里。

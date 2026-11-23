@@ -12,6 +12,7 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
@@ -42,6 +43,12 @@ public final class ZhangshaoPracticeGameTests {
             // 这些都是玩家正常右键时会继续触发使用动作的物品。
             for (ItemStack held : new ItemStack[]{new ItemStack(Items.BREAD, 7),
                     new ItemStack(Items.WATER_BUCKET), new ItemStack(Items.ENDER_PEARL, 3)}) {
+                // 先走真实物品入世界入口，保鲜等全局标记不能被误判成练习入口改写了库存。
+                ItemEntity dropped = new ItemEntity(helper.getLevel(), position.getX(), position.getY(),
+                        position.getZ(), held.copy());
+                helper.getLevel().addFreshEntity(dropped);
+                held = dropped.getItem().copy();
+                dropped.discard();
                 player.setItemInHand(InteractionHand.MAIN_HAND, held.copy());
                 InteractionResult interaction = player.gameMode.useItemOn(player, helper.getLevel(),
                         player.getMainHandItem(), InteractionHand.MAIN_HAND,

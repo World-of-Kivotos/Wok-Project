@@ -1,5 +1,12 @@
 package com.miningdim.freshness;
 
+import net.minecraft.gametest.framework.BeforeBatch;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraftforge.common.util.BlockSnapshot;
+import net.minecraftforge.event.level.BlockEvent;
+import java.util.List;
 import com.miningdim.core.MiningConstants;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.minecraft.core.BlockPos;
@@ -26,6 +33,8 @@ import net.minecraftforge.gametest.PrefixGameTestTemplate;
 @GameTestHolder(MiningConstants.MODID)
 @PrefixGameTestTemplate(false)
 public final class FreshnessPlacedFoodGameTests {
+    private static final BlockPos STONE_REL = new BlockPos(3, 1, 1);
+    private static final BlockPos BUSH_REL = new BlockPos(5, 1, 1);
     private static final String EMPTY = "empty";
     private static final String BATCH = "freshness_placed";
     private static final int SLOT = 16;
@@ -192,5 +201,121 @@ public final class FreshnessPlacedFoodGameTests {
 
     private static BlockPos cake(int slot, BlockPos relative) {
         return new BlockPos(slot * SLOT + relative.getX(), relative.getY(), relative.getZ());
+    }
+
+    @BeforeBatch(batch = BATCH)
+    public static void resetRecords(ServerLevel level) {
+        FreshnessPlacedFood.resetForTest();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void placingFoodRecordsItsStamp(GameTestHelper helper) {
+        int slot = 0;
+        ServerLevel level = helper.getLevel();
+        long nowMinute = FreshnessClockData.nowMinute(level);
+        BlockPos pos = helper.absolutePos(cake(slot, CAKE_REL));
+
+        // 手上拿一个盖过章的蛋糕 (三天前的一批, 停过 7 小时): 摆下去应当原样记下来。
+        ItemStack cake = new ItemStack(Items.CAKE, 1);
+        FreshnessData.stampAt(cake, nowMinute - 3L * 24L * 60L, 7);
+        place(helper, pos, Blocks.CAKE, cake);
+
+        FreshnessPlacedFood.Placed placed = FreshnessPlacedFood.at(level.dimension(), pos).orElse(null);
+        helper.assertTrue(placed != null, "摆下蛋糕要记一笔 (size=" + FreshnessPlacedFood.size() + ")");
+        helper.assertTrue(placed.block().equals(net.minecraftforge.registries.ForgeRegistries.BLOCKS
+                        .getKey(Blocks.CAKE)), "记的是这个方块的 id, 实际 " + placed.block());
+        helper.assertTrue(placed.batchMinute() == nowMinute - 3L * 24L * 60L,
+                "批次时刻按物品上的章记, 实际 " + placed.batchMinute());
+        helper.assertTrue(placed.stoppedHours() == 7, "已停表小时一起记, 实际 " + placed.stoppedHours());
+
+        // 没盖章的: 摆下去那一刻当场盖章, 记的是现在。
+        BlockPos fresh = helper.absolutePos(cake(slot, CAKE_REL.offset(0, 0, 2)));   // 别撞上 STONE_REL
+        place(helper, fresh, Blocks.CAKE, new ItemStack(Items.CAKE, 1));
+        FreshnessPlacedFood.Placed stamped = FreshnessPlacedFood.at(level.dimension(), fresh).orElse(null);
+        helper.assertTrue(stamped != null, "没盖章的摆下去也要记");
+        helper.assertTrue(stamped.batchMinute() == FreshnessData.wholeHour(nowMinute),
+                "记的是当场盖的整点章, 实际 " + stamped.batchMinute());
+        helper.assertTrue(stamped.stoppedHours() == 0, "新货没停过表");
+
+        // 不是易腐品: 不记。
+        BlockPos stone = helper.absolutePos(cake(slot, STONE_REL));
+        place(helper, stone, Blocks.STONE, new ItemStack(Items.STONE, 1));
+        helper.assertTrue(FreshnessPlacedFood.at(level.dimension(), stone).isEmpty(), "石头不记");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void lootInheritsThePlacedRecord(GameTestHelper helper) {
+        int slot = 1;
+        ServerLevel level = helper.getLevel();
+        long nowMinute = FreshnessClockData.nowMinute(level);
+        BlockPos pos = helper.absolutePos(cake(slot, BUSH_REL));
+
+        // 甜浆果丛会掉甜浆果 (易腐品): 先按「摆了一天的浆果丛」记一笔。
+        helper.setBlock(cake(slot, BUSH_REL), matureBush());
+        FreshnessPlacedFood.record(level, pos, new ItemStack(Items.SWEET_BERRIES, 1), matureBush());
+        FreshnessPlacedFood.Placed recorded = FreshnessPlacedFood.at(level.dimension(), pos).orElseThrow();
+        helper.assertTrue(recorded.batchMinute() == FreshnessData.wholeHour(nowMinute),
+                "夹具: 记录的是当场盖的章");
+
+        // 拆掉它: 掉出来的浆果要按记录继承, 而不是盖「现在」。
+        level.destroyBlock(pos, true);
+        ItemEntity drop = level.getEntitiesOfClass(ItemEntity.class,
+                        new net.minecraft.world.phys.AABB(pos).inflate(2.0D)).stream()
+                .filter(entity -> entity.getItem().is(Items.SWEET_BERRIES))
+                .findFirst().orElse(null);
+        helper.assertTrue(drop != null, "浆果丛要掉出浆果 (方块=" + level.getBlockState(pos).getBlock() + ")");
+        helper.assertTrue(FreshnessData.batchMinute(drop.getItem()) == recorded.batchMinute(),
+                "掉落物按记录继承批次时刻: 记录 " + recorded.batchMinute() + " / 实际 "
+                        + FreshnessData.batchMinute(drop.getItem()));
+        helper.assertTrue(FreshnessPlacedFood.at(level.dimension(), pos).isEmpty(), "继承完就忘掉 (不重复继承)");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void staleRecordIsNotInheritedByAnotherBlock(GameTestHelper helper) {
+        int slot = 2;
+        ServerLevel level = helper.getLevel();
+        long nowMinute = FreshnessClockData.nowMinute(level);
+        BlockPos pos = helper.absolutePos(cake(slot, BUSH_REL));
+
+        // 记一笔「蛋糕」的旧账 (三天前), 然后这个位置其实放的是浆果丛 —— 旧账不该盖给浆果。
+        helper.setBlock(cake(slot, BUSH_REL), matureBush());
+        FreshnessPlacedFood.record(level, pos,
+                new ItemStack(Items.CAKE, 1), Blocks.CAKE.defaultBlockState());
+        BlockState bush = matureBush();
+        java.util.Optional<FreshnessPlacedFood.Placed> forBush =
+                FreshnessPlacedFood.at(level.dimension(), pos).filter(placed -> placed.block().equals(
+                        net.minecraftforge.registries.ForgeRegistries.BLOCKS.getKey(bush.getBlock())));
+        helper.assertTrue(forBush.isEmpty(), "方块对不上的记录不算 (判定按方块 id)");
+
+        level.destroyBlock(pos, true);
+        ItemEntity drop = level.getEntitiesOfClass(ItemEntity.class,
+                        new net.minecraft.world.phys.AABB(pos).inflate(2.0D)).stream()
+                .filter(entity -> entity.getItem().is(Items.SWEET_BERRIES))
+                .findFirst().orElse(null);
+        helper.assertTrue(drop != null, "浆果丛要掉出浆果");
+        helper.assertTrue(FreshnessData.batchMinute(drop.getItem()) == FreshnessData.wholeHour(nowMinute),
+                "拿到的应当是「现在」这一章而不是旧账: 实际 " + FreshnessData.batchMinute(drop.getItem()));
+        helper.assertTrue(FreshnessPlacedFood.at(level.dimension(), pos).isEmpty(), "对不上的旧账应被清理");
+        FreshnessPlacedFood.resetForTest();
+        helper.succeed();
+    }
+
+    private static BlockState matureBush() {
+        return Blocks.SWEET_BERRY_BUSH.defaultBlockState()
+                .setValue(net.minecraft.world.level.block.SweetBerryBushBlock.AGE, 3);
+    }
+
+    private static void place(GameTestHelper helper, BlockPos absolute, net.minecraft.world.level.block.Block block,
+                              ItemStack held) {
+        Player player = com.miningdim.testutil.MockGameTestPlayers.makeMockServerPlayerWithChannel(helper);
+        player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, held);
+        helper.getLevel().setBlock(absolute, block.defaultBlockState(), 3);
+        BlockEvent.EntityPlaceEvent event = new BlockEvent.EntityPlaceEvent(
+                BlockSnapshot.create(helper.getLevel().dimension(), helper.getLevel(), absolute),
+                Blocks.AIR.defaultBlockState(), player);
+        FreshnessPlacedFoodHooks.onBlockPlaced(event);
+        helper.assertTrue(!event.isCanceled(), "夹具: 放置事件没被取消");
     }
 }

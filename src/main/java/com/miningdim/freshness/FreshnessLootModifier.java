@@ -11,7 +11,6 @@ import net.minecraftforge.common.loot.LootModifier;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * 当前仅注册序列化器类型，尚未加入全局战利品索引。
  * 全局掉落修改器: 任何战利品生成的那一刻给易腐品盖章 (规格「观察点」第一行)。
  *
  * 覆盖方块 (含任意来源的收割)、实体掉落、宝箱、钓鱼与考古 —— 这些路径拿不到统一的玩家事件, 但都过战利品表,

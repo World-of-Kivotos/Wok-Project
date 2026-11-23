@@ -1,4 +1,6 @@
 {
+  "message.miningdim.market.listing_expired": "你的一个挂单 (%s) 已经烂了 %s 天, 已自动关闭; 东西不退回。",
+  "message.miningdim.market.rotten_listings": "你有 %s 个挂单里的东西已经烂了。到「我的挂单」看是哪些; 烂满 30 天的挂单会自动关闭 (东西不退回)。",
   "message.miningdim.freshness.reminder": "%s 快烂了 (还剩 %s); 背包里有 %s 件要处理",
   "tooltip.miningdim.freshness.category.cooked": "熟食",
   "tooltip.miningdim.freshness.category.fresh": "生鲜",

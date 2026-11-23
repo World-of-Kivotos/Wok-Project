@@ -54,6 +54,16 @@ public interface MarketDao {
     boolean markCancelled(long id, UUID seller);
 
     /**
+     * 条件标记过期关闭 (腐烂满 30 天, 由低频巡检调): UPDATE ... SET status='EXPIRED' WHERE id=? AND status='ACTIVE'。
+     * 返回受影响行 >0 (false = 已被买走/撤单, 巡检跳过)。
+     *
+     * 不复用 CANCELLED: 一个是系统收走的, 一个是卖家本人撤的, 事后对账要能分辨 (表里 status 是 TEXT, 无 CHECK 约束,
+     * 因此新值不需要迁移)。**不退回托管物**: 挂单期物品的唯一所在就是这一行, 而市场没有物品待领机制,
+     * 替玩家"暂存"等于凭空造一个取货口 (规格「消费点改造 · 市场」明确不做自动退回)。
+     */
+    boolean markExpired(long id);
+
+    /**
      * 部分买入拆分: 把 ACTIVE 挂单的剩余 count 改为 newCount 并同步 item_nbt (余量托管 stack), 保持 ACTIVE。
      * 条件 UPDATE WHERE id=? AND status='ACTIVE'; 返回受影响行 >0 (false = 非 ACTIVE, 并发防御, 供退款)。
      */

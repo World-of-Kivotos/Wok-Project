@@ -23,7 +23,7 @@ public final class FreshnessItems {
     public static final DeferredRegister<Item> ITEMS =
             DeferredRegister.create(ForgeRegistries.ITEMS, MiningConstants.MODID);
 
-    /** 腐烂终态物品；普通生存获取途径留待后续接入。 */
+    /** 腐烂物: 只能堆肥的终态。 */
     public static final RegistryObject<Item> ROT =
             ITEMS.register("freshness_rot", () -> new Item(new Item.Properties()));
 

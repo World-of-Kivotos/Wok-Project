@@ -1,5 +1,6 @@
 package com.miningdim.job.brewer.station;
 
+import com.miningdim.freshness.FreshnessCheck;
 import com.miningdim.job.brewer.WineType;
 import com.miningdim.job.farmer.item.FarmerItems;
 import net.minecraft.world.item.Item;
@@ -10,6 +11,7 @@ import net.minecraftforge.items.IItemHandlerModifiable;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
@@ -111,11 +113,11 @@ public final class BrewRecipes {
      * 扫输入槽判匹配的配方类型 (纯函数, 只读 handler)。把输入槽内每种 item 的计数聚合, 找其 "物品集合 + 计数"
      * 与某配方精确相等的类型并返回; 无任何配方精确匹配返回 null (BE 据此短路不酿造)。空输入返回 null。
      */
-    public static WineType match(IItemHandler input) {
+    public static WineType match(IItemHandler input, long nowMinute) {
         if (input == null) {
             return null;
         }
-        Map<Item, Integer> available = tally(input);
+        Map<Item, Integer> available = tally(input, nowMinute);
         if (available.isEmpty()) {
             return null;
         }
@@ -134,13 +136,18 @@ public final class BrewRecipes {
      * @param input 输入槽 handler (须为可写 {@link IItemHandlerModifiable})
      * @param type  要消耗的配方类型
      */
-    public static void consume(IItemHandler input, WineType type) {
+    public static void consume(IItemHandler input, WineType type, long nowMinute) {
         if (input == null || type == null) {
             throw new IllegalArgumentException("consume requires non-null input handler and type");
         }
         for (Ingredient ing : recipeFor(type)) {
             int remaining = ing.count();
-            for (int slot = 0; slot < input.getSlots() && remaining > 0; slot++) {
+            // 先扣最老的 (规格「消费点改造 · 酿酒台」): 同一味料横跨几格时, 按剩余时间从少到多扣,
+            // 否则玩家永远先烧掉新料、把最老的留到最后, 烂掉的料就这么被"省"下来了。
+            for (int slot : oldestFirst(input, ing.item(), nowMinute)) {
+                if (remaining <= 0) {
+                    break;
+                }
                 ItemStack stack = input.getStackInSlot(slot);
                 if (stack.isEmpty() || !stack.is(ing.item())) {
                     continue;
@@ -160,17 +167,47 @@ public final class BrewRecipes {
         }
     }
 
-    /** 聚合输入槽内每种 item 的总计数 (空槽跳过)。 */
-    private static Map<Item, Integer> tally(IItemHandler input) {
+    /**
+     * 聚合输入槽内每种 item 的总计数 (空槽跳过)。
+     *
+     * **已经腐烂的料不计入** (规格「消费点改造 · 酿酒台」: 统计投料时跳过已腐烂的) —— 于是拿烂料凑数
+     * 凑不出配方, 自然也就开不了工。不腐烂的东西永远不算烂 (口径见 {@link FreshnessCheck#isRottenNow})。
+     */
+    private static Map<Item, Integer> tally(IItemHandler input, long nowMinute) {
         Map<Item, Integer> counts = new HashMap<>();
         for (int slot = 0; slot < input.getSlots(); slot++) {
             ItemStack stack = input.getStackInSlot(slot);
-            if (stack.isEmpty()) {
+            if (stack.isEmpty() || (com.miningdim.freshness.FreshnessConfig.replacementEnabled()
+                    && FreshnessCheck.isRottenNow(stack, nowMinute))) {
                 continue;
             }
             counts.merge(stack.getItem(), stack.getCount(), Integer::sum);
         }
         return counts;
+    }
+
+    /**
+     * 某一味料在各槽里的下标, 按剩余时间从少到多 (最老的排前面)。
+     *
+     * 与 {@link #tally} 同一口径: **已腐烂的槽不参与**。两边读的是同一 tick 的同一个时钟, 于是
+     * "统计得到的可用量" 与 "扣料能扣到的量" 必然相等, 不会出现配方满足却扣不够的错位。
+     *
+     * 包内可见 (而非 private) 是为了让 GameTest 直接断言次序 —— 精确匹配下配方量与投料量恰好相等,
+     * consume 常常把每格都扣空, 次序在残留上看不出来。
+     */
+    static List<Integer> oldestFirst(IItemHandler input, Item item, long nowMinute) {
+        List<Integer> slots = new ArrayList<>();
+        for (int slot = 0; slot < input.getSlots(); slot++) {
+            ItemStack stack = input.getStackInSlot(slot);
+            if (!stack.isEmpty() && stack.is(item)
+                    && (!com.miningdim.freshness.FreshnessConfig.replacementEnabled()
+                        || !FreshnessCheck.isRottenNow(stack, nowMinute))) {
+                slots.add(slot);
+            }
+        }
+        slots.sort(Comparator.comparingLong(slot -> FreshnessCheck.remainingMinutes(
+                input.getStackInSlot(slot), nowMinute)));
+        return slots;
     }
 
     /**

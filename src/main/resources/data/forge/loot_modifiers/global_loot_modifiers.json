@@ -1,6 +1,7 @@
 {
   "replace": false,
   "entries": [
-    "miningdim:farmer_crop_yield"
+    "miningdim:farmer_crop_yield",
+    "miningdim:freshness_stamp"
   ]
 }

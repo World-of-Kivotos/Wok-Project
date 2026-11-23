@@ -13,8 +13,6 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 当前仅包含实现，运行监听与 mixin 配置尚未接入。
- *
  * 可选依赖兼容 mixin 的插件 (Spoilage_Granary_DesignSpec「可选配置（第三方目标）」)。
  *
  * <p>两件事:</p>

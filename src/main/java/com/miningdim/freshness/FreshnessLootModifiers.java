@@ -11,7 +11,9 @@ import net.minecraftforge.registries.RegistryObject;
 /**
  * 本模块的全局掉落修改器注册。
  *
- * 当前只注册序列化器类型；战利品数据与全局索引留待观察入口接入。
+ * 序列化器 ID {@code miningdim:freshness_stamp} 与 {@code data/miningdim/loot_modifiers/freshness_stamp.json}
+ * 的 {@code type} 一一对应, 并且要在共享文件 {@code data/forge/loot_modifiers/global_loot_modifiers.json}
+ * 的 entries 里登记 (那份索引按「谁定义谁拥有」分属, 提交只动本模块那一行)。
  */
 public final class FreshnessLootModifiers {
 

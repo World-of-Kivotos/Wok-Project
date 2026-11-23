@@ -1,5 +1,7 @@
 package com.miningdim.freshness;
 
+import com.miningdim.testutil.ConfigBaseline;
+import net.minecraft.gametest.framework.BeforeBatch;
 import com.miningdim.core.MiningConstants;
 import com.miningdim.freshness.item.FreshnessItems;
 import net.minecraft.core.BlockPos;
@@ -292,6 +294,19 @@ public final class FreshnessProcessingGameTests {
             ItemStack dropped = FreshnessHooks.stampCampfireProduct(level, campfire, new ItemStack(Items.COOKED_BEEF, 1));
             helper.assertTrue(FreshnessItems.ROT.get() == dropped.getItem(),
                     "原料过期就换腐烂物、不出品, 实得 " + dropped.getItem());
+            campfire.clearContent();
+            campfire.placeFood(null, rotten.copy(), 1);
+            for (int i = 1; i < 4; i++) {
+                campfire.placeFood(null, new ItemStack(Items.BEEF), 100);
+            }
+            var area = new net.minecraft.world.phys.AABB(campfire.getBlockPos()).inflate(1);
+            var previousDrops = level.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class, area);
+            net.minecraft.world.level.block.entity.CampfireBlockEntity.cookTick(level,
+                    campfire.getBlockPos(), campfire.getBlockState(), campfire);
+            helper.assertTrue(campfire.getItems().get(0).isEmpty()
+                            && level.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class, area).stream()
+                            .anyMatch(entity -> !previousDrops.contains(entity) && entity.getItem().is(FreshnessItems.ROT.get())),
+                    "满载营火首次出品必须通过实际掉落实体继承腐烂结果");
             helper.succeed();
         } finally {
             FreshnessConfig.MODE.set(previousMode);
@@ -340,5 +355,35 @@ public final class FreshnessProcessingGameTests {
         } finally {
             FreshnessConfig.MODE.set(previous);
         }
+    }
+
+    @BeforeBatch(batch = BATCH)
+    public static void resetConfigBaseline(ServerLevel level) {
+        ConfigBaseline.resetToDefaults(FreshnessConfig.MODE);
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH, timeoutTicks = 200)
+    public static void hopperSettlesSlotsOnItsOwnTick(GameTestHelper helper) {
+        long now = FreshnessClockData.nowMinute(helper.getLevel());
+        BlockPos relative = new BlockPos(5, 2, 1);
+        helper.setBlock(relative, Blocks.HOPPER);
+        HopperBlockEntity hopper = (HopperBlockEntity) helper.getBlockEntity(relative);
+        helper.assertTrue(hopper != null, "漏斗方块实体应当已创建");
+        hopper.setItem(1, ancientAt(Items.COOKED_BEEF, 1, now));
+
+        // 终态替换只在开启档发生, 而断言在延迟回调里跑, 所以这里手工开关而不是用 withReplacementOn
+        // (那个会在回调之前就把开关还原回去)。
+        FreshnessConfig.Mode previous = FreshnessConfig.MODE.get();
+        FreshnessConfig.MODE.set(FreshnessConfig.Mode.ON);
+        helper.runAfterDelay(10, () -> {
+            try {
+                ItemStack settled = hopper.getItem(1);
+                helper.assertTrue(settled.is(FreshnessItems.ROT.get()),
+                        "漏斗 tick 时应当自己把过期食物换成腐烂物 (mixin 注入生效)");
+            } finally {
+                FreshnessConfig.MODE.set(previous);
+            }
+            helper.succeed();
+        });
     }
 }

@@ -104,6 +104,12 @@ public final class PotProductionGameTests {
         WithFarmersDelight.clonePreservesInventoryAtReusedPosition(helper);
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_pot")
+    public static void idlePotHydrationDefersJournalWrite(GameTestHelper helper) {
+        if (!ModList.get().isLoaded("farmersdelight")) { helper.succeed(); return; }
+        WithFarmersDelight.idlePotHydrationDefersJournalWrite(helper);
+    }
+
     private static final class WithFarmersDelight {
         private record Fixture(CookingPotBlockEntity pot, ServerPlayer player, BlockPos pos) {}
 
@@ -148,6 +154,25 @@ public final class PotProductionGameTests {
                 ItemStack stack = restored.getInventory().getStackInSlot(0);
                 helper.assertTrue(stack.is(Items.CARROT) && stack.getCount() == 2,
                         "A cloned pot keeps both ingredients even over a removal checkpoint");
+            }
+            helper.succeed();
+        }
+
+        private static void idlePotHydrationDefersJournalWrite(GameTestHelper helper) {
+            var level = helper.getLevel();
+            BlockPos pos = helper.absolutePos(new BlockPos(1, 2, 1));
+            var state = ForgeRegistries.BLOCKS.getValue(new ResourceLocation("farmersdelight", "cooking_pot")).defaultBlockState();
+            var data = FryerPlayerData.get(level);
+            data.clearCheckpoint(level, pos);
+            try {
+                var pot = new CookingPotBlockEntity(pos, state);
+                pot.load(new CompoundTag());
+                pot.setLevel(level);
+                PotCraftService.ensureHydrated(pot);
+                helper.assertTrue(data.checkpoint(level, pos) != null && data.isDirty(),
+                        "Idle hydration stages a checkpoint for the next journal flush");
+            } finally {
+                data.clearCheckpoint(level, pos);
             }
             helper.succeed();
         }

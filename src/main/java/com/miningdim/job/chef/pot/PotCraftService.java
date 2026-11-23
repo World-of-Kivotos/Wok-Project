@@ -162,7 +162,8 @@ public final class PotCraftService {
             if (snapshot != null && snapshot.getLong("FryerRevision") >= s.revision) { pot.load(snapshot); s.loading = true; }
             s.hydrated = true;
             if (s.round != null) recover(pot, s.round);
-            else checkpoint(pot);
+            // 普通厨锅随区块加载时只更新内存检查点，由后台合并写盘。
+            else checkpoint(pot, false);
         } finally { s.loading = s.internal = false; }
     }
     public static void beginBatch(CookingPotBlockEntity pot) { ensureHydrated(pot); state(pot).batch++; }

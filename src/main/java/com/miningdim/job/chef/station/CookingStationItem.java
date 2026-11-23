@@ -17,7 +17,6 @@ import java.util.List;
  *    都是烤炉), 只看名字认不出来;
  *  - 炉上油锅要下方热源 (否则只有开火失败时才在动作栏提示一次);
  *  - 模型高出方块顶的台子提醒上方留空 (见 {@link CookingStationBlock#decorRisesAbove()});
- *  - 烹饪功能尚未开放 (本阶段只有方块, 配方也暂时关着; 接入烹饪逻辑时连同这行一起去掉)。
  * 文案键都在 chef.station.tooltip.* 下。
  */
 public final class CookingStationItem extends BlockItem {
@@ -44,9 +43,6 @@ public final class CookingStationItem extends BlockItem {
         }
         if (station.decorRisesAbove()) {
             keys.add(KEEP_ABOVE_CLEAR_KEY);
-        }
-        if (station.kind() != CookingStationBlock.Kind.DEEP_FRYER) {
-            keys.add(WIP_KEY);
         }
         return keys;
     }

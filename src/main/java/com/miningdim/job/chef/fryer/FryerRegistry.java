@@ -28,7 +28,10 @@ public final class FryerRegistry {
         event.register(ForgeRegistries.Keys.BLOCK_ENTITY_TYPES, helper -> {
             blockEntityType = BlockEntityType.Builder.of(FryerBlockEntity::new,
                     ChefBlocks.DEEP_FRYER_RUSTIC.get(), ChefBlocks.DEEP_FRYER_STEEL.get(),
-                    ChefBlocks.DEEP_FRYER_CHINESE.get()).build(null);
+                    ChefBlocks.DEEP_FRYER_CHINESE.get(), ChefBlocks.BAKING_OVEN_RUSTIC.get(),
+                    ChefBlocks.BAKING_OVEN_STEEL.get(), ChefBlocks.BAKING_OVEN_CHINESE.get(),
+                    ChefBlocks.PREP_COUNTER_RUSTIC.get(), ChefBlocks.PREP_COUNTER_STEEL.get(),
+                    ChefBlocks.PREP_COUNTER_CHINESE.get()).build(null);
             helper.register(ID, blockEntityType);
         });
         event.register(ForgeRegistries.Keys.MENU_TYPES, helper -> {

@@ -36,7 +36,7 @@ public final class FryerScreen extends AbstractContainerScreen<FryerMenu> {
     }
 
     public void startSession(long id, int seed, int[] params, ItemStack output) {
-        session.startSession(id, seed, params, output, ZhangshaoKernel.FRYER, System.nanoTime());
+        session.startSession(id, seed, params, output, menu.kind().station(), System.nanoTime());
     }
 
     public void revealBottle(long id, boolean isGold) {
@@ -115,7 +115,7 @@ public final class FryerScreen extends AbstractContainerScreen<FryerMenu> {
     private void request(int button) {
         if (button == 2) {
             minecraft.player.closeContainer();
-            minecraft.setScreen(new ZhangshaoPracticeScreen(1));
+            minecraft.setScreen(new ZhangshaoPracticeScreen(menu.kind().station()));
             return;
         }
         FryerRecipe recipe = menu.previewRecipe();
@@ -148,7 +148,7 @@ public final class FryerScreen extends AbstractContainerScreen<FryerMenu> {
 
     @Override
     protected void renderLabels(GuiGraphics g, int mouseX, int mouseY) {
-        FryerHud.View view = new FryerHud.View(session.mode(menu.phase()), menu.previewRecipe(), menu.busy(),
+        FryerHud.View view = new FryerHud.View(menu.kind(), session.mode(menu.phase()), menu.previewRecipe(), menu.busy(),
                 menu.getSlot(FryerMenu.OUTPUT).getItem(), menu.value(4), menu.cost(), menu.value(14),
                 menu.value(5), menu.value(12), menu.phase(), menu.value(1), menu.value(2), menu.value(6),
                 playerInventoryTitle.getString(), inventoryLabelX, inventoryLabelY);

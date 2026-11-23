@@ -93,9 +93,11 @@ final class FryerClientSession {
             int input = (spaceDown || mouseDown || holdLatch ? 1 : 0) | (actionLatch ? 2 : 0);
             pending[pendingCount++] = (byte) input;
             holdLatch = actionLatch = false;
+            boolean bottleWaiting = state.bState == ZhangshaoKernel.B_WAITING;
             ZhangshaoKernel.step(state, input);
             boolean ended = state.end != ZhangshaoKernel.RUNNING;
-            if (pendingCount == 20 || ended) flush(ended);
+            boolean bottleAppeared = bottleWaiting && state.bState != ZhangshaoKernel.B_WAITING;
+            if (pendingCount == 20 || ended || bottleAppeared) flush(ended);
             if (ended) {
                 waiting = true;
                 notice = "出锅中，等待服务端结算。";

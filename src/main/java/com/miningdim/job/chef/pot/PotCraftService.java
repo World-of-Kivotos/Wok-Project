@@ -83,6 +83,7 @@ public final class PotCraftService {
 
     public static void onLoad(CookingPotBlockEntity pot, CompoundTag tag) {
         PotState s = state(pot);
+        boolean replaying = s.loading;
         s.loading = true;
         try {
             if (tag.contains("FryerRevision") && (!tag.contains("FryerRevision", Tag.TAG_LONG) || tag.getLong("FryerRevision") < 0))
@@ -121,7 +122,10 @@ public final class PotCraftService {
                 }
             }
             s.hydrated = false;
-        } finally { s.loading = false; }
+            // 区块从磁盘创建实体时尚未绑定世界。对活实体的外部载入（例如 /clone）则是目标坐标的新状态。
+            // 重放 journal 自身时保留原检查点，未完成的事务仍由 ensureHydrated 恢复。
+            if (!replaying && pot.getLevel() instanceof ServerLevel) checkpoint(pot, false);
+        } finally { s.loading = replaying; }
     }
     public static void onSave(CookingPotBlockEntity pot, CompoundTag tag) {
         PotState s = state(pot);

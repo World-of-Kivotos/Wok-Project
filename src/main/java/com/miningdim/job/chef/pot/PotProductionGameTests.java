@@ -98,6 +98,12 @@ public final class PotProductionGameTests {
         WithFarmersDelight.playerBreakDoesNotDuplicatePotWithoutBowls(helper);
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_pot")
+    public static void clonePreservesInventoryAtReusedPosition(GameTestHelper helper) {
+        if (!ModList.get().isLoaded("farmersdelight")) { helper.succeed(); return; }
+        WithFarmersDelight.clonePreservesInventoryAtReusedPosition(helper);
+    }
+
     private static final class WithFarmersDelight {
         private record Fixture(CookingPotBlockEntity pot, ServerPlayer player, BlockPos pos) {}
 
@@ -119,6 +125,31 @@ public final class PotProductionGameTests {
             player.containerMenu = pot.createMenu(41, player.getInventory(), player);
             EconomyServices.economyService().grant(player, Currency.CREDIT, 1000);
             return new Fixture(pot, player, pos);
+        }
+
+        private static void clonePreservesInventoryAtReusedPosition(GameTestHelper helper) {
+            var level = helper.getLevel();
+            BlockPos source = helper.absolutePos(new BlockPos(1, 2, 1));
+            var block = ForgeRegistries.BLOCKS.getValue(new ResourceLocation("farmersdelight", "cooking_pot"));
+            level.setBlockAndUpdate(source, block.defaultBlockState());
+            CookingPotBlockEntity pot = (CookingPotBlockEntity) level.getBlockEntity(source);
+            pot.getInventory().setStackInSlot(0, new ItemStack(Items.CARROT, 2));
+            BlockPos reused = source.east(2);
+            level.setBlockAndUpdate(reused, block.defaultBlockState());
+            level.removeBlock(reused, false);
+            var commandSource = level.getServer().createCommandSourceStack().withLevel(level);
+            for (BlockPos destination : List.of(source.east(), reused)) {
+                String from = source.getX() + " " + source.getY() + " " + source.getZ();
+                String to = destination.getX() + " " + destination.getY() + " " + destination.getZ();
+                int copied = level.getServer().getCommands().performPrefixedCommand(commandSource,
+                        "clone " + from + " " + from + " " + to);
+                helper.assertTrue(copied == 1, "Vanilla clone copied one cooking pot");
+                var restored = (CookingPotBlockEntity) level.getBlockEntity(destination);
+                ItemStack stack = restored.getInventory().getStackInSlot(0);
+                helper.assertTrue(stack.is(Items.CARROT) && stack.getCount() == 2,
+                        "A cloned pot keeps both ingredients even over a removal checkpoint");
+            }
+            helper.succeed();
         }
 
         private static void mushroomStew(CookingPotBlockEntity pot, int count) {

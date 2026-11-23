@@ -67,7 +67,6 @@
     {"id": "farmersdelight:hot_cocoa", "required": false},
     {"id": "farmersdelight:melon_juice", "required": false},
     {"id": "farmersdelight:melon_popsicle", "required": false},
-    {"id": "farmersdelight:milk_bottle", "required": false},
     {"id": "farmersdelight:barbecue_stick", "required": false},
     {"id": "farmersdelight:cod_roll", "required": false}
   ]

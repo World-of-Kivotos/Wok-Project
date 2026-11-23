@@ -37,6 +37,10 @@ public final class FreshnessFdTagsGameTests {
             assertCategory(helper, new ItemStack(ModItems.MINCED_BEEF.get()), FreshnessCategory.FRESH);
             assertCategory(helper, new ItemStack(ModItems.BACON.get()), FreshnessCategory.FRESH);
             assertCategory(helper, new ItemStack(ModItems.CABBAGE.get()), FreshnessCategory.PRODUCE);
+            assertCategory(helper, new ItemStack(ModItems.ONION.get()), FreshnessCategory.ROOT);
+            for (ItemStack milk : java.util.List.of(new ItemStack(Items.MILK_BUCKET), new ItemStack(ModItems.MILK_BOTTLE.get()))) {
+                helper.assertTrue(FreshnessCategories.categoryOf(milk).isEmpty(), milk + " must be exempt from spoilage");
+            }
             assertCategory(helper, new ItemStack(ModItems.WHEAT_DOUGH.get()), FreshnessCategory.PRODUCE);
             assertCategory(helper, new ItemStack(ModItems.RAW_PASTA.get()), FreshnessCategory.PRODUCE);
             assertCategory(helper, new ItemStack(ModItems.RICE.get()), FreshnessCategory.GRAIN);

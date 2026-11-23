@@ -5,6 +5,7 @@
     "minecraft:potato",
     "minecraft:beetroot",
     "minecraft:pumpkin",
-    "minecraft:melon"
+    "minecraft:melon",
+    "#miningdim:freshness/fd/root"
   ]
 }

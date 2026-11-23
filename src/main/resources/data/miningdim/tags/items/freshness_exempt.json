@@ -22,6 +22,7 @@
     "minecraft:chorus_fruit",
     "minecraft:popped_chorus_fruit",
     "minecraft:milk_bucket",
+    {"id": "farmersdelight:milk_bottle", "required": false},
     "minecraft:wheat_seeds",
     "minecraft:beetroot_seeds",
     "minecraft:melon_seeds",

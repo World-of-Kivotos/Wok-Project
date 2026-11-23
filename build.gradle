@@ -163,6 +163,10 @@ configurations {
         transitive = false
         canBeConsumed = false
     }
+    farmersDelightPinned {
+        transitive = false
+        canBeConsumed = false
+    }
 }
 
 dependencies {
@@ -195,12 +199,12 @@ dependencies {
         runtimeOnly fg.deobf("maven.modrinth:jade:11.13.2+forge")
     }
 
-    // Optional in production; loaded in dev so Farmer's Delight crop paths receive real GameTests.
-    def farmersDelightDevJar = file("libs/FarmersDelight-1.20.1-1.3.2.jar")
-    // The optional cooking-pot adapter is compiled against the same pinned artifact used in dev.
-    compileOnly fg.deobf("local:FarmersDelight-1.20.1:1.3.2")
-    if (farmersDelightDevJar.exists()) {
-        runtimeOnly fg.deobf("local:FarmersDelight-1.20.1:1.3.2")
+    // 厨锅适配层始终编入产物。本地放入 FD 时，开发运行配置同时加载这份固定版本。
+    def farmersDelight = 'maven.modrinth:R2OftAxM:CsjS7EkP'
+    farmersDelightPinned farmersDelight
+    compileOnly fg.deobf(farmersDelight)
+    if (file("libs/FarmersDelight-1.20.1-1.3.2.jar").isFile()) {
+        runtimeOnly fg.deobf(farmersDelight)
     }
 
     // Flan 1.20.1-1.11.16 (Forge): 自管区的领地后端 (docs/District_Backend_Design.md 20.1)。
@@ -369,8 +373,22 @@ tasks.register('verifyFlanArtifact') {
         logger.lifecycle(summary)
     }
 }
+tasks.register('verifyFarmersDelightArtifact') {
+    group = 'verification'
+    def artifact = configurations.farmersDelightPinned
+    inputs.files(artifact)
+    doLast {
+        // 与审查工作流固定的官方 1.20.1-1.3.2 原始 JAR 校验值一致。
+        def expected = '47aed94bb9192c4978fe199f9d3ca5895aeccfbe5b5a0869fdf3aa011c2641f7'
+        def actual = java.security.MessageDigest.getInstance('SHA-256').digest(artifact.singleFile.bytes).encodeHex().toString()
+        if (actual != expected) {
+            throw new GradleException("Farmer's Delight SHA-256: expected ${expected}, got ${actual}")
+        }
+        logger.lifecycle("Verified Farmer's Delight 1.20.1-1.3.2: SHA-256 ${actual}")
+    }
+}
 tasks.named('compileJava').configure {
-    dependsOn tasks.named('verifyFlanArtifact')
+    dependsOn tasks.named('verifyFlanArtifact'), tasks.named('verifyFarmersDelightArtifact')
 }
 
 // 开发运行时的 lingua_bib (出路 ③, 见 dependencies 里 Flan 一段的说明): 从服主批准的 Flan jar 里原样取出内嵌的

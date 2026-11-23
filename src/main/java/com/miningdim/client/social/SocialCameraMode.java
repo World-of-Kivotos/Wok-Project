@@ -69,11 +69,7 @@ public final class SocialCameraMode {
         active = false;
         capturing = false;
         overlaySuppressed = false;
-        WebUiClient.setScreenCloseSuspended(false);
-        if (reopen) {
-            WebUiClient.reopenSocialScreenForCamera();
-            WebUiClient.notifyCameraClosed();
-        }
+        WebUiClient.exitSocialCamera(reopen);
     }
 
     /** 由快门 KeyMapping（默认 Enter）调用。 */

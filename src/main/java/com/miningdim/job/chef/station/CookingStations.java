@@ -46,7 +46,7 @@ public final class CookingStations {
      * 方案说明未给发光等级, 指示灯只是 shade:false 的全亮面, 方块本身不发光。
      */
     public static Block deepFryerSteel() {
-        return new CookingStationBlock(metal().noOcclusion(), Kind.DEEP_FRYER, Style.STEEL,
+        return new FryerStationBlock(metal().noOcclusion(), Style.STEEL,
                 StationShape.rotated(Shapes.or(
                         Block.box(0.0D, 0.0D, 0.0D, 16.0D, 11.0D, 16.0D),
                         Block.box(0.0D, 11.0D, 12.0D, 16.0D, 16.0D, 16.0D))),
@@ -58,8 +58,8 @@ public final class CookingStations {
      * 光照工作中 13 (同农夫乐事炉灶点火)、待机 3 (余火)。
      */
     public static Block deepFryerChinese() {
-        return new CookingStationBlock(brick(MapColor.COLOR_RED).lightLevel(litLight(13, 3)),
-                Kind.DEEP_FRYER, Style.CHINESE,
+        return new FryerStationBlock(brick(MapColor.COLOR_RED).lightLevel(litLight(13, 3)),
+                Style.CHINESE,
                 StationShape.symmetric(Shapes.or(
                         Block.box(0.0D, 0.0D, 0.0D, 16.0D, 10.0D, 16.0D),
                         Block.box(2.0D, 10.0D, 2.0D, 14.0D, 15.0D, 14.0D))),

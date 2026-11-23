@@ -351,18 +351,25 @@ public final class WebUiClient {
         return true;
     }
 
-    /** 相机退出/拍完由相机控制器调用：重开同一个浏览器实例，不重播页面开场。 */
-    public static void reopenSocialScreenForCamera() {
-        reopenSocialScreen();
-    }
-
-    /** 相机 Esc 退出、没有照片时通知页面收掉等待态。 */
-    public static void notifyCameraClosed() {
+    /** 玩家退出相机时取消尚未拍摄的快门，避免两帧后把平板重新盖在背包或聊天框上。 */
+    public static void exitSocialCamera(boolean reopen) {
+        screenCloseSuspended = false;
+        captureInProgress = false;
+        cameraBeforeReopen = null;
+        if (!socialPageOpen) {
+            return;
+        }
+        if (reopen) {
+            reopenSocialScreen();
+        }
         WebBrowser browserRef = browser;
         if (browserRef != null) {
             browserRef.executeJavaScript(
                     "if (typeof window.miningdimOnCameraClosed === 'function') {"
                             + " window.miningdimOnCameraClosed(); }");
+        }
+        if (!reopen) {
+            onScreenClosed();
         }
     }
 

@@ -215,5 +215,8 @@ public final class MiningDim {
         //     校验报 Unsafe Referent usage (详见 WebUiClientSubsystem javadoc), 照抄 safe 版会在 CONSTRUCT 期崩。
         //     同样须在 NetworkSystem 之后, 依赖 CHANNEL 已注册。
         subsystems.add(new com.miningdim.client.webui.WebUiClientSubsystem());
+        // 27b. 社交平板客户端入口 (反引号键 / /social): 原生开机动画 + 全屏 MCEF 页面。同样 Dist 隔离,
+        //      服务端 GameTest 只加载空壳。须排在 WebUiClientSubsystem 之后, 转场结束复用其浏览器宿主。
+        subsystems.add(new com.miningdim.client.social.SocialClientSubsystem());
     }
 }

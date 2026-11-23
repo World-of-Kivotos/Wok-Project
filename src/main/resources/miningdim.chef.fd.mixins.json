@@ -1,0 +1,10 @@
+{
+  "required": true,
+  "minVersion": "0.8.5",
+  "package": "com.miningdim.job.chef.pot.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "miningdim.refmap.json",
+  "plugin": "com.miningdim.job.chef.pot.PotMixinPlugin",
+  "mixins": ["CookingPotBlockEntityMixin", "CookingPotBlockMixin", "CookingPotMenuStatusMixin", "SyncedBlockEntityMixin"],
+  "injectors": { "defaultRequire": 1 }
+}

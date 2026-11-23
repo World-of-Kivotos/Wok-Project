@@ -21,7 +21,7 @@ REASSEMBLY = {
     'minecraft:cake': 'farmersdelight:cake_slice',
     'minecraft:pumpkin_pie': 'farmersdelight:pumpkin_pie_slice',
 }
-TYPES = {1: 'miningdim:frying', 2: 'miningdim:baking', 3: 'miningdim:preparing'}
+TYPES = {0: 'farmersdelight:cooking', 1: 'miningdim:frying', 2: 'miningdim:baking', 3: 'miningdim:preparing'}
 with (ROOT / 'docs/chef-rework/dish-stars.tsv').open(encoding='utf-8-sig', newline='') as f:
     rows = list(csv.DictReader(f, delimiter='\t'))
 stars = {row['物品ID']: int(row['星级'].removeprefix('★')) for row in rows}
@@ -35,8 +35,8 @@ differences = []
 for d in play:
     if d['id'] not in stars:
         raise ValueError('Missing star: ' + d['id'])
-    if d['station'] not in TYPES and d['id'] not in EXTRA:
-        continue
+    if d['station'] not in TYPES:
+        raise ValueError('Unknown station: ' + d['id'])
     is_extra = d['id'] in EXTRA
     station = 1 if is_extra else d['station']
     if is_extra and d['station'] != 0:
@@ -50,8 +50,8 @@ for d in play:
     if stars[d['id']] != d['star']:
         differences.append({'id':d['id'], 'star_tsv':stars[d['id']], 'star_practice':d['star']})
 counts = collections.Counter(d['station'] for d in dishes)
-expected = {1:9, 2:37, 3:63}
-if len(dishes) != 109 or len({d['id'] for d in dishes}) != 109 or counts != expected:
+expected = {0:95, 1:9, 2:37, 3:63}
+if len(dishes) != 204 or {d['id'] for d in dishes} != stars.keys() or counts != expected:
     raise ValueError('Unexpected target set: ' + repr(counts))
 output = ROOT / 'src/main/resources/data/miningdim/chef/production-dishes.json'
 output.parent.mkdir(parents=True, exist_ok=True)

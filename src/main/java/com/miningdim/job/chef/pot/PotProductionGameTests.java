@@ -12,6 +12,8 @@ import com.miningdim.job.chef.ChefQuality;
 import com.miningdim.job.chef.fryer.FryerPlayerData;
 import com.miningdim.job.chef.zhangshao.ZhangshaoKernel;
 import com.miningdim.testutil.MockGameTestPlayers;
+import io.netty.channel.embedded.EmbeddedChannel;
+import net.minecraft.network.protocol.game.ClientboundSystemChatPacket;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
@@ -47,7 +49,8 @@ import java.util.List;
 public final class PotProductionGameTests {
     private PotProductionGameTests() {}
 
-    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_pot", timeoutTicks = 700)
+    // 输入按墙钟每 50 ms 推进一步，GameTest 服务器独立加速 tick。
+    @GameTest(templateNamespace = MiningConstants.MODID, template = "empty", batch = "chef_pot", timeoutTicks = 6000)
     public static void manualReplayProducesQualityDish(GameTestHelper helper) {
         if (!ModList.get().isLoaded("farmersdelight")) { helper.succeed(); return; }
         WithFarmersDelight.manualReplayProducesQualityDish(helper);
@@ -103,10 +106,16 @@ public final class PotProductionGameTests {
             helper.getLevel().setBlockAndUpdate(pos.below(), Blocks.CAMPFIRE.defaultBlockState());
             var block = ForgeRegistries.BLOCKS.getValue(new ResourceLocation("farmersdelight", "cooking_pot"));
             if (block == null || block == Blocks.AIR) throw new IllegalStateException("Farmer's Delight cooking pot is not registered");
-            helper.getLevel().setBlockAndUpdate(pos, block.defaultBlockState());
-            CookingPotBlockEntity pot = (CookingPotBlockEntity) helper.getLevel().getBlockEntity(pos);
+            helper.getLevel().removeBlock(pos, false);
             ServerPlayer player = MockGameTestPlayers.makeMockSurvivalServerPlayerWithChannel(helper);
             player.setPos(pos.getX() + .5, pos.getY() + .5, pos.getZ() + 1.5);
+            player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(block));
+            var placement = player.getMainHandItem().useOn(new UseOnContext(player, InteractionHand.MAIN_HAND,
+                    new BlockHitResult(Vec3.atCenterOf(pos.below()).add(0, .5, 0), Direction.UP, pos.below(), false)));
+            if (!placement.consumesAction() || !(helper.getLevel().getBlockEntity(pos) instanceof CookingPotBlockEntity pot)) {
+                MockGameTestPlayers.logout(player);
+                throw new IllegalStateException("Cannot place Farmer's Delight cooking pot at " + pos);
+            }
             player.containerMenu = pot.createMenu(41, player.getInventory(), player);
             EconomyServices.economyService().grant(player, Currency.CREDIT, 1000);
             return new Fixture(pot, player, pos);
@@ -119,11 +128,28 @@ public final class PotProductionGameTests {
         }
 
         private static void manualReplayProducesQualityDish(GameTestHelper helper) {
+            // 同坐标的旧锅曾留下一份熟菜。新锅按玩家放置路径建立新检查点后应能开局。
+            BlockPos oldPos = helper.absolutePos(new BlockPos(1, 2, 1));
+            var previousInventory = new net.minecraftforge.items.ItemStackHandler(9);
+            previousInventory.setStackInSlot(CookingPotBlockEntity.MEAL_DISPLAY_SLOT, new ItemStack(Items.MUSHROOM_STEW));
+            CompoundTag previousPot = new CompoundTag();
+            previousPot.put("Inventory", previousInventory.serializeNBT());
+            previousPot.put("Container", new ItemStack(Items.BOWL).save(new CompoundTag()));
+            FryerPlayerData.get(helper.getLevel()).checkpoint(helper.getLevel(), oldPos, previousPot);
             Fixture f = fixture(helper, 1);
             mushroomStew(f.pot, 2);
             MiningCapabilities.get(f.player).orElseThrow().jobProgress(JobId.CHEF).setLevel(9);
             long before = balance(f.player), beforeXp = xp(f.player);
-            helper.assertTrue(PotCraftService.start(f.player, f.pot), "Real mushroom stew starts in heated pot");
+            if (!PotCraftService.start(f.player, f.pot)) {
+                EmbeddedChannel channel = (EmbeddedChannel) f.player.connection.connection.channel();
+                String rejection = channel.outboundMessages().stream()
+                        .filter(ClientboundSystemChatPacket.class::isInstance).map(ClientboundSystemChatPacket.class::cast)
+                        .filter(ClientboundSystemChatPacket::overlay).map(packet -> packet.content().getString())
+                        .reduce((previous, last) -> last).orElse("no action bar message");
+                MockGameTestPlayers.logout(f.player);
+                helper.fail("Mushroom stew start rejected at " + f.pos + ": " + rejection);
+                return;
+            }
             long round = PotCraftService.roundId(f.pot), started = System.nanoTime();
             ZhangshaoKernel.State local = PotCraftService.sessionState(f.pot);
             byte[] pending = new byte[20];

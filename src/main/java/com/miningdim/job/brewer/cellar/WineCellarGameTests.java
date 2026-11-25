@@ -506,6 +506,32 @@ public final class WineCellarGameTests {
         helper.succeed();
     }
 
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void nineWineSlotsMigrateWithTheirFuel(GameTestHelper helper) {
+        BrewerConfig.ensureLoadedForTest();
+        BlockPos rel = new BlockPos(1, 1, 1);
+        helper.setBlock(rel, WineCellarRegistry.WINE_CELLAR.get().defaultBlockState());
+        WineCellarBlockEntity cellar = requireCellar(helper, rel);
+        var old = new net.minecraftforge.items.ItemStackHandler(10);
+        ItemStack wine = testWine(2);
+        old.setStackInSlot(8, wine);
+        old.setStackInSlot(9, new ItemStack(BrewerItems.DRIED_WHEAT.get(), 48));
+        CompoundTag saved = new CompoundTag();
+        saved.put("Inventory", old.serializeNBT());
+        cellar.load(saved);
+        helper.assertTrue(!cellar.isLocked() && cellar.inventory().getSlots() == 13
+                && cellar.inventory().getStackInSlot(9).isEmpty() && cellar.fuelTotal() == 48,
+                "old fuel moves out of the new wine slot into the current fuel slot");
+        helper.assertTrue(ItemStack.matches(wine, cellar.inventory().getStackInSlot(8)),
+                "both bottles and their stamp survive migration");
+        cellar.load(cellar.saveWithFullMetadata());
+        cellar.settleElapsed(DAY, NO_MOON);
+        helper.assertTrue(cellar.fuelTotal() == 16 && !WineNbt.isSpoiled(cellar.inventory().getStackInSlot(8))
+                && Math.abs(WineNbt.readVintage(cellar.inventory().getStackInSlot(8)) - 1.0D) < EPS,
+                "after another load the migrated fuel ages both bottles exactly once");
+        helper.succeed();
+    }
+
     private static ItemStack testWine(int count) {
         ItemStack bottles = new ItemStack(BrewerItems.itemFor(WineType.VODKA), count);
         WineNbt.stamp(bottles, WineQuality.LOW, UUID.randomUUID());

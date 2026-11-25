@@ -5,6 +5,7 @@ import com.miningdim.job.brewer.BrewerItems;
 import com.miningdim.job.brewer.WineNbt;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -46,6 +47,7 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
     public static final int FUEL_SLOT = WINE_SLOTS;
     /** 总槽数 (酒槽 + 1 燃料槽)。 */
     public static final int TOTAL_SLOTS = WINE_SLOTS + 1;
+    private static final int LEGACY_FUEL_SLOT = 9;
 
     /** 未结算哨兵: lastSettle 尚未初始化 (新建 / 旧档无此键时, 首次 tick 设为当前挂钟, 不补结算)。 */
     private static final long UNSET = 0L;
@@ -249,7 +251,32 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
             lockSave(tag, "FuelReserve must be an integer");
             return;
         }
-        if (savedInventory.contains("Size") && savedInventory.getInt("Size") != TOTAL_SLOTS) {
+        // 九酒槽版本由 Forge 写入 Size=10，最后一格是干小麦。只迁移该版本的库存。
+        if (!tag.contains(K_FUEL_RESERVE) && savedInventory.contains("Size", Tag.TAG_INT)
+                && savedInventory.getInt("Size") == LEGACY_FUEL_SLOT + 1) {
+            savedInventory = savedInventory.copy();
+            ListTag entries = savedInventory.getList("Items", Tag.TAG_COMPOUND);
+            if (!savedInventory.contains("Items", Tag.TAG_LIST)
+                    || entries.size() != ((ListTag) savedInventory.get("Items")).size()) {
+                lockSave(tag, "invalid legacy inventory contents");
+                return;
+            }
+            boolean[] occupied = new boolean[LEGACY_FUEL_SLOT + 1];
+            for (int i = 0; i < entries.size(); i++) {
+                CompoundTag entry = entries.getCompound(i);
+                int slot = entry.getInt("Slot");
+                if (!entry.contains("Slot", Tag.TAG_INT) || slot < 0 || slot > LEGACY_FUEL_SLOT
+                        || occupied[slot]) {
+                    lockSave(tag, "invalid legacy inventory slot");
+                    return;
+                }
+                occupied[slot] = true;
+                if (slot == LEGACY_FUEL_SLOT) {
+                    entry.putInt("Slot", FUEL_SLOT);
+                }
+            }
+            savedInventory.putInt("Size", TOTAL_SLOTS);
+        } else if (savedInventory.contains("Size") && savedInventory.getInt("Size") != TOTAL_SLOTS) {
             lockSave(tag, "unexpected Inventory.Size");
             return;
         }

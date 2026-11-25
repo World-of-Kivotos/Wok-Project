@@ -1,5 +1,88 @@
 {
   "variants": {
-    "": { "model": "miningdim:block/brewing_station" }
+    "facing=north,part=lower_left": {
+      "model": "miningdim:block/brewing_station_lower_left"
+    },
+    "facing=east,part=lower_left": {
+      "model": "miningdim:block/brewing_station_lower_left",
+      "y": 90,
+      "uvlock": true
+    },
+    "facing=south,part=lower_left": {
+      "model": "miningdim:block/brewing_station_lower_left",
+      "y": 180,
+      "uvlock": true
+    },
+    "facing=west,part=lower_left": {
+      "model": "miningdim:block/brewing_station_lower_left",
+      "y": 270,
+      "uvlock": true
+    },
+    "facing=north,part=lower_right": {
+      "model": "miningdim:block/brewing_station_lower_right"
+    },
+    "facing=east,part=lower_right": {
+      "model": "miningdim:block/brewing_station_lower_right",
+      "y": 90,
+      "uvlock": true
+    },
+    "facing=south,part=lower_right": {
+      "model": "miningdim:block/brewing_station_lower_right",
+      "y": 180,
+      "uvlock": true
+    },
+    "facing=west,part=lower_right": {
+      "model": "miningdim:block/brewing_station_lower_right",
+      "y": 270,
+      "uvlock": true
+    },
+    "facing=north,part=upper_left": {
+      "model": "miningdim:block/brewing_station_upper_left"
+    },
+    "facing=east,part=upper_left": {
+      "model": "miningdim:block/brewing_station_upper_left",
+      "y": 90,
+      "uvlock": true
+    },
+    "facing=south,part=upper_left": {
+      "model": "miningdim:block/brewing_station_upper_left",
+      "y": 180,
+      "uvlock": true
+    },
+    "facing=west,part=upper_left": {
+      "model": "miningdim:block/brewing_station_upper_left",
+      "y": 270,
+      "uvlock": true
+    },
+    "facing=north,part=upper_right": {
+      "model": "miningdim:block/brewing_station_upper_right"
+    },
+    "facing=east,part=upper_right": {
+      "model": "miningdim:block/brewing_station_upper_right",
+      "y": 90,
+      "uvlock": true
+    },
+    "facing=south,part=upper_right": {
+      "model": "miningdim:block/brewing_station_upper_right",
+      "y": 180,
+      "uvlock": true
+    },
+    "facing=west,part=upper_right": {
+      "model": "miningdim:block/brewing_station_upper_right",
+      "y": 270,
+      "uvlock": true
+    },
+    "facing=north,part=legacy": {
+      "model": "miningdim:block/brewing_station_legacy"
+    },
+    "facing=east,part=legacy": {
+      "model": "miningdim:block/brewing_station_legacy"
+    },
+    "facing=south,part=legacy": {
+      "model": "miningdim:block/brewing_station_legacy"
+    },
+    "facing=west,part=legacy": {
+      "model": "miningdim:block/brewing_station_legacy"
+    }
   }
 }

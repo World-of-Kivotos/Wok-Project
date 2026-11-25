@@ -11,6 +11,25 @@
       ],
       "conditions": [
         {
+          "condition": "minecraft:any_of",
+          "terms": [
+            {
+              "condition": "minecraft:block_state_property",
+              "block": "miningdim:brewing_station",
+              "properties": {
+                "part": "lower_left"
+              }
+            },
+            {
+              "condition": "minecraft:block_state_property",
+              "block": "miningdim:brewing_station",
+              "properties": {
+                "part": "legacy"
+              }
+            }
+          ]
+        },
+        {
           "condition": "minecraft:survives_explosion"
         }
       ]

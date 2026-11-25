@@ -4,13 +4,20 @@ import com.miningdim.core.MiningConstants;
 import com.miningdim.job.brewer.BrewerItems;
 import com.miningdim.job.brewer.WineType;
 import com.miningdim.job.farmer.item.FarmerItems;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtOps;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 import net.minecraftforge.items.ItemStackHandler;
@@ -29,6 +36,52 @@ public final class BrewingStationGameTests {
     private static final String EMPTY = "empty";
     private static final String BATCH = "brewer";
     private static final double EPS = 1e-9D;
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void existingMultiblockStillBreaksTogether(GameTestHelper helper) {
+        BrewingStationBlock block = (BrewingStationBlock) BrewingStationRegistry.STATION_BLOCK.get();
+        BlockState main = block.defaultBlockState().setValue(BrewingStationBlock.FACING, Direction.NORTH)
+                .setValue(BrewingStationBlock.PART, BrewingStationBlock.Part.LOWER_LEFT);
+        var saved = BlockState.CODEC.encodeStart(NbtOps.INSTANCE, main).result().orElseThrow();
+        helper.assertTrue(BlockState.CODEC.parse(NbtOps.INSTANCE, saved).result().orElseThrow() == main,
+                "saved multiblock state must retain its part");
+        BlockPos pos = helper.absolutePos(new BlockPos(3, 2, 3));
+        helper.getLevel().setBlock(pos, main, Block.UPDATE_ALL);
+        for (BrewingStationBlock.Part part : BrewingStationBlock.Part.values()) {
+            if (part != BrewingStationBlock.Part.LEGACY && part != BrewingStationBlock.Part.LOWER_LEFT) {
+                helper.getLevel().setBlock(BrewingStationBlock.partPos(pos, Direction.NORTH, part),
+                        main.setValue(BrewingStationBlock.PART, part), Block.UPDATE_ALL);
+            }
+        }
+        BlockPos side = BrewingStationBlock.partPos(pos, Direction.NORTH, BrewingStationBlock.Part.LOWER_RIGHT);
+        helper.getLevel().setBlock(side, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+        helper.assertTrue(helper.getLevel().getBlockState(pos).isAir(), "removing a linked part removes its main");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void legacySingleBlockSurvivesNeighborChanges(GameTestHelper helper) {
+        CompoundTag oldTag = new CompoundTag();
+        oldTag.putString("Name", "miningdim:brewing_station");
+        BlockState oldState = BlockState.CODEC.parse(NbtOps.INSTANCE, oldTag).result().orElseThrow();
+        helper.assertTrue(oldState.getValue(BrewingStationBlock.PART) == BrewingStationBlock.Part.LEGACY,
+                "property-free old palette must decode to the legacy state");
+        BlockPos pos = helper.absolutePos(new BlockPos(2, 2, 2));
+        helper.getLevel().setBlock(pos, oldState, Block.UPDATE_ALL);
+        BrewingStationBlockEntity be = (BrewingStationBlockEntity) helper.getLevel().getBlockEntity(pos);
+        be.inventory().setStackInSlot(0, new ItemStack(Items.WHEAT));
+        for (Direction direction : Direction.values()) {
+            helper.getLevel().setBlock(pos.relative(direction), Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL);
+            helper.assertTrue(helper.getLevel().getBlockState(pos) == oldState, "neighbor change must preserve old block");
+        }
+        helper.assertTrue(helper.getLevel().getBlockEntity(pos) == be
+                        && be.inventory().getStackInSlot(0).is(Items.WHEAT),
+                "neighbor changes must preserve the old inventory");
+        long drops = Block.getDrops(oldState, helper.getLevel(), pos, be).stream()
+                .filter(stack -> stack.is(BrewingStationRegistry.STATION_ITEM.get())).count();
+        helper.assertTrue(drops == 1, "old single block must drop its item");
+        helper.succeed();
+    }
 
     // ---- 品质骰子权重 ----
 

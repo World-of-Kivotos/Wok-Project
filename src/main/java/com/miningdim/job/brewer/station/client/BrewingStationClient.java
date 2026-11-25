@@ -1,6 +1,8 @@
 package com.miningdim.job.brewer.station.client;
 
 import com.miningdim.job.brewer.station.BrewingStationRegistry;
+import net.minecraft.client.renderer.ItemBlockRenderTypes;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.gui.screens.MenuScreens;
 
 /**
@@ -16,5 +18,6 @@ public final class BrewingStationClient {
 
     public static void registerScreens() {
         MenuScreens.register(BrewingStationRegistry.STATION_MENU.get(), BrewingStationScreen::new);
+        ItemBlockRenderTypes.setRenderLayer(BrewingStationRegistry.STATION_BLOCK.get(), RenderType.translucent());
     }
 }

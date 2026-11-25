@@ -42,7 +42,9 @@ public final class BrewingStationRegistry {
     /** 酿酒台方块 (单一; id = brewing_station)。属性 copy 原版酿造台。 */
     public static final RegistryObject<Block> STATION_BLOCK =
             BLOCKS.register("brewing_station",
-                    () -> new BrewingStationBlock(BlockBehaviour.Properties.copy(Blocks.BREWING_STAND).noOcclusion()));
+                    () -> new BrewingStationBlock(BlockBehaviour.Properties.copy(Blocks.BREWING_STAND)
+                            .noOcclusion()
+                            .lightLevel(state -> 6)));
 
     /** 酿酒台 BlockItem (与方块同 id; 供集成者加进酿酒师创造栏)。 */
     public static final RegistryObject<Item> STATION_ITEM =

@@ -33,6 +33,7 @@ import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.block.Mirror;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraftforge.network.NetworkHooks;
 import org.jetbrains.annotations.Nullable;
 import net.minecraft.util.StringRepresentable;
@@ -58,15 +59,22 @@ public final class WineCellarBlock extends HorizontalDirectionalBlock implements
     @Nullable
     @Override
     public BlockState getStateForPlacement(BlockPlaceContext context) {
-        Level level = context.getLevel();
         BlockPos pos = context.getClickedPos();
         Direction facing = context.getHorizontalDirection().getOpposite();
         BlockPos sidePos = partPos(pos, facing, Part.SIDE);
-        if (!level.getWorldBorder().isWithinBounds(sidePos)
-                || !level.getBlockState(sidePos).canBeReplaced(context)) {
+        BlockState sideState = defaultBlockState()
+                .setValue(FACING, facing)
+                .setValue(PART, Part.SIDE);
+        CollisionContext collisionContext = context.getPlayer() == null
+                ? CollisionContext.empty() : CollisionContext.of(context.getPlayer());
+        if (!context.getLevel().getBlockState(sidePos).canBeReplaced(context)
+                || !context.getLevel().getWorldBorder().isWithinBounds(sidePos)
+                || !context.getLevel().isUnobstructed(sideState, sidePos, collisionContext)) {
             return null;
         }
-        return defaultBlockState().setValue(FACING, facing).setValue(PART, Part.MAIN);
+        return defaultBlockState()
+                .setValue(FACING, facing)
+                .setValue(PART, Part.MAIN);
     }
 
     @Override

@@ -1,5 +1,46 @@
 {
   "variants": {
-    "": { "model": "miningdim:block/wine_cellar" }
+    "facing=north,part=main": {
+      "model": "miningdim:block/wine_cellar_main"
+    },
+    "facing=east,part=main": {
+      "model": "miningdim:block/wine_cellar_main",
+      "y": 90
+    },
+    "facing=south,part=main": {
+      "model": "miningdim:block/wine_cellar_main",
+      "y": 180
+    },
+    "facing=west,part=main": {
+      "model": "miningdim:block/wine_cellar_main",
+      "y": 270
+    },
+    "facing=north,part=side": {
+      "model": "miningdim:block/wine_cellar_side"
+    },
+    "facing=east,part=side": {
+      "model": "miningdim:block/wine_cellar_side",
+      "y": 90
+    },
+    "facing=south,part=side": {
+      "model": "miningdim:block/wine_cellar_side",
+      "y": 180
+    },
+    "facing=west,part=side": {
+      "model": "miningdim:block/wine_cellar_side",
+      "y": 270
+    },
+    "facing=north,part=legacy": {
+      "model": "miningdim:block/wine_cellar_legacy"
+    },
+    "facing=east,part=legacy": {
+      "model": "miningdim:block/wine_cellar_legacy"
+    },
+    "facing=south,part=legacy": {
+      "model": "miningdim:block/wine_cellar_legacy"
+    },
+    "facing=west,part=legacy": {
+      "model": "miningdim:block/wine_cellar_legacy"
+    }
   }
 }

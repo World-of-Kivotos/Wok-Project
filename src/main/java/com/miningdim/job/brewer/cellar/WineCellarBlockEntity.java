@@ -3,10 +3,14 @@ package com.miningdim.job.brewer.cellar;
 import com.miningdim.job.brewer.BrewerConstants;
 import com.miningdim.job.brewer.BrewerItems;
 import com.miningdim.job.brewer.WineNbt;
+import com.miningdim.job.brewer.WineType;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.NonNullList;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.network.Connection;
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -15,8 +19,10 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraftforge.items.ItemStackHandler;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -51,11 +57,15 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
 
     /** 未结算哨兵: lastSettle 尚未初始化 (新建 / 旧档无此键时, 首次 tick 设为当前挂钟, 不补结算)。 */
     private static final long UNSET = 0L;
+    private final NonNullList<ItemStack> displayBottles = NonNullList.withSize(WINE_SLOTS, ItemStack.EMPTY);
 
     private final ItemStackHandler inventory = new ItemStackHandler(TOTAL_SLOTS) {
         @Override
         protected void onContentsChanged(int slot) {
             setChanged();
+            if (slot < WINE_SLOTS && level != null && !level.isClientSide) {
+                level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), Block.UPDATE_CLIENTS);
+            }
         }
 
         @Override
@@ -187,8 +197,7 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
         CellarSettle.Result result = CellarSettle.settle(states, elapsedMillis, fuelAvailable, moonPhase, fuelDebt);
         fuelDebt = result.fuelDebt();
 
-        // 回写各瓶新年份 / 变质到对应酒槽。setStackInSlot 触发 onContentsChanged (NBT 原地改不触发改变钩子,
-        // 显式回写以与工程师生产台同范式, 确保槽变更被同步)。
+        // 年份与变质写在原物品栈中，菜单照常同步；架上展示只取酒种。
         List<CellarSettle.BottleState> out = result.bottles();
         for (int i = 0; i < slotIndices.size(); i++) {
             int slot = slotIndices.get(i);
@@ -196,7 +205,6 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
             CellarSettle.BottleState ns = out.get(i);
             WineNbt.setVintage(stack, ns.vintage());
             WineNbt.setSpoiled(stack, ns.spoiled());
-            inventory.setStackInSlot(slot, stack);
         }
 
         // 扣燃料 (结算耗量不会超过 fuelAvailable, 纯函数已封顶在燃料池内)。
@@ -323,6 +331,54 @@ public final class WineCellarBlockEntity extends BlockEntity implements MenuProv
         lockedSave = original.copy();
         LOGGER.error("Wine cellar at {} locked ({}). Original block entity NBT retained for repair.",
                 worldPosition, reason);
+    }
+
+    @Override
+    public AABB getRenderBoundingBox() {
+        AABB main = new AABB(worldPosition);
+        BlockState state = getBlockState();
+        if (state.getValue(WineCellarBlock.PART) != WineCellarBlock.Part.MAIN) return main;
+        return main.minmax(new AABB(WineCellarBlock.partPos(worldPosition, state.getValue(WineCellarBlock.FACING),
+                WineCellarBlock.Part.SIDE)));
+    }
+
+    public ItemStack displayedBottle(int slot) {
+        return displayBottles.get(slot);
+    }
+
+    @Override
+    public CompoundTag getUpdateTag() {
+        CompoundTag display = new CompoundTag();
+        if (!isLocked()) {
+            for (int slot = 0; slot < WINE_SLOTS; slot++) {
+                ItemStack stack = inventory.getStackInSlot(slot);
+                WineType wine = BrewerItems.typeOf(stack);
+                if (wine != null && WineNbt.isWine(stack)) display.putString(Integer.toString(slot), wine.id());
+            }
+        }
+        CompoundTag update = new CompoundTag();
+        update.put("DisplayBottles", display);
+        return update;
+    }
+
+    @Override
+    public void handleUpdateTag(CompoundTag tag) {
+        CompoundTag display = tag.getCompound("DisplayBottles");
+        for (int slot = 0; slot < WINE_SLOTS; slot++) {
+            WineType wine = WineType.fromId(display.getString(Integer.toString(slot)));
+            displayBottles.set(slot, wine == null ? ItemStack.EMPTY : new ItemStack(BrewerItems.itemFor(wine)));
+        }
+    }
+
+    @Override
+    public ClientboundBlockEntityDataPacket getUpdatePacket() {
+        return ClientboundBlockEntityDataPacket.create(this);
+    }
+
+    @Override
+    public void onDataPacket(Connection connection, ClientboundBlockEntityDataPacket packet) {
+        CompoundTag tag = packet.getTag();
+        if (tag != null) handleUpdateTag(tag);
     }
 
     /** 管理指令或结构替换可以跳过挖掘检查。原始内容随世界存入原版指令存储，供管理员恢复。 */

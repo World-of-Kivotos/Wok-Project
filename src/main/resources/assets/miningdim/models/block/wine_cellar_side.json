@@ -1,0 +1,166 @@
+{
+  "credit": "MiningDim warm illuminated wine display - side half",
+  "ambientocclusion": false,
+  "textures": {
+    "wood": "miningdim:block/wine_cellar_walnut",
+    "wood_dark": "miningdim:block/wine_cellar_walnut_dark",
+    "back": "miningdim:block/wine_cellar_back",
+    "brass": "miningdim:block/wine_cellar_brass",
+    "light": "miningdim:block/wine_cellar_light",
+    "accent": "miningdim:block/wine_cellar_burgundy",
+    "particle": "miningdim:block/wine_cellar_walnut"
+  },
+  "elements": [
+    {
+      "name": "illuminated_back",
+      "shade": false,
+      "from": [0, 0.9, 14.8],
+      "to": [15.1, 15.1, 16],
+      "faces": {
+        "north": {"texture": "#back"},
+        "east": {"texture": "#wood_dark"},
+        "west": {"texture": "#wood_dark"},
+        "up": {"texture": "#light"},
+        "down": {"texture": "#light"}
+      }
+    },
+    {
+      "name": "center_post",
+      "from": [0, 0, 0],
+      "to": [0.45, 16, 16],
+      "faces": {
+        "north": {"texture": "#wood"},
+        "east": {"texture": "#wood_dark"},
+        "south": {"texture": "#wood_dark"},
+        "west": {"texture": "#wood_dark"},
+        "up": {"texture": "#brass"},
+        "down": {"texture": "#brass"}
+      }
+    },
+    {
+      "name": "outer_right_post",
+      "from": [14.95, 0, 0],
+      "to": [16, 16, 16],
+      "faces": {
+        "north": {"texture": "#wood"},
+        "east": {"texture": "#wood"},
+        "south": {"texture": "#wood_dark"},
+        "west": {"texture": "#wood_dark"},
+        "up": {"texture": "#brass"},
+        "down": {"texture": "#brass"}
+      }
+    },
+    {
+      "name": "base",
+      "from": [0.45, 0, 0],
+      "to": [14.95, 1.0, 16],
+      "faces": {
+        "north": {"texture": "#wood"},
+        "east": {"texture": "#wood_dark"},
+        "south": {"texture": "#wood_dark"},
+        "west": {"texture": "#wood_dark"},
+        "up": {"texture": "#brass"},
+        "down": {"texture": "#wood_dark"}
+      }
+    },
+    {
+      "name": "crown",
+      "from": [0.45, 15.0, 0],
+      "to": [14.95, 16, 16],
+      "faces": {
+        "north": {"texture": "#wood"},
+        "east": {"texture": "#wood_dark"},
+        "south": {"texture": "#wood_dark"},
+        "west": {"texture": "#wood_dark"},
+        "up": {"texture": "#wood"},
+        "down": {"texture": "#light"}
+      }
+    },
+    {
+      "name": "lower_shelf",
+      "from": [0.45, 5.32, 0.45],
+      "to": [14.95, 5.72, 15.25],
+      "faces": {
+        "north": {"texture": "#brass"},
+        "east": {"texture": "#wood_dark"},
+        "south": {"texture": "#wood_dark"},
+        "west": {"texture": "#wood_dark"},
+        "up": {"texture": "#wood"},
+        "down": {"texture": "#light"}
+      }
+    },
+    {
+      "name": "upper_shelf",
+      "from": [0.45, 10.18, 0.45],
+      "to": [14.95, 10.58, 15.25],
+      "faces": {
+        "north": {"texture": "#brass"},
+        "east": {"texture": "#wood_dark"},
+        "south": {"texture": "#wood_dark"},
+        "west": {"texture": "#wood_dark"},
+        "up": {"texture": "#wood"},
+        "down": {"texture": "#light"}
+      }
+    },
+    {
+      "name": "top_light",
+      "shade": false,
+      "from": [0.75, 14.55, 14.25],
+      "to": [14.65, 14.82, 15.0],
+      "faces": {
+        "north": {"texture": "#light"},
+        "down": {"texture": "#light"}
+      }
+    },
+    {
+      "name": "middle_light",
+      "shade": false,
+      "from": [0.75, 9.72, 14.25],
+      "to": [14.65, 9.99, 15.0],
+      "faces": {
+        "north": {"texture": "#light"},
+        "down": {"texture": "#light"}
+      }
+    },
+    {
+      "name": "bottom_light",
+      "shade": false,
+      "from": [0.75, 4.88, 14.25],
+      "to": [14.65, 5.15, 15.0],
+      "faces": {
+        "north": {"texture": "#light"},
+        "down": {"texture": "#light"}
+      }
+    },
+    {
+      "name": "right_brass_cap",
+      "from": [14.8, 0, 0],
+      "to": [16, 1.25, 0.65],
+      "faces": {
+        "north": {"texture": "#brass"},
+        "east": {"texture": "#brass"},
+        "west": {"texture": "#brass"},
+        "up": {"texture": "#brass"}
+      }
+    },
+    {
+      "name": "right_accent_band",
+      "from": [14.88, 7.1, 0],
+      "to": [16, 8.9, 0.5],
+      "faces": {
+        "north": {"texture": "#accent"},
+        "east": {"texture": "#brass"},
+        "west": {"texture": "#brass"}
+      }
+    },
+    {
+      "name": "center_badge",
+      "from": [0, 7.0, 0],
+      "to": [0.65, 9.0, 0.55],
+      "faces": {
+        "north": {"texture": "#brass"},
+        "east": {"texture": "#accent"}
+      }
+    }
+  ]
+}

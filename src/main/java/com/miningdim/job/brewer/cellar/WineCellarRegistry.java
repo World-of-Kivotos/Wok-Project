@@ -22,7 +22,7 @@ import net.minecraftforge.registries.RegistryObject;
  * {@link #WINE_CELLAR_MENU} 确保静态登记被收集进 pending map)。Block/Item/BE 三个本地 DeferredRegister 由
  * {@link #register(IEventBus)} 接 modBus。
  *
- * 属性 copy 原版 BARREL (木桶观感, 贴酒窖储酒主题; 需斧, 可燃但非高危); 真贴图待补, 模型 JSON 暂用占位纹理。
+ * 开放式酒架由主格与侧格共同显示，主格保存库存。
  */
 public final class WineCellarRegistry {
 
@@ -39,7 +39,8 @@ public final class WineCellarRegistry {
     /** 酒窖箱方块。 */
     public static final RegistryObject<Block> WINE_CELLAR =
             BLOCKS.register("wine_cellar",
-                    () -> new WineCellarBlock(BlockBehaviour.Properties.copy(Blocks.BARREL)));
+                    () -> new WineCellarBlock(BlockBehaviour.Properties.copy(Blocks.BARREL)
+                            .noOcclusion().lightLevel(state -> 12)));
 
     /** 酒窖箱方块物品 (创造栏 / 掉落用; 与方块同 id)。 */
     public static final RegistryObject<Item> WINE_CELLAR_ITEM =

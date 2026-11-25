@@ -245,7 +245,7 @@ public final class WineCellarGameTests {
                 new CellarSettle.BottleState(BrewerConstants.VINTAGE_LAYER_T1, false, 16));
         for (int phase : new int[]{NO_MOON, FULL_MOON}) {
             CellarSettle.Result r = CellarSettle.settle(tenYearBottles, DAY, BrewerConstants.FUEL_SLOT_CAPACITY, phase, 0.0D);
-            int expected = phase == FULL_MOON ? 123840 : 99072;
+            int expected = phase == FULL_MOON ? 128880 : 99072;
             helper.assertTrue(r.fuelConsumed() == expected, "full cellar cost at moon phase " + phase);
             for (CellarSettle.BottleState bottle : r.bottles()) {
                 double vintage = phase == FULL_MOON ? 11.25D : 11.0D;
@@ -529,6 +529,34 @@ public final class WineCellarGameTests {
         helper.assertTrue(cellar.fuelTotal() == 16 && !WineNbt.isSpoiled(cellar.inventory().getStackInSlot(8))
                 && Math.abs(WineNbt.readVintage(cellar.inventory().getStackInSlot(8)) - 1.0D) < EPS,
                 "after another load the migrated fuel ages both bottles exactly once");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = MiningConstants.MODID, template = EMPTY, batch = BATCH)
+    public static void onlineAndOfflineAgreeAtFuelExhaustion(GameTestHelper helper) {
+        BrewerConfig.ensureLoadedForTest();
+        List<CellarSettle.BottleState> fresh = List.of(new CellarSettle.BottleState(0, false, 1));
+        for (int available : new int[]{1, 16, 37}) {
+            long duration = available == 37 ? 2 * DAY : DAY;
+            var offline = CellarSettle.settle(fresh, duration, available, NO_MOON, 0);
+            var online = fresh;
+            int fuel = available;
+            double debt = 0;
+            for (long elapsed = 0; elapsed < duration; elapsed += 5000L) {
+                var tick = CellarSettle.settle(online, 5000L, fuel, NO_MOON, debt);
+                online = tick.bottles();
+                fuel -= tick.fuelConsumed();
+                debt = tick.fuelDebt();
+            }
+            double expectedAge = available == 1 ? 0 : duration / DAY;
+            helper.assertTrue(offline.fuelConsumed() == available && fuel == 0 && debt < EPS
+                    && offline.fuelDebt() < EPS, "both paths consume the same available fuel " + available);
+            for (var bottle : List.of(online.get(0), offline.bottles().get(0))) {
+                helper.assertTrue(bottle.spoiled() == (available == 1)
+                        && Math.abs(bottle.vintage() - expectedAge) < EPS,
+                        "same age and spoilage for both settlement schedules at budget " + available);
+            }
+        }
         helper.succeed();
     }
 

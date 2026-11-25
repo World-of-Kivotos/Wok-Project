@@ -109,15 +109,21 @@ public final class BrewingStationBlock extends Block implements EntityBlock {
     public BlockState getStateForPlacement(BlockPlaceContext context) {
         Direction facing = context.getHorizontalDirection().getOpposite();
         BlockPos mainPos = context.getClickedPos();
+        CollisionContext collisionContext = context.getPlayer() == null
+                ? CollisionContext.empty() : CollisionContext.of(context.getPlayer());
         for (Part part : MULTIBLOCK_PARTS) {
             if (part == Part.LOWER_LEFT) {
                 continue;
             }
             BlockPos targetPos = partPos(mainPos, facing, part);
+            BlockState targetState = defaultBlockState()
+                    .setValue(FACING, facing)
+                    .setValue(PART, part);
             if (targetPos.getY() < context.getLevel().getMinBuildHeight()
                     || targetPos.getY() >= context.getLevel().getMaxBuildHeight()
                     || !context.getLevel().getWorldBorder().isWithinBounds(targetPos)
-                    || !context.getLevel().getBlockState(targetPos).canBeReplaced(context)) {
+                    || !context.getLevel().getBlockState(targetPos).canBeReplaced(context)
+                    || !context.getLevel().isUnobstructed(targetState, targetPos, collisionContext)) {
                 return null;
             }
         }
